@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ReDeck | Render-Grounded Deck Refinement</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@600&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=block" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+/* ===== Before/After Pair Grid ===== */
+.ba-grid {
+  display: flex; flex-direction: column; gap: 48px;
+}
+.ba-pair {
+  display: grid;
+  grid-template-columns: 1fr 48px 1fr;
+  align-items: center;
+  gap: 0;
+}
+.ba-side {
+  position: relative;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0a0e18;
+  transition: border-color 0.2s;
+}
+.ba-side:hover { border-color: rgba(142,165,255,0.5); }
+.ba-side img {
+  width: 100%; display: block; aspect-ratio: 16/9; object-fit: contain;
+  background: #0a0e18;
+}
+.ba-label {
+  position: absolute; top: 10px; font-size: 11px; font-weight: 700;
+  padding: 4px 12px; border-radius: 999px; z-index: 5;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.ba-label.before { left: 10px; background: rgba(247,74,106,0.82); color: #fff; }
+.ba-label.after { right: 10px; background: rgba(74,227,181,0.85); color: #06080f; }
+.ba-arrow {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent); font-size: 28px; font-weight: 300;
+}
+.ba-arrow svg { width: 32px; height: 32px; opacity: 0.7; }
+.ba-pair-caption {
+  grid-column: 1 / -1;
+  color: var(--muted); font-size: 14px; line-height: 1.55;
+  margin-top: 10px; padding: 0 4px;
+  text-align: center;
+}
+@media (max-width: 900px) {
+  .ba-pair { grid-template-columns: 1fr; gap: 8px; }
+  .ba-arrow { transform: rotate(90deg); }
+  .ba-pair-caption { grid-column: 1; }
+}
+
+/* ===== 3-Way Comparison Grid ===== */
+.comparison-grid {
+  display: flex; flex-direction: column; gap: 56px;
+}
+.cmp-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+.cmp-cell {
+  position: relative;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0a0e18;
+  transition: border-color 0.2s;
+}
+.cmp-cell:hover { border-color: rgba(142,165,255,0.5); }
+.cmp-cell img {
+  width: 100%; display: block; aspect-ratio: 16/9; object-fit: contain;
+  background: #0a0e18;
+}
+.cmp-label {
+  position: absolute; top: 8px; left: 8px;
+  font-size: 10px; font-weight: 700; padding: 3px 10px;
+  border-radius: 999px; z-index: 5;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.cmp-label.original { background: rgba(255,255,255,0.15); color: #fff; backdrop-filter: blur(8px); }
+.cmp-label.claude { background: rgba(247,74,106,0.82); color: #fff; }
+.cmp-label.redeck { background: rgba(74,227,181,0.85); color: #06080f; }
+.cmp-issues {
+  position: absolute; bottom: 8px; right: 8px;
+  font-size: 11px; font-weight: 700; padding: 3px 10px;
+  border-radius: 999px; z-index: 5;
+}
+.cmp-issues.bad { background: rgba(247,74,106,0.75); color: #fff; }
+.cmp-issues.partial { background: rgba(255,180,50,0.75); color: #fff; }
+.cmp-issues.clean { background: rgba(74,227,181,0.8); color: #06080f; }
+.cmp-row-caption {
+  grid-column: 1 / -1;
+  color: var(--muted); font-size: 14px; line-height: 1.55;
+  margin-top: 8px; text-align: center;
+}
+@media (max-width: 900px) {
+  .cmp-row { grid-template-columns: 1fr; gap: 8px; }
+  .cmp-row-caption { grid-column: 1; }
+}
+</style>
+</head>
+<body>
+
+<header class="nav" id="nav">
+  <a class="brand" href="index.html">
+    <img class="brand-logo" src="assets/microsoft-logo.svg" alt="Microsoft">
+  </a>
+  <nav class="nav-links">
+    <a class="active" href="index.html">Home</a>
+    <a href="video.html">Promo Video</a>
+    <a href="tech.html">Technical Details</a>
+    <a href="team.html">Team</a>
+  </nav>
+  <div class="nav-right"></div>
+</header>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-bg" aria-hidden="true"></div>
+  <div class="hero-content">
+    <h1 class="hero-title">Re<span>Deck</span></h1>
+    <p class="hero-subtitle">Step-Level Render-Grounded Refinement for Reliable Slide Generation</p>
+  </div>
+</section>
+
+<!-- Before / After Showcase -->
+<main class="section-wrap" style="padding-top: 74px; padding-bottom: 48px;">
+  <section class="section-block">
+    <div class="section-head">
+      <p class="section-idx">Before &amp; After</p>
+      <h2>Before &amp; After Refinement</h2>
+      <p class="section-intro">Each row shows a slide before and after ReDeck refinement. All defects were detected and repaired automatically.</p>
+    </div>
+    <div class="ba-grid" id="showcase"></div>
+  </section>
+</main>
+
+<!-- 3-Way Comparison: Original vs Claude vs ReDeck -->
+<main class="section-wrap" style="padding-bottom: 56px;">
+  <section class="section-block">
+    <div class="section-head">
+      <p class="section-idx">Comparison</p>
+      <h2>Claude Code Repair vs. ReDeck Repair</h2>
+      <p class="section-intro">Same slides repaired by vanilla Claude Code (screenshot-only self-repair) vs Claude Code equipped with the ReDeck skill (render-grounded iterative refinement). Without ReDeck, Claude Code fails to resolve most spatial defects; with ReDeck's verify_layout loop, all issues are fixed.</p>
+    </div>
+    <div class="comparison-grid" id="comparison"></div>
+  </section>
+</main>
+
+<footer class="footer">
+  <p>ReDeck &mdash; Microsoft Research &middot; Fudan University &middot; UC Riverside</p>
+</footer>
+
+<script>
+/* 3-Way Comparison: Original vs Claude vs ReDeck */
+const cmpCases = [
+  {
+    original: "comparison/db_003_v4_slide03_original.png",
+    claude: "comparison/db_003_v4_slide03_claude.png",
+    redeck: "comparison/db_003_v4_slide03_redeck.png",
+    origIssues: 17, claudeIssues: 7, redeckIssues: 0,
+    caption: "Dense table with clipped research gap section — Claude fixed 10 surface issues but left 7 spatial defects, ReDeck resolved all 17 for a fully readable slide"
+  },
+  {
+    original: "comparison/leapgnn_slide11_original.png",
+    claude: "comparison/leapgnn_slide11_claude.png",
+    redeck: "comparison/leapgnn_slide11_redeck.png",
+    origIssues: 2, claudeIssues: 2, redeckIssues: 0,
+    caption: "Training time comparison chart and table overlap — Claude's screenshot-only repair broke the chart image entirely, ReDeck preserved the figure and fixed layout"
+  },
+  {
+    original: "comparison/leapgnn_slide15_original.png",
+    claude: "comparison/leapgnn_slide15_claude.png",
+    redeck: "comparison/leapgnn_slide15_redeck.png",
+    origIssues: 2, claudeIssues: 2, redeckIssues: 0,
+    caption: "Sensitivity analysis with truncated bullets — Claude lost the chart images while attempting layout fixes, ReDeck kept all figures and made every bullet fully visible"
+  },
+];
+
+function issueClass(n, orig) {
+  if (n === 0) return 'clean';
+  if (n >= orig * 0.7) return 'bad';
+  return 'partial';
+}
+
+const cmpGrid = document.getElementById('comparison');
+cmpCases.forEach(c => {
+  const row = document.createElement('div');
+  row.className = 'cmp-row';
+  row.innerHTML = `
+    <div class="cmp-cell">
+      <span class="cmp-label original">Original</span>
+      <span class="cmp-issues bad">${c.origIssues} issues</span>
+      <img src="${c.original}" alt="Original" loading="lazy">
+    </div>
+    <div class="cmp-cell">
+      <span class="cmp-label claude">Claude Code</span>
+      <span class="cmp-issues ${issueClass(c.claudeIssues, c.origIssues)}">${c.claudeIssues} issues</span>
+      <img src="${c.claude}" alt="Claude Code repair" loading="lazy">
+    </div>
+    <div class="cmp-cell">
+      <span class="cmp-label redeck">ReDeck</span>
+      <span class="cmp-issues ${issueClass(c.redeckIssues, c.origIssues)}">${c.redeckIssues === 0 ? '0 issues ✓' : c.redeckIssues + ' issues'}</span>
+      <img src="${c.redeck}" alt="ReDeck repair" loading="lazy">
+    </div>
+    <div class="cmp-row-caption">${c.caption}</div>
+  `;
+  cmpGrid.appendChild(row);
+});
+</script>
+
+<script>
+const arrow = `<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16h20M20 10l6 6-6 6"/></svg>`;
+
+const cards = [
+  /* ---- Before/After Cases ---- */
+  { before: "slides/pdf_025_demo_t0/slide_11.png", after: "slides/pdf_025_demo_t1/slide_11.png",
+    caption: "Table layout shattered into scattered numbers and fragments — restored into coherent text with all metrics and analysis visible" },
+  { before: "slides/pdf_011_t0/slide_03.png", after: "slides/pdf_011_t1/slide_03.png",
+    caption: "Verdict boxes overlap into unreadable collision — clean two-column comparison with takeaway" },
+  { before: "slides/db_031_fix26_t0/slide_10.png", after: "slides/db_031_fix26_t1/slide_10.png",
+    caption: "Table rows overlap at bottom — clean contribution table with benchmark data fully visible" },
+  { before: "slides/db_010_fix28_t0/slide_02.png", after: "slides/db_010_fix28_t1/slide_02.png",
+    caption: "Key takeaway box overlaps final bullet — all 5 argument steps + takeaway cleanly separated" },
+  { before: "slides/db_003_v4_t0/slide_02.png", after: "slides/db_003_v4_redeck/slide_02.png",
+    caption: "Failure-mode / desired-property boxes overlap bullet text — resolved into clean dual-column layout with all content visible" },
+];
+
+const grid = document.getElementById('showcase');
+cards.forEach(c => {
+  const pair = document.createElement('div');
+  pair.className = 'ba-pair';
+  pair.innerHTML = `
+    <div class="ba-side">
+      <span class="ba-label before">Before</span>
+      <img src="${c.before}" alt="Before refinement" loading="lazy">
+    </div>
+    <div class="ba-arrow">${arrow}</div>
+    <div class="ba-side">
+      <span class="ba-label after">After</span>
+      <img src="${c.after}" alt="After refinement" loading="lazy">
+    </div>
+    <div class="ba-pair-caption">${c.caption}</div>
+  `;
+  grid.appendChild(pair);
+});
+
+/* Nav scroll */
+window.addEventListener('scroll', () => {
+  document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 60);
+});
+</script>
+</body>
+</html>

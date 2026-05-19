@@ -1,0 +1,1467 @@
+{
+  "A01": {
+    "issue_type": "weak_thesis",
+    "family": "A",
+    "summary": "Thesis clarity — deck lacks clear central objective",
+    "checks": [
+      {
+        "id": "A01.1",
+        "text": "Multiple competing purposes exist without a clear hierarchy",
+        "source": "fail_if"
+      },
+      {
+        "id": "A01.2",
+        "text": "The main point is too vague to act on or remember",
+        "source": "fail_if"
+      },
+      {
+        "id": "A01.3",
+        "text": "Early slides and late slides appear to serve different purposes",
+        "source": "fail_if"
+      },
+      {
+        "id": "A01.4",
+        "text": "The deck reads as source-dumping without a unifying thread",
+        "source": "fail_if"
+      },
+      {
+        "id": "A01.5",
+        "text": "no discernible purpose can be extracted",
+        "source": "severity_critical"
+      },
+      {
+        "id": "A01.6",
+        "text": "purpose exists but competes with other threads or is too vague",
+        "source": "severity_major"
+      },
+      {
+        "id": "A01.7",
+        "text": "purpose is present but could be sharpened",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "A02": {
+    "issue_type": "missing_context",
+    "family": "A",
+    "summary": "Opening context — first slides don't frame the problem",
+    "checks": [
+      {
+        "id": "A02.1",
+        "text": "The deck jumps into details without framing the problem or situation",
+        "source": "fail_if"
+      },
+      {
+        "id": "A02.2",
+        "text": "Generic title pages waste the opening without providing context",
+        "source": "fail_if"
+      },
+      {
+        "id": "A02.3",
+        "text": "Audience relevance appears much later than slides 1–2",
+        "source": "fail_if"
+      },
+      {
+        "id": "A02.4",
+        "text": "Later slides depend on context that was never introduced",
+        "source": "fail_if"
+      },
+      {
+        "id": "A02.5",
+        "text": "the audience cannot orient themselves after the first two slides",
+        "source": "severity_critical"
+      },
+      {
+        "id": "A02.6",
+        "text": "partial context is given but key framing is missing",
+        "source": "severity_major"
+      },
+      {
+        "id": "A02.7",
+        "text": "context is present but could be stronger",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "A03": {
+    "issue_type": "poor_flow",
+    "family": "A",
+    "summary": "Logical flow — slide order breaks coherent progression",
+    "checks": [
+      {
+        "id": "A03.1",
+        "text": "A specific transition between two adjacent slides has no logical bridge",
+        "source": "fail_if"
+      },
+      {
+        "id": "A03.2",
+        "text": "multiple transitions are broken and the deck feels random",
+        "source": "severity_critical"
+      },
+      {
+        "id": "A03.3",
+        "text": "a key transition is missing and disrupts comprehension",
+        "source": "severity_major"
+      },
+      {
+        "id": "A03.4",
+        "text": "a single transition is rough but recoverable",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "A04": {
+    "issue_type": "title_content_mismatch",
+    "family": "A",
+    "summary": "Title-content alignment — title doesn't match body",
+    "checks": [
+      {
+        "id": "A04.1",
+        "text": "A title promises one topic but the body presents another",
+        "source": "fail_if"
+      },
+      {
+        "id": "A04.2",
+        "text": "A title states a conclusion not supported by the slide's evidence",
+        "source": "fail_if"
+      },
+      {
+        "id": "A04.3",
+        "text": "Multiple slides use generic labels where specific titles are needed",
+        "source": "fail_if"
+      },
+      {
+        "id": "A04.4",
+        "text": "Titles systematically mislead the reader about slide content",
+        "source": "fail_if"
+      },
+      {
+        "id": "A04.5",
+        "text": "titles actively mislead across multiple slides",
+        "source": "severity_critical"
+      },
+      {
+        "id": "A04.6",
+        "text": "a key slide's title contradicts its content",
+        "source": "severity_major"
+      },
+      {
+        "id": "A04.7",
+        "text": "a title is vague but not misleading",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "A05": {
+    "issue_type": "misallocated_detail",
+    "family": "A",
+    "summary": "Detail allocation — core under-developed, secondary over-expanded",
+    "checks": [
+      {
+        "id": "A05.1",
+        "text": "The same point is restated across slides without adding value",
+        "source": "fail_if"
+      },
+      {
+        "id": "A05.2",
+        "text": "Verbose qualifiers push the core argument into a small corner — but faithfully quoting a source is NOT a failure",
+        "source": "fail_if"
+      },
+      {
+        "id": "A05.3",
+        "text": "the core argument is buried and a reader would miss it",
+        "source": "severity_critical"
+      },
+      {
+        "id": "A05.4",
+        "text": "significant space is wasted on redundancy",
+        "source": "severity_major"
+      },
+      {
+        "id": "A05.5",
+        "text": "detail allocation is slightly off but the main point is still findable",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "A06": {
+    "issue_type": "weak_closing",
+    "family": "A",
+    "summary": "Closing closure — ending doesn't synthesize or close",
+    "checks": [
+      {
+        "id": "A06.1",
+        "text": "The deck ends abruptly without synthesis",
+        "source": "fail_if"
+      },
+      {
+        "id": "A06.2",
+        "text": "The closing slide repeats prior bullets without adding implications",
+        "source": "fail_if"
+      },
+      {
+        "id": "A06.3",
+        "text": "The ending does not connect back to the stated purpose",
+        "source": "fail_if"
+      },
+      {
+        "id": "A06.4",
+        "text": "The deck stops on a detail slide and feels unfinished",
+        "source": "fail_if"
+      },
+      {
+        "id": "A06.5",
+        "text": "there is no closing synthesis and the deck just stops",
+        "source": "severity_critical"
+      },
+      {
+        "id": "A06.6",
+        "text": "a closing exists but fails to connect to the opening",
+        "source": "severity_major"
+      },
+      {
+        "id": "A06.7",
+        "text": "the closing is adequate but could be stronger",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "A07": {
+    "issue_type": "placeholder_slide",
+    "family": "A",
+    "summary": "Placeholder slide — slide has only title, no content",
+    "checks": [
+      {
+        "id": "A07.1",
+        "text": "A slide has only a title with no body, evidence, or visual",
+        "source": "fail_if"
+      },
+      {
+        "id": "A07.2",
+        "text": "Multiple structural placeholders appear throughout the deck",
+        "source": "fail_if"
+      },
+      {
+        "id": "A07.3",
+        "text": "A slide is a near-duplicate of another slide",
+        "source": "fail_if"
+      },
+      {
+        "id": "A07.4",
+        "text": "Page budget is wasted on purely cosmetic slides",
+        "source": "fail_if"
+      },
+      {
+        "id": "A07.5",
+        "text": "multiple slides are empty placeholders wasting significant budget",
+        "source": "severity_critical"
+      },
+      {
+        "id": "A07.6",
+        "text": "a single slide is clearly a placeholder in a key position",
+        "source": "severity_major"
+      },
+      {
+        "id": "A07.7",
+        "text": "a slide is thin but not entirely empty",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B01": {
+    "issue_type": "visual_inconsistency",
+    "family": "B_visual",
+    "summary": "Visual consistency — cross-slide style drift",
+    "checks": [
+      {
+        "id": "B01.1",
+        "text": "Inconsistent type scales or margins across slides",
+        "source": "fail_if"
+      },
+      {
+        "id": "B01.2",
+        "text": "Arbitrary color changes between slides with no logical basis",
+        "source": "fail_if"
+      },
+      {
+        "id": "B01.3",
+        "text": "Inconsistent recurring components (e.g., cards styled differently for no reason)",
+        "source": "fail_if"
+      },
+      {
+        "id": "B01.4",
+        "text": "Deck feels assembled from unrelated templates",
+        "source": "fail_if"
+      },
+      {
+        "id": "B01.5",
+        "text": "deck-wide inconsistency across multiple dimensions (type, color, spacing)",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B01.6",
+        "text": "clear inconsistency in one dimension across multiple slides",
+        "source": "severity_major"
+      },
+      {
+        "id": "B01.7",
+        "text": "subtle inconsistency noticeable only on close inspection",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B02": {
+    "issue_type": "layout_inappropriate",
+    "family": "B_visual",
+    "summary": "Layout appropriateness — structure doesn't fit content",
+    "checks": [
+      {
+        "id": "B02.1",
+        "text": "Important content squeezed into a wrong layout type",
+        "source": "fail_if"
+      },
+      {
+        "id": "B02.2",
+        "text": "No clear reading path — viewer cannot determine where to look first",
+        "source": "fail_if"
+      },
+      {
+        "id": "B02.3",
+        "text": "Secondary element dominates while the core message is compressed",
+        "source": "fail_if"
+      },
+      {
+        "id": "B02.4",
+        "text": "4+ competing visual elements with no hierarchy",
+        "source": "fail_if"
+      },
+      {
+        "id": "B02.5",
+        "text": "Subtitle styled too close to the title (insufficient visual distinction)",
+        "source": "fail_if"
+      },
+      {
+        "id": "B02.6",
+        "text": "layout completely wrong for content type, message incomprehensible",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B02.7",
+        "text": "layout clearly inappropriate, reading path confused",
+        "source": "severity_major"
+      },
+      {
+        "id": "B02.8",
+        "text": "layout suboptimal but message still comes through",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B03": {
+    "issue_type": "overlap",
+    "family": "B_visual",
+    "summary": "Overlap / occlusion — elements hidden behind others",
+    "checks": [
+      {
+        "id": "B03.1",
+        "text": "Content elements overlap making text or data unreadable",
+        "source": "fail_if"
+      },
+      {
+        "id": "B03.2",
+        "text": "Decorative shape covers meaningful content",
+        "source": "fail_if"
+      },
+      {
+        "id": "B03.3",
+        "text": "Chart labels overlap each other",
+        "source": "fail_if"
+      },
+      {
+        "id": "B03.4",
+        "text": "Image placed on top of text, obscuring it",
+        "source": "fail_if"
+      },
+      {
+        "id": "B03.5",
+        "text": "primary content completely hidden or unreadable due to overlap",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B03.6",
+        "text": "significant content partially obscured",
+        "source": "severity_major"
+      },
+      {
+        "id": "B03.7",
+        "text": "minor overlap with minimal readability impact",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B04": {
+    "issue_type": "text_overflow",
+    "family": "B_visual",
+    "summary": "Text overflow — text cut off or beyond container",
+    "checks": [
+      {
+        "id": "B04.1",
+        "text": "Text is cut off, clipped, or extends beyond its container",
+        "source": "fail_if"
+      },
+      {
+        "id": "B04.2",
+        "text": "Text is so dense that lines merge together",
+        "source": "fail_if"
+      },
+      {
+        "id": "B04.3",
+        "text": "text is literally hidden — content is lost and cannot be read",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B04.4",
+        "text": "text visibly extends outside its container or is truncated",
+        "source": "severity_major"
+      },
+      {
+        "id": "B04.5",
+        "text": "text is cramped but fully visible",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B05": {
+    "issue_type": "low_contrast",
+    "family": "B_visual",
+    "summary": "Low contrast — text hard to read against background",
+    "checks": [
+      {
+        "id": "B05.1",
+        "text": "Insufficient contrast making text hard to read",
+        "source": "fail_if"
+      },
+      {
+        "id": "B05.2",
+        "text": "Light gray text on white, cream, or light purple backgrounds",
+        "source": "fail_if"
+      },
+      {
+        "id": "B05.3",
+        "text": "Light-colored text on pastel backgrounds",
+        "source": "fail_if"
+      },
+      {
+        "id": "B05.4",
+        "text": "Low-contrast footnotes or captions",
+        "source": "fail_if"
+      },
+      {
+        "id": "B05.5",
+        "text": "nearly invisible primary text (title, heading, key message)",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B05.6",
+        "text": "body text with poor contrast affecting readability",
+        "source": "severity_major"
+      },
+      {
+        "id": "B05.7",
+        "text": "secondary text (footnotes, captions) with marginal contrast",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B06": {
+    "issue_type": "text_visual_imbalance",
+    "family": "B_visual",
+    "summary": "Text-visual balance — too much text, no visuals",
+    "checks": [
+      {
+        "id": "B06.1",
+        "text": "Source material has available figures/tables/charts that are not used when they would help",
+        "source": "fail_if"
+      },
+      {
+        "id": "B06.2",
+        "text": "Visuals dominate the slide without aiding understanding",
+        "source": "fail_if"
+      },
+      {
+        "id": "B06.3",
+        "text": "Decorative imagery displaces meaningful content",
+        "source": "fail_if"
+      },
+      {
+        "id": "B06.4",
+        "text": "Communication mode is mismatched to the content type",
+        "source": "fail_if"
+      },
+      {
+        "id": "B06.5",
+        "text": "Secondary element is louder/more prominent than the core message",
+        "source": "fail_if"
+      },
+      {
+        "id": "B06.6",
+        "text": "significant missed opportunity to use available visuals, or visuals completely dominate with no substance",
+        "source": "severity_major"
+      },
+      {
+        "id": "B06.7",
+        "text": "slight imbalance but message still communicates",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B07": {
+    "issue_type": "form_misfit",
+    "family": "B_visual",
+    "summary": "Form misfit — chart/diagram type wrong for data",
+    "checks": [
+      {
+        "id": "B07.1",
+        "text": "Chart type inappropriate for the data (pie chart for trends, line chart for unordered categories)",
+        "source": "fail_if"
+      },
+      {
+        "id": "B07.2",
+        "text": "Table or chart creates confusion rather than clarity",
+        "source": "fail_if"
+      },
+      {
+        "id": "B07.3",
+        "text": "Visual adds no information beyond what text already states (occupying >25% of slide)",
+        "source": "fail_if"
+      },
+      {
+        "id": "B07.4",
+        "text": "Flowchart used for non-sequential information",
+        "source": "fail_if"
+      },
+      {
+        "id": "B07.5",
+        "text": "Bar chart where all bars are nearly the same height (<10% difference between values)",
+        "source": "fail_if"
+      },
+      {
+        "id": "B07.6",
+        "text": "Y-axis range minimizes or exaggerates actual differences",
+        "source": "fail_if"
+      },
+      {
+        "id": "B07.7",
+        "text": "Flowchart has semantic errors (wrong arrow directions, illogical flow)",
+        "source": "fail_if"
+      },
+      {
+        "id": "B07.8",
+        "text": "Diagram elements don't match the concepts they represent",
+        "source": "fail_if"
+      },
+      {
+        "id": "B07.9",
+        "text": "Architecture diagram used for non-hierarchical data",
+        "source": "fail_if"
+      },
+      {
+        "id": "B07.10",
+        "text": "Diagram merely restates adjacent text with no added structure",
+        "source": "fail_if"
+      },
+      {
+        "id": "B07.11",
+        "text": "Unreadable chart — no axis labels AND no value labels",
+        "source": "fail_if"
+      },
+      {
+        "id": "B07.12",
+        "text": "visual form actively misleads about the data",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B07.13",
+        "text": "form clearly wrong for the data type, impedes understanding",
+        "source": "severity_major"
+      },
+      {
+        "id": "B07.14",
+        "text": "suboptimal form choice but data still interpretable",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B08": {
+    "issue_type": "irrelevant_visual",
+    "family": "B_visual",
+    "summary": "Irrelevant visual — decorative image adds no value",
+    "checks": [
+      {
+        "id": "B08.1",
+        "text": "Decorative images are arbitrary — no connection to slide content",
+        "source": "fail_if"
+      },
+      {
+        "id": "B08.2",
+        "text": "Visuals create misleading associations with the topic",
+        "source": "fail_if"
+      },
+      {
+        "id": "B08.3",
+        "text": "Repeated decorative elements waste valuable slide space",
+        "source": "fail_if"
+      },
+      {
+        "id": "B08.4",
+        "text": "A visual could be removed with no information loss",
+        "source": "fail_if"
+      },
+      {
+        "id": "B08.5",
+        "text": "visual actively misleads or significantly wastes space",
+        "source": "severity_major"
+      },
+      {
+        "id": "B08.6",
+        "text": "visual is tangential but not harmful",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B09": {
+    "issue_type": "density_imbalance",
+    "family": "B_visual",
+    "summary": "Density imbalance — too crowded, sparse, or uneven",
+    "checks": [
+      {
+        "id": "B09.1",
+        "text": "slide is completely chaotic or essentially empty when it shouldn't be",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B09.2",
+        "text": "clear density problem affecting comprehension",
+        "source": "severity_major"
+      },
+      {
+        "id": "B09.3",
+        "text": "slight density issue noticeable but not harmful",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B10": {
+    "issue_type": "missing_data_visualization",
+    "family": "B_visual",
+    "summary": "Missing data visualization — numbers in bullets should be chart",
+    "checks": [
+      {
+        "id": "B10.1",
+        "text": "Many numeric results presented in prose where a chart would be more effective",
+        "source": "fail_if"
+      },
+      {
+        "id": "B10.2",
+        "text": "Trends are hard to perceive from a long list of numbers",
+        "source": "fail_if"
+      },
+      {
+        "id": "B10.3",
+        "text": "Large raw table presented without any visual summary",
+        "source": "fail_if"
+      },
+      {
+        "id": "B10.4",
+        "text": "Data-heavy content increases cognitive load unnecessarily",
+        "source": "fail_if"
+      },
+      {
+        "id": "B10.5",
+        "text": "significant data that would clearly benefit from visualization presented as text",
+        "source": "severity_major"
+      },
+      {
+        "id": "B10.6",
+        "text": "moderate data where visualization would help but text is still functional",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B11": {
+    "issue_type": "typography_error",
+    "family": "B_visual",
+    "summary": "Typography error — garbled characters, rendering artifacts",
+    "checks": [
+      {
+        "id": "B11.1",
+        "text": "Garbled or corrupted characters visible",
+        "source": "fail_if"
+      },
+      {
+        "id": "B11.2",
+        "text": "Words broken mid-word (not at syllable boundaries)",
+        "source": "fail_if"
+      },
+      {
+        "id": "B11.3",
+        "text": "Special characters appear as empty boxes or placeholder glyphs",
+        "source": "fail_if"
+      },
+      {
+        "id": "B11.4",
+        "text": "Encoding artifacts visible (mojibake, escape sequences)",
+        "source": "fail_if"
+      },
+      {
+        "id": "B11.5",
+        "text": "Rendering artifacts: misplaced elements, CSS collapse, HTML tags visible in output",
+        "source": "fail_if"
+      },
+      {
+        "id": "B11.6",
+        "text": "Container rendering defects: missing borders, overlapping labels, half-clipped characters, off-center elements",
+        "source": "fail_if"
+      },
+      {
+        "id": "B11.7",
+        "text": "primary text garbled or unreadable",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B11.8",
+        "text": "multiple rendering errors or font size below 10pt",
+        "source": "severity_major"
+      },
+      {
+        "id": "B11.9",
+        "text": "isolated character rendering issue in secondary text",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B12": {
+    "issue_type": "formatting_error",
+    "family": "B_visual",
+    "summary": "Formatting consistency — font/spacing inconsistency",
+    "checks": [
+      {
+        "id": "B12.1",
+        "text": "Font sizes change inconsistently within a single text block",
+        "source": "fail_if"
+      },
+      {
+        "id": "B12.2",
+        "text": "Line spacing varies within a single text block",
+        "source": "fail_if"
+      },
+      {
+        "id": "B12.3",
+        "text": "Capitalization is inconsistent across similar elements (some titles capitalized, others not)",
+        "source": "fail_if"
+      },
+      {
+        "id": "B12.4",
+        "text": "Visible formatting artifacts (extra spaces, broken formatting)",
+        "source": "fail_if"
+      },
+      {
+        "id": "B12.5",
+        "text": "Footnote-level elements using body-text-sized fonts (≥14pt)",
+        "source": "fail_if"
+      },
+      {
+        "id": "B12.6",
+        "text": "LaTeX rendering artifacts: raw `$...$` syntax visible, backslash commands showing as text",
+        "source": "fail_if"
+      },
+      {
+        "id": "B12.7",
+        "text": "formatting inconsistency clearly visible and distracting",
+        "source": "severity_major"
+      },
+      {
+        "id": "B12.8",
+        "text": "subtle inconsistency noticeable on close inspection",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B13": {
+    "issue_type": "alignment_inconsistency",
+    "family": "B_visual",
+    "summary": "Spatial coherence — misalignment, uneven spacing",
+    "checks": [
+      {
+        "id": "B13.1",
+        "text": "Near-miss alignment — elements almost aligned but visibly off",
+        "source": "fail_if"
+      },
+      {
+        "id": "B13.2",
+        "text": "Inconsistent alignment strategy within a group (some left-aligned, some centered)",
+        "source": "fail_if"
+      },
+      {
+        "id": "B13.3",
+        "text": "Title-body misalignment",
+        "source": "fail_if"
+      },
+      {
+        "id": "B13.4",
+        "text": "Column bottom-edge mismatch",
+        "source": "fail_if"
+      },
+      {
+        "id": "B13.5",
+        "text": "Different logical levels using different alignment (title centered, body left-aligned)",
+        "source": "fail_if"
+      },
+      {
+        "id": "B13.6",
+        "text": "Single element positioned at a corner",
+        "source": "fail_if"
+      },
+      {
+        "id": "B13.7",
+        "text": "Deliberate indentation for hierarchy",
+        "source": "fail_if"
+      },
+      {
+        "id": "B13.8",
+        "text": "multiple dimensions fail — slide looks chaotic",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B13.9",
+        "text": "one dimension clearly fails — noticeable spatial problem",
+        "source": "severity_major"
+      },
+      {
+        "id": "B13.10",
+        "text": "subtle design-conscious catch in one dimension",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B14": {
+    "issue_type": "form_redundancy",
+    "family": "B_visual",
+    "summary": "Form redundancy — same info in chart AND bullets",
+    "checks": [
+      {
+        "id": "B14.1",
+        "text": "Same data shown in a chart AND in bullet text restating the chart's values",
+        "source": "fail_if"
+      },
+      {
+        "id": "B14.2",
+        "text": "Numbered list repeats a diagram's steps one-by-one",
+        "source": "fail_if"
+      },
+      {
+        "id": "B14.3",
+        "text": "Metric card and adjacent text both state the same number",
+        "source": "fail_if"
+      },
+      {
+        "id": "B14.4",
+        "text": "large portion of slide is duplicated content",
+        "source": "severity_major"
+      },
+      {
+        "id": "B14.5",
+        "text": "small duplication that slightly wastes space",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B15": {
+    "issue_type": "container_contract_breach",
+    "family": "B_visual",
+    "summary": "Container contract breach — content overflows container",
+    "checks": [
+      {
+        "id": "B15.1",
+        "text": "Content extends beyond container borders",
+        "source": "fail_if"
+      },
+      {
+        "id": "B15.2",
+        "text": "Container is vastly oversized for its content (feels empty)",
+        "source": "fail_if"
+      },
+      {
+        "id": "B15.3",
+        "text": "Table cell content overflows or is truncated",
+        "source": "fail_if"
+      },
+      {
+        "id": "B15.4",
+        "text": "overflow makes content unreadable",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B15.5",
+        "text": "clear visual break between content and container",
+        "source": "severity_major"
+      },
+      {
+        "id": "B15.6",
+        "text": "slight mismatch between content and container size",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B16": {
+    "issue_type": "text_wall",
+    "family": "B_visual",
+    "summary": "Text wall — ≥7 ungrouped bullets, no structure",
+    "checks": [
+      {
+        "id": "B16.1",
+        "text": "≥7 equal-weight bullets with no grouping, labels, or visual relief",
+        "source": "fail_if"
+      },
+      {
+        "id": "B16.2",
+        "text": "Bullet lengths vary wildly (1 line vs 4+ lines) with no grouping structure",
+        "source": "fail_if"
+      },
+      {
+        "id": "B16.3",
+        "text": "≥7 ungrouped bullets with no labels",
+        "source": "severity_major"
+      },
+      {
+        "id": "B16.4",
+        "text": "5–6 ungrouped bullets with no labels and no visual element",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B17": {
+    "issue_type": "raw_figure",
+    "family": "B_visual",
+    "summary": "Raw figure — paper figure embedded without adaptation",
+    "checks": [
+      {
+        "id": "B17.1",
+        "text": "Figure text is <10pt and would be unreadable when projected",
+        "source": "fail_if"
+      },
+      {
+        "id": "B17.2",
+        "text": "Dense academic formatting clashes with the deck's style",
+        "source": "fail_if"
+      },
+      {
+        "id": "B17.3",
+        "text": "Figure has key findings but no visual emphasis or annotation to guide the viewer",
+        "source": "fail_if"
+      },
+      {
+        "id": "B17.4",
+        "text": "figure text is unreadable at presentation size, or key findings are buried without emphasis",
+        "source": "severity_major"
+      },
+      {
+        "id": "B17.5",
+        "text": "style mismatch with no readability impact",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "B18": {
+    "issue_type": "color_semantic_mismatch",
+    "family": "B_visual",
+    "summary": "Color semantic mismatch — colors imply wrong values",
+    "checks": [
+      {
+        "id": "B18.1",
+        "text": "Green and red used for neutral parallel items (implying good/bad where none exists)",
+        "source": "fail_if"
+      },
+      {
+        "id": "B18.2",
+        "text": "Same-type containers use inconsistent hero colors (suggesting different importance)",
+        "source": "fail_if"
+      },
+      {
+        "id": "B18.3",
+        "text": "Strong accent color highlights a non-conclusive or neutral number",
+        "source": "fail_if"
+      },
+      {
+        "id": "B18.4",
+        "text": "color actively misleads the viewer about meaning or importance",
+        "source": "severity_major"
+      },
+      {
+        "id": "B18.5",
+        "text": "color is inconsistent but not actively misleading",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "C01": {
+    "issue_type": "missing_section",
+    "family": "C",
+    "summary": "Required sections present — thematic area completely missing",
+    "checks": [
+      {
+        "id": "C01.1",
+        "text": "Required section missing entirely",
+        "source": "fail_if"
+      },
+      {
+        "id": "C01.2",
+        "text": "Only token heading without content",
+        "source": "fail_if"
+      },
+      {
+        "id": "C01.3",
+        "text": "Multiple required components merged causing one to disappear",
+        "source": "fail_if"
+      },
+      {
+        "id": "C01.4",
+        "text": "Substitutes easier section",
+        "source": "fail_if"
+      },
+      {
+        "id": "C01.5",
+        "text": "required thematic area has ZERO representation anywhere",
+        "source": "severity_critical"
+      },
+      {
+        "id": "C01.6",
+        "text": "partially covered but missing key substance",
+        "source": "severity_major"
+      },
+      {
+        "id": "C01.7",
+        "text": "coverage exists but thin",
+        "source": "severity_minor"
+      }
+    ]
+  },
+  "C02": {
+    "issue_type": "missing_point",
+    "family": "C",
+    "summary": "Must-cover points — mandatory key points absent",
+    "checks": [
+      {
+        "id": "C02.1",
+        "text": "Must-cover points absent",
+        "source": "fail_if"
+      },
+      {
+        "id": "C02.2",
+        "text": "Technically mentioned but too weakly",
+        "source": "fail_if"
+      },
+      {
+        "id": "C02.3",
+        "text": "Covers easier points omits harder ones",
+        "source": "fail_if"
+      },
+      {
+        "id": "C02.4",
+        "text": "Coverage so compressed audience would miss",
+        "source": "fail_if"
+      }
+    ]
+  },
+  "C03": {
+    "issue_type": "missing_evidence",
+    "family": "C",
+    "summary": "Evidence included — claims without supporting evidence",
+    "checks": [
+      {
+        "id": "C03.1",
+        "text": "Important claims without necessary evidence",
+        "source": "fail_if"
+      },
+      {
+        "id": "C03.2",
+        "text": "Required result/example/limitation absent weakening deck",
+        "source": "fail_if"
+      },
+      {
+        "id": "C03.3",
+        "text": "Outcomes without interpretation context",
+        "source": "fail_if"
+      },
+      {
+        "id": "C03.4",
+        "text": "Presentation depends on evidence audience never sees",
+        "source": "fail_if"
+      }
+    ]
+  },
+  "C04": {
+    "issue_type": "missing_entity",
+    "family": "C",
+    "summary": "Entities present — key metrics/names/datasets missing",
+    "checks": [
+      {
+        "id": "C04.1",
+        "text": "Key entity/number/time marker missing weakening comprehension",
+        "source": "fail_if"
+      },
+      {
+        "id": "C04.2",
+        "text": "Comparison/result described without defining metric",
+        "source": "fail_if"
+      },
+      {
+        "id": "C04.3",
+        "text": "Essential specificity removed making claims unsupported",
+        "source": "fail_if"
+      },
+      {
+        "id": "C04.4",
+        "text": "Terminology ambiguous from omitted names",
+        "source": "fail_if"
+      }
+    ]
+  },
+  "C05": {
+    "issue_type": "missing_conclusion",
+    "family": "C",
+    "summary": "Conclusions present — required conclusions/limitations absent",
+    "checks": [
+      {
+        "id": "C05.1",
+        "text": "Required conclusion/recommendation entirely omitted (NO slide attempts it)",
+        "source": "fail_if"
+      },
+      {
+        "id": "C05.2",
+        "text": "Major limitations absent making deck overconfident",
+        "source": "fail_if"
+      },
+      {
+        "id": "C05.3",
+        "text": "Evidence presented but never converted to required implication",
+        "source": "fail_if"
+      }
+    ]
+  },
+  "D01": {
+    "issue_type": "incorrect_claim",
+    "family": "D",
+    "summary": "Key claims correct — claim contradicts source",
+    "checks": [
+      {
+        "id": "D01.1",
+        "text": "Key claim contradicts source",
+        "source": "fail_if"
+      },
+      {
+        "id": "D01.2",
+        "text": "Tentative evidence → definitive claim without support",
+        "source": "fail_if"
+      },
+      {
+        "id": "D01.3",
+        "text": "Scope/condition/population changed altering meaning",
+        "source": "fail_if"
+      },
+      {
+        "id": "D01.4",
+        "text": "Major takeaway directionally wrong",
+        "source": "fail_if"
+      }
+    ]
+  },
+  "D02": {
+    "issue_type": "numeric_error",
+    "family": "D",
+    "summary": "Numeric accuracy — numbers/percentages wrong",
+    "checks": [
+      {
+        "id": "D02.1",
+        "text": "Number copied incorrectly",
+        "source": "fail_if"
+      },
+      {
+        "id": "D02.2",
+        "text": "Percentage/delta/trend miscomputed",
+        "source": "fail_if"
+      },
+      {
+        "id": "D02.3",
+        "text": "Units/dates/denominators missing/wrong changing interpretation",
+        "source": "fail_if"
+      },
+      {
+        "id": "D02.4",
+        "text": "Rounding distorts result",
+        "source": "fail_if"
+      }
+    ]
+  },
+  "D03": {
+    "issue_type": "entity_error",
+    "family": "D",
+    "summary": "Entity accuracy — names/terms incorrect",
+    "checks": [
+      {
+        "id": "D03.1",
+        "text": "Wrong entity/method named",
+        "source": "fail_if"
+      },
+      {
+        "id": "D03.2",
+        "text": "Terminology misuse changes meaning",
+        "source": "fail_if"
+      },
+      {
+        "id": "D03.3",
+        "text": "Two distinct entities conflated",
+        "source": "fail_if"
+      },
+      {
+        "id": "D03.4",
+        "text": "Simplified label creates ambiguity/error",
+        "source": "fail_if"
+      }
+    ]
+  },
+  "D04": {
+    "issue_type": "chart_misinterpretation",
+    "family": "D",
+    "summary": "Chart interpretation — chart data doesn't match source",
+    "checks": [
+      {
+        "id": "D04.1",
+        "text": "Chart takeaway contradicts chart/source",
+        "source": "fail_if"
+      },
+      {
+        "id": "D04.2",
+        "text": "Labels misstate measurement",
+        "source": "fail_if"
+      },
+      {
+        "id": "D04.3",
+        "text": "Slide infers stronger comparison than chart supports",
+        "source": "fail_if"
+      },
+      {
+        "id": "D04.4",
+        "text": "Important chart caveats omitted",
+        "source": "fail_if"
+      },
+      {
+        "id": "D04.5",
+        "text": "Chart numeric values differ from source",
+        "source": "fail_if"
+      },
+      {
+        "id": "D04.6",
+        "text": "Flowchart wrong order/missing critical step/invented steps",
+        "source": "fail_if"
+      },
+      {
+        "id": "D04.7",
+        "text": "Architecture diagram misrepresents structural relationships",
+        "source": "fail_if"
+      }
+    ]
+  },
+  "D05": {
+    "issue_type": "unsupported_causality",
+    "family": "D",
+    "summary": "Causality check — unsupported causal/comparative claims",
+    "checks": [
+      {
+        "id": "D05.1",
+        "text": "Implies causation from correlation without support",
+        "source": "fail_if"
+      },
+      {
+        "id": "D05.2",
+        "text": "Comparison ignores scope/baseline/context differences",
+        "source": "fail_if"
+      },
+      {
+        "id": "D05.3",
+        "text": "Stronger language than source (\"proves\", \"drives\")",
+        "source": "fail_if"
+      },
+      {
+        "id": "D05.4",
+        "text": "Turns descriptive evidence into prescriptive certainty",
+        "source": "fail_if"
+      }
+    ]
+  },
+  "D06": {
+    "issue_type": "spelling_error",
+    "family": "D",
+    "summary": "Spelling & terminology — typos, grammar, language mixing",
+    "checks": [
+      {
+        "id": "D06.1",
+        "text": "A technical term or proper noun is misspelled",
+        "source": "fail_if"
+      },
+      {
+        "id": "D06.2",
+        "text": "Garbled PDF artifacts appear on a slide",
+        "source": "fail_if"
+      },
+      {
+        "id": "D06.3",
+        "text": "A prominent typo is visible to the audience",
+        "source": "fail_if"
+      },
+      {
+        "id": "D06.4",
+        "text": "Acronym usage is inconsistent (e.g., alternating between spelled-out and abbreviated forms without pattern)",
+        "source": "fail_if"
+      },
+      {
+        "id": "D06.5",
+        "text": "A sentence is ungrammatical in a way that impairs comprehension",
+        "source": "fail_if"
+      },
+      {
+        "id": "D06.6",
+        "text": "Bullet items break parallel construction",
+        "source": "fail_if"
+      },
+      {
+        "id": "D06.7",
+        "text": "Languages are mixed unintentionally within the deck",
+        "source": "fail_if"
+      },
+      {
+        "id": "D06.8",
+        "text": "Labels or legends are left untranslated",
+        "source": "fail_if"
+      },
+      {
+        "id": "D06.9",
+        "text": "garbled artifacts or errors make content unintelligible",
+        "source": "severity_critical"
+      },
+      {
+        "id": "D06.10",
+        "text": "a prominent term is misspelled or grammar impairs comprehension",
+        "source": "severity_major"
+      }
+    ]
+  },
+  "E01": {
+    "issue_type": "untraceable",
+    "family": "E",
+    "summary": "Traceability — content can't be mapped to source",
+    "checks": [
+      {
+        "id": "E01.1",
+        "text": "Major content can't be mapped to source",
+        "source": "fail_if"
+      },
+      {
+        "id": "E01.2",
+        "text": "Key claims from model invention/unexplained synthesis",
+        "source": "fail_if"
+      },
+      {
+        "id": "E01.3",
+        "text": "Multiple slides rely on opaque-origin statements",
+        "source": "fail_if"
+      },
+      {
+        "id": "E01.4",
+        "text": "Source linkage so weak auditability breaks",
+        "source": "fail_if"
+      }
+    ]
+  },
+  "E02": {
+    "issue_type": "fabricated",
+    "family": "E",
+    "summary": "No fabrication — invented numbers/facts/conclusions",
+    "checks": [
+      {
+        "id": "E02.1",
+        "text": "Deck introduces unsupported number/fact",
+        "source": "fail_if"
+      },
+      {
+        "id": "E02.2",
+        "text": "Conclusion presented as sourced when invented",
+        "source": "fail_if"
+      },
+      {
+        "id": "E02.3",
+        "text": "Contextual background changes interpretation without evidence",
+        "source": "fail_if"
+      },
+      {
+        "id": "E02.4",
+        "text": "Rhetorical polishing inserts unsupported specifics",
+        "source": "fail_if"
+      }
+    ]
+  },
+  "E03": {
+    "issue_type": "unfaithful_compression",
+    "family": "E",
+    "summary": "Faithful compression — paraphrase changes meaning",
+    "checks": [
+      {
+        "id": "E03.1",
+        "text": "Paraphrase changes meaning/certainty",
+        "source": "fail_if"
+      },
+      {
+        "id": "E03.2",
+        "text": "Compression drops qualifier materially changing interpretation",
+        "source": "fail_if"
+      },
+      {
+        "id": "E03.3",
+        "text": "Rewritten claim simpler but substantively inaccurate",
+        "source": "fail_if"
+      },
+      {
+        "id": "E03.4",
+        "text": "Important nuance lost biasing audience",
+        "source": "fail_if"
+      }
+    ]
+  },
+  "E04": {
+    "issue_type": "misleading_omission",
+    "family": "E",
+    "summary": "Non-misleading omission — omissions distort stance",
+    "checks": [
+      {
+        "id": "E04.1",
+        "text": "Omitted caveats/limits/exceptions materially change meaning",
+        "source": "fail_if"
+      },
+      {
+        "id": "E04.2",
+        "text": "Selectively keeps favorable evidence drops balancing",
+        "source": "fail_if"
+      },
+      {
+        "id": "E04.3",
+        "text": "Omission changes priority ordering misleadingly",
+        "source": "fail_if"
+      },
+      {
+        "id": "E04.4",
+        "text": "Audience would reach different conclusion if omitted material restored",
+        "source": "fail_if"
+      }
+    ]
+  }
+}

@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments and secrets
+.env
+.env.*
+!.env.example
+*.key
+credentials*
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Generated runs and source data
+runs/
+cases/
+papers/
+papers_selected/
+experiments/
+audit_assets/
+case_studies/
+
+# Large or generated benchmark artifacts
+benchmarks/quizdeck_runs/
+benchmarks/**/*.pptx
+benchmarks/**/*.png
+
+# Frontend/video generated artifacts
+node_modules/
+redeck-video/node_modules/
+redeck-video/out/
+redeck-video/.cache/
+redeck-video/.remotion/
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
+*.orig
+
+# Local agent state
+.claude/
+CLAUDE.md

@@ -1,0 +1,31 @@
+{
+  "run_id": "html_codegen_example",
+  "models": {
+    "default": "gpt-4o"
+  },
+  "max_turns": 3,
+  "seed": 42,
+  "use_html_codegen": true,
+  "layout_strategy": "template",
+  "repair_strategy": "redeck",
+  "eval_mode": {
+    "enabled": true,
+    "split_level": "family_plus_slide",
+    "deterministic_geom_first": true,
+    "verifier_enabled": false,
+    "use_judge_agent": true
+  },
+  "repair_mode": {
+    "enabled": true,
+    "local_only": true,
+    "max_repair_rounds": 3
+  },
+  "render_mode": {
+    "fast_backend": "playwright",
+    "reference_backend": "playwright"
+  },
+  "prompt_mode": {
+    "specialist_prompts": true,
+    "shared_rules_version": "v1"
+  }
+}

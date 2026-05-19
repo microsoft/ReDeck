@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ReDeck | Promo Video</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@600&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=block" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="nav" id="nav">
+  <a class="brand" href="index.html">
+    <img class="brand-logo" src="assets/microsoft-logo.svg" alt="Microsoft">
+  </a>
+  <nav class="nav-links">
+    <a href="index.html">Home</a>
+    <a class="active" href="video.html">Promo Video</a>
+    <a href="tech.html">Technical Details</a>
+    <a href="team.html">Team</a>
+  </nav>
+  <div class="nav-right"></div>
+</header>
+
+<main class="section-wrap" style="padding-top: 118px; padding-bottom: 56px;">
+
+  <section class="section-block">
+    <div class="section-head">
+      <p class="section-idx">Promo Video</p>
+      <h2>ReDeck: Render-Grounded Deck Refinement</h2>
+      <p class="section-intro">A 44-second overview of our agentic slide repair pipeline &mdash; from defective AI-generated slides to professional-quality decks through iterative render-grounded refinement.</p>
+    </div>
+
+    <div class="video-stage">
+      <video controls preload="metadata">
+        <source src="redeck_promo_v2.mp4" type="video/mp4">
+        Your browser does not support the video tag.
+      </video>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <p>ReDeck &mdash; Microsoft Research &middot; Fudan University &middot; UC Riverside</p>
+</footer>
+
+<script>
+window.addEventListener('scroll', () => {
+  document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 60);
+});
+</script>
+</body>
+</html>
