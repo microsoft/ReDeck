@@ -149,16 +149,6 @@ Each run produces per-turn artifacts in `runs/<run_id>/turn_XX/`:
 
 This repository also includes a standalone Claude Code skill in `skills/redeck.md`. The skill packages the core ReDeck prompt and an embedded Playwright-based `verify_layout` tool so Claude Code can generate or repair HTML slides with a lightweight edit-render-observe loop. It is intended for use cases where a user wants step-level render feedback without running the full multi-turn pipeline.
 
-## Demo Website
-
-The `demo/` directory is a static website: plain HTML, CSS, images, and video assets. It can be hosted directly with GitHub Pages from the repository's `demo/` folder, or by copying `demo/` into a `gh-pages` branch.
-
-For an official Microsoft-owned GitHub repository, the simplest setup is:
-
-1. Keep the static site in `demo/`.
-2. Enable GitHub Pages in repository settings.
-3. Set the Pages source to GitHub Actions or to a branch/folder policy approved for the organization.
-4. If using Actions, publish `demo/` as the Pages artifact; no Node build step is required.
 
 ## Key Design Decisions
 
@@ -170,4 +160,4 @@ For an official Microsoft-owned GitHub repository, the simplest setup is:
 
 ## License
 
-MIT
+This project is licensed under the [MIT License](LICENSE).
