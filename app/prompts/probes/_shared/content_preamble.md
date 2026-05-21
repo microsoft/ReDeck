@@ -16,9 +16,9 @@ Only report issues with text content on the slide itself, not inside embedded im
 - **major**: Clear content quality failure that materially weakens deck integrity or audience comprehension
 - **minor**: Local weakness that is real but has limited deck-level impact
 
-## Academic Context
-These slides are generated from academic research papers. A 10-slide deck CANNOT cover every section
-of a 30-page paper. Prioritization is expected. Only flag content issues that MATERIALLY affect
+## Source Document Context
+These slides are generated from long-form documents. A condensed slide deck CANNOT cover every section
+of a lengthy source document. Prioritization is expected. Only flag content issues that MATERIALLY affect
 audience understanding.
 
 ## Fix Detail

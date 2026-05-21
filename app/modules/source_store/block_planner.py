@@ -5,7 +5,7 @@ from .models import AtomicBlock, Asset, TableData, DocumentBlock, DocumentBlockP
 
 
 SYSTEM_PROMPT = """\
-You are a document analyst. Your task is to read a full academic paper (with ID-anchored blocks) \
+You are a document analyst. Your task is to read a full document (with ID-anchored blocks) \
 and produce a semantic chunking plan that groups related content into DocumentBlocks.
 
 Each DocumentBlock should:

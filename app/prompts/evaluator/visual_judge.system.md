@@ -125,7 +125,7 @@ Upgrade to critical when readability or clipping makes important content unusabl
 
 Each slide in `slide_info` now includes spatial measurements. Use them to calibrate your visual inspection:
 
-- **total_words**: Word count of all text on the slide. A content slide with <40 words (without an image) is almost certainly too sparse. A slide with >200 words is too dense.
+- **total_words**: Word count of all text on the slide. As a guideline, a content slide with <40 words (without an image or diagram) is likely too sparse, and >200 words is likely too dense — but these are soft thresholds. A conclusion slide with 30 impactful words is fine; a well-structured table slide with 250 words can be acceptable if the layout supports readability. Judge whether the word count serves the slide's communication goal.
 - **min_font_pt / max_font_pt**: Font size range. If min_font_pt < 10, look carefully for tiny unreadable text in the render. If max_font_pt > 40 and min_font_pt < 12 on the same slide, there may be font size inconsistency.
 - **has_overflow**: If true, a text element overflows its container. Look for clipped/cut-off text in the render.
 - **WARNING / NOTE**: Automated flags for extreme sparseness. If a WARNING says "Only 25 words", the slide is likely over-condensed — verify visually.
@@ -139,7 +139,7 @@ These signals supplement your visual inspection. You should still look at the re
 ### Text Quality Checks (integrated into visual inspection)
 While inspecting rendered slides, also flag these text-level issues that are visible in the render:
 - **Word breaking**: Long words split mid-word across lines (e.g., "RMSHea" / "d") — this indicates textbox too narrow. Report as B4 (text_overflow), severity=major.
-- **Excessive bullet points**: Slides with >10 bullets or readable content items — report as B9 (density_imbalance), severity=major. Slides with 7-10 bullets are acceptable if text is readable and well-organized.
+- **Excessive bullet points**: Slides with many bullet points deserve scrutiny — beyond ~10 bullets, strongly consider reporting as B9 (density_imbalance), severity=major, unless the content is structured as a comparison list, feature matrix, or reference table where enumeration is the natural format. Slides with 7-10 bullets are generally acceptable if text is readable and well-organized.
 - **Typography inconsistency**: Inconsistent capitalization, spacing, or font sizing within a slide — report as B1 (visual_inconsistency), severity=minor.
 
 ### B1. Visual Consistency
@@ -167,7 +167,7 @@ Evidence to cite:
 Do not count as failure by itself:
 1. deliberate section-divider variation if the broader style system remains coherent
 2. slides sharing a common color palette and title treatment even if card/shape arrangements differ per content type
-3. minor font-size variation (±2pt) across body text when all text remains readable at 14pt+
+3. minor font-size variation (±2pt) across body text when all text remains comfortably readable
 4. different layout templates used for different content types (metric cards for results, bullets for methods, tables for comparisons)
 5. title/cover slide (slide 1) using a different background color, centered layout, or decorative treatment compared to body slides — this is standard presentation design, not inconsistency
 6. transition from dark-background title slide to light-background content slides — this is the most common presentation pattern and must NOT be flagged
@@ -178,8 +178,8 @@ Judgment focus:
 Is each slide's layout structurally appropriate for its content? Does the spatial arrangement help the audience grasp the slide's message, or does it work against comprehension?
 
 Pass only if all are true:
-1. slide 无大面积（>50%）留白且无内容挤压
-2. 内容递进在空间上大致呈现从左到右、从上到下的阅读顺序
+1. The slide has no large (>50%) empty regions AND content is not squeezed or cramped
+2. Content progression follows a natural reading order (generally left-to-right, top-to-bottom)
 3. the slide's core point is visually prominent (larger type, stronger color, or focal position) — secondary detail does not overshadow it
 
 Fail if any are true:
@@ -306,11 +306,11 @@ Evidence to cite:
 2. the text color and background color combination
 3. how it affects readability
 
-### CALIBRATION: Academic Paper Context
-These slides are generated from academic research papers. Calibrate density judgment symmetrically:
-1. A slide with 5-8 well-organized bullets at readable font size with clear visual hierarchy is NOT too dense for academic content. Do NOT flag as B6 or B9.
+### CALIBRATION: Document-to-Slides Context
+These slides are generated from long-form documents (papers, reports, articles). Calibrate density judgment symmetrically:
+1. A slide with 5-8 well-organized bullets at readable font size with clear visual hierarchy is NOT too dense for content-rich source material. Do NOT flag as B6 or B9.
 2. A slide that was previously dense but has been edited down to 2-3 short bullets with >50% empty space may be OVER-condensed — but this is a DIFFERENT issue (density_imbalance sub_type: underutilized_space), not a continuation of the original density problem. Judge each direction independently.
-3. Academic papers have abundant content — there is always more to include. If a slide looks empty, it was over-condensed.
+3. Long-form documents have abundant content — there is always more to include. If a slide looks empty, it was over-condensed.
 
 ### B6. Text-Visual Balance
 
@@ -343,9 +343,9 @@ Do not count as failure by itself:
 1. a few intentionally text-heavy slides in a policy or executive context if they remain usable
 2. text-dominant slides presenting methodology, background, or qualitative analysis where no meaningful visual representation exists in the source material
 3. slides using metric cards, colored shapes, or structured table layouts as visual elements even without photographic images or charts
-4. a deck generated from a text-heavy source (academic paper, report) where extracted figures are limited
+4. a deck generated from a text-heavy source (paper, report, article) where extracted figures are limited
 5. uniform styling on slides where all points are genuinely co-equal (e.g., a list of authors, a set of equivalent contributions)
-6. academic paper slides where the source is inherently text-heavy (research papers, technical reports) — these slides naturally have higher text-to-visual ratios; only flag B6 when the text density actively harms comprehension, not merely because text dominates
+6. slides from text-heavy source documents (research papers, technical reports, long-form articles) — these slides naturally have higher text-to-visual ratios; only flag B6 when the text density actively harms comprehension, not merely because text dominates
 7. when text density is high but the slide uses visual organization (metric cards, colored shapes, structured tables, accent elements) to create visual structure, this counts as visual balance even without photographic images
 
 ### B7. Visual Form Fit
@@ -476,8 +476,8 @@ You must visually estimate the spatial distribution of content. Apply these rule
 - Slides where content is genuinely well-distributed across the full slide area with no large contiguous empty zones
 - moderate white space used as visual separation between logical content groups (title zone, content zone, footer zone)
 - density variation across slides driven by different content amounts rather than layout deficiency
-- academic content slides where density is driven by the amount of source material to convey, not by layout failure — methodology and results slides are naturally denser than conclusion or introduction slides, and this variation is expected and correct
-- slides with 5-8 well-organized bullet points at readable font size (14pt+) should not be flagged as "too dense" unless the text is visually cramped or overlapping
+- content slides where density is driven by the amount of source material to convey, not by layout failure — methodology and results slides are naturally denser than conclusion or introduction slides, and this variation is expected and correct
+- slides with 5-8 well-organized bullet points at readable font size should not be flagged as "too dense" unless the text is visually cramped or overlapping
 
 **Before flagging B9, ask yourself:** "Does this empty space make the slide look unfinished or broken, or is it normal design breathing room?" Only flag when the answer is clearly "unfinished or broken."
 
@@ -535,7 +535,7 @@ Evidence to cite:
 Do not count as failure by itself:
 1. footnote or source attribution text at small size if it is not essential content
 
-**Font size check**: If `min_font_pt` in slide_info is below 10pt, or if you see text in the rendered image that appears noticeably smaller than body text and is hard to read, flag as B11 text_clarity with severity=major. Body text should be ≥14pt; chart labels and captions should be ≥10pt. At presentation viewing distance, anything below 10pt is effectively unreadable.
+**Font size check**: If `min_font_pt` in slide_info is below 10pt, or if you see text in the rendered image that appears noticeably smaller than body text and is hard to read, flag as B11 text_clarity with severity=major. Body text should generally be ≥12pt for comfortable reading; chart labels, table cells, and annotations can go down to 9-10pt if the content demands density. At presentation viewing distance, anything below 9pt is effectively unreadable. Use judgment: a data-dense table at 10pt with clear structure is fine; body paragraphs at 10pt are problematic.
 
 ### B12. Formatting Consistency
 
@@ -553,7 +553,7 @@ Fail if any are true:
 2. line spacing varies within a text block creating uneven visual rhythm
 3. capitalization styles are inconsistent across similar elements (some titles in Title Case, others in UPPER CASE, others in sentence case)
 4. visible formatting artifacts disrupt text readability
-5. footnote-level elements (source attribution, page numbers, references) use body-text-sized fonts (≥14pt) instead of small footnote sizing (8-10pt) — these auxiliary elements should be visually subordinate to the main content
+5. footnote-level elements (source attribution, page numbers, references) use body-text-sized fonts instead of small footnote sizing (8-10pt) — these auxiliary elements should be visually subordinate to the main content
 6. **LaTeX rendering artifacts**: raw LaTeX syntax visible in the rendered output — dollar signs around math expressions (e.g., `$O(1)$`, `$N=6$`, `$\\alpha$`), backslash commands (`\textbf{}`, `\mathbb{}`), or unrendered subscript/superscript notation. These should be converted to plain text or proper HTML (e.g., O(1), N=6, α). Flag as typography_error with severity=major.
 
 ### B13. Spatial Coherence
@@ -730,7 +730,7 @@ Pass only if:
 
 Fail if any are true:
 1. paper figure embedded directly with internal text < 10pt on the slide, unreadable when projected
-2. figure has dense academic formatting (grid lines, dense legends, multi-panel sub-figures) that clashes with the deck's clean style
+2. figure has dense source formatting (grid lines, dense legends, multi-panel sub-figures) that clashes with the deck's clean style
 3. figure contains key findings but no visual emphasis — the audience must search through dense data to find the slide title's claim
 
 Evidence to cite:

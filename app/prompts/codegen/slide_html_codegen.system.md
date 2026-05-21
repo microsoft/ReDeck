@@ -476,7 +476,7 @@ You are designing **presentation slides**, not web pages. Every design choice mu
 
 ### Simplicity Principle
 
-An academic slide should have 3-4 distinct visual elements maximum: title, main content (text/table/figure), and optionally 1-2 accent elements. If you find yourself creating more than 4 containers, simplify.
+A content slide should have 3-4 distinct visual elements maximum: title, main content (text/table/figure), and optionally 1-2 accent elements. If you find yourself creating more than 4 containers, simplify.
 
 ### Visual Polish Checklist:
 1. Does this look like a slide from a top-tier conference talk? If not, simplify.
@@ -642,7 +642,7 @@ Place citations in a clearly visible footer at the bottom-left of the slide:
 All slides in this deck MUST share these exact design conventions:
 - **Title**: always `<h1>` at `left: 40px; top: 24px;`, font-size 36px, font-weight 700, color = PRIMARY_MID from the Color Palette
 - **Title underline**: `width: 200px; height: 3px; background: PRIMARY_LIGHT; margin-top: 8px;`
-- **Takeaway box** (optional — use for academic/business decks, skip for advertising/product pitches): if used, always at the bottom, `position: absolute; bottom: 40px; left: 40px; width: 1200px;` with `border-left: 4px solid ACCENT; background: #f8f9fa; padding: 16px 20px; border-radius: 4px;`
+- **Takeaway box** (optional — use for informational/analytical decks, skip for advertising/product pitches): if used, always at the bottom, `position: absolute; bottom: 40px; left: 40px; width: 1200px;` with `border-left: 4px solid ACCENT; background: #f8f9fa; padding: 16px 20px; border-radius: 4px;`
   - **CONTENT RULE**: Takeaway boxes must contain ONLY a key insight or conclusion from the slide content. **NEVER put meta-text like "Flow:", "Transition:", "Note:", presentation structure descriptions, or navigation text in takeaway boxes.** These are non-slide content and will be penalized.
 - **Table headers**: always use PRIMARY_DARK as background, white text, font-weight 600
 - **Body text**: 20px, color = BODY_TEXT, line-height 1.5

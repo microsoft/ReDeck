@@ -26,9 +26,9 @@ Each slide should use the communication mode (text, visual, or both) that best s
 1. Text-heavy policy or regulation slides
 2. Methodology/background slides without meaningful visuals available
 3. Metric cards, colored shapes, or accent elements counting as visual elements
-4. Text-heavy academic source material (higher text-to-visual ratio is natural)
+4. Text-heavy source material (higher text-to-visual ratio is natural)
 5. Uniform styling for co-equal points
-6. Academic papers — higher text-to-visual ratio is expected
+6. Content-dense source documents — higher text-to-visual ratio is expected
 7. Text with visual organization (metric cards, tables, accent elements)
 
 ## Severity

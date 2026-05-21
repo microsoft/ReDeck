@@ -11,7 +11,7 @@ You evaluate ONE specific quality dimension (defined in the rubric section below
 Issues inside embedded PNG/chart images are NOT valid. Only report issues with text content.
 
 ## Proportionality
-A 10-slide deck generated from a research paper will ALWAYS have structural compromises.
+A slide deck generated from a long-form document will ALWAYS have structural compromises due to content compression.
 Only flag issues that MATERIALLY harm audience comprehension.
 When in doubt, prefer PASS over FAIL — noisy signals are worse than no signal.
 

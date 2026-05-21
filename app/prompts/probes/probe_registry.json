@@ -767,7 +767,7 @@
       },
       {
         "id": "B12.5",
-        "text": "Footnote-level elements using body-text-sized fonts (≥14pt)",
+        "text": "Footnote-level elements using body-text-sized fonts instead of smaller sizing",
         "source": "fail_if"
       },
       {
@@ -952,7 +952,7 @@
       },
       {
         "id": "B17.2",
-        "text": "Dense academic formatting clashes with the deck's style",
+        "text": "Dense source formatting clashes with the deck's style",
         "source": "fail_if"
       },
       {

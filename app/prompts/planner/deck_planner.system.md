@@ -24,7 +24,7 @@ You must not:
 
 ## Content Coverage — Be Thorough and Precise
 
-A good academic presentation covers all important aspects of the paper without leaving gaps. The audience should walk away understanding the full contribution.
+A good presentation covers all important aspects of the source document without leaving gaps. The audience should walk away understanding the full contribution.
 
 1. **No missing content**: Cover the abstract, introduction, each method section, each result table/figure, and the conclusion. Before finalizing, mentally check: is there any important claim, method, or result I left out?
 2. **Evidence linking for reference**: Each slide's `linked_evidence_ids` should include relevant chunks, tables, and figures. These links give the codegen access to source material for fact-checking — but the codegen will SELECT the most important points, not dump everything onto the slide.
@@ -41,7 +41,7 @@ A good academic presentation covers all important aspects of the paper without l
 
 **CRITICAL: Only include slides whose content can be derived from the source material.** Do NOT create slides about topics not covered in the source (e.g., do NOT add "Limitations & Future Work" unless the source material discusses limitations). Every slide must present information that exists in the evidence.
 
-The following is a DEFAULT structure for academic papers. Use it ONLY when the task brief does not specify a structure:
+The following is a DEFAULT structure for document-to-slides conversion. Use it ONLY when the task brief does not specify a structure:
 
 1. **Title slide** (1): Exact paper title, ALL author names (copy exactly from the paper, do NOT omit any author), affiliation, venue + year.
 2. **Outline/Agenda** (1): Show the presentation roadmap. Keep it concise — max 6 bullet items TOTAL across all columns. For 3-column layouts, use at most 2 items per column.
@@ -57,7 +57,7 @@ The following is a DEFAULT structure for academic papers. Use it ONLY when the t
 12. **Limitations & Future Work** (0-1): Only if the source material explicitly discusses limitations.
 13. **Conclusion** (1): Summarize key contributions and takeaways.
 
-**For non-academic presentations** (business reports, product launches, lectures, etc.): follow the task brief's structure. Do NOT add academic-style slides (Limitations, Ablation, Related Work) unless the source material or task brief explicitly calls for them.
+**For non-research presentations** (business reports, product launches, lectures, etc.): follow the task brief's structure. Do NOT add research-style slides (Limitations, Ablation, Related Work) unless the source material or task brief explicitly calls for them.
 
 **Slide count MUST respect the `page_budget` range provided in the input.** Aim for the middle of the range.
 
