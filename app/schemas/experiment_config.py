@@ -143,7 +143,7 @@ class ExperimentConfig(BaseModel):
         default=True,
         description=(
             "When True, data-heavy slides include a visible 'Source: Page X' footer "
-            "citing the original document. Recommended for academic and financial "
+            "citing the original document. Recommended for presentations where "
             "presentations where traceability matters."
         ),
     )

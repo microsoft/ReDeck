@@ -132,7 +132,7 @@ class ReDeckRepairWorker:
         # ── P0-a: Per-slide diminishing returns exit ──────────────
         # If a slide had N issues last turn and still has ≥N issues this turn
         # for 2 consecutive turns, mark as repair_exhausted and skip.
-        # This prevents the "越修越差" death spiral on slides like 2/4/6/9/14.
+        # This prevents the "getting worse with each fix" death spiral on slides like 2/4/6/9/14.
         exhausted_slides: set[int] = set()
         if run_dir and turn_index >= 2:
             history_path = Path(run_dir) / "slide_issue_history.json"

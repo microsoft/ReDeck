@@ -1,10 +1,10 @@
 # B17: Raw Figure — raw_figure
 
 ## Focus
-Evaluate whether figures from papers have been adapted for presentation context — readable text, visual emphasis, and style consistency.
+Evaluate whether figures from the source document have been adapted for presentation context — readable text, visual emphasis, and style consistency.
 
 ## Core principle
-Academic figures need adaptation for slides — text must be readable at projection size and key findings should be visually highlighted.
+Source document figures need adaptation for slides — text must be readable at projection size and key findings should be visually highlighted.
 
 ## Pass if
 1. Figure text is ≥10pt at presentation size
@@ -13,7 +13,7 @@ Academic figures need adaptation for slides — text must be readable at project
 
 ## Fail if
 1. Figure text is <10pt and would be unreadable when projected
-2. Dense academic formatting clashes with the deck's style
+2. Dense source formatting clashes with the deck's style
 3. Figure has key findings but no visual emphasis or annotation to guide the viewer
 
 ## Do not flag

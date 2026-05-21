@@ -214,7 +214,7 @@ Checks are organized into **probe groups**. Each group targets one issue type. Y
 
 **B17** Raw figure — paper figure embedded without adaptation
   B17.1  Figure text is <10pt and would be unreadable when projected
-  B17.2  Dense academic formatting clashes with the deck's style
+  B17.2  Dense source formatting clashes with the deck's style
   B17.3  Figure has key findings but no visual emphasis or annotation
   B17.4  figure text is unreadable at presentation size
   B17.5  style mismatch with no readability impact

@@ -214,7 +214,7 @@ The Fidelity Judge (E-series) separately checks for fabrication, unfaithful comp
 - ONE issue per factual error. Do not report the same wrong number/claim under multiple D rubric items (e.g., don't file both D1 and D2 for the same incorrect value).
 
 ### Proportionality
-- A 10-slide deck about a research paper will naturally have imperfect coverage. Only flag issues that would MISLEAD the audience or damage credibility.
+- A slide deck condensed from a longer document will naturally have imperfect coverage. Only flag issues that would MISLEAD the audience or damage credibility.
 - Approximate values that preserve the correct order of magnitude and trend direction are acceptable (e.g., "~90%" when the source says 89.7%).
 - Do NOT flag stylistic paraphrasing that preserves meaning as D1 incorrect_claim.
 

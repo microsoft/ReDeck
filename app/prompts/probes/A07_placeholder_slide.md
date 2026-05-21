@@ -18,7 +18,7 @@ Does every slide carry substantive content that justifies its place in the deck?
 ## Do not flag
 - Title slide 1 with paper metadata (authors, affiliations, date)
 - A single section-divider slide that includes meaningful transition text
-- A Talk Roadmap, Outline, or Agenda slide (standard academic practice)
+- A Talk Roadmap, Outline, or Agenda slide (standard practice for structured presentations)
 
 ## Severity
 - critical when multiple slides are empty placeholders wasting significant budget

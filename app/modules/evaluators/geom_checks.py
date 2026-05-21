@@ -21,7 +21,7 @@ class DeterministicGeomChecks:
 
     def __init__(
         self,
-        min_font_pt: float = 14.0,
+        min_font_pt: float = 10.0,
         slide_width_emu: int = SlideDimensions.WIDTH_EMU,
         slide_height_emu: int = SlideDimensions.HEIGHT_EMU,
         margin_emu: int = 0,

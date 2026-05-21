@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 class ChartGenerator:
-    """Generate academic-style charts from viz_data dictionaries."""
+    """Generate presentation-style charts from viz_data dictionaries."""
 
     # Default theme colors matching slide design system
     DEFAULT_COLORS = [

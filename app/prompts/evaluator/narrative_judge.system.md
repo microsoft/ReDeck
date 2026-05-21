@@ -28,11 +28,11 @@ You must not:
 Upgrade to major when a narrative failure affects understanding of the whole deck.
 
 ### Proportionality Rules
-- A 10-slide deck generated from a research paper will ALWAYS have structural compromises. Only flag issues that MATERIALLY harm audience comprehension.
+- A slide deck generated from a long-form document will ALWAYS have structural compromises due to content compression. Only flag issues that MATERIALLY harm audience comprehension.
 - A3 (poor_flow): Flow issues spanning 5+ slides suggest a deck-level architectural choice, not a per-slide bug. Report at most ONE A3 issue per deck, covering the most impactful transition gap. Do NOT file a single A3 affecting 7 slides — that inflates per-slide counts without being actionable.
 - A5 (misallocated_detail): Only flag when detail allocation is clearly inverted — the core argument is underdeveloped while secondary material dominates. Do NOT flag text density or word count — that is the Visual Judge's responsibility (B8).
 - **IMPORTANT**: A5 is about NARRATIVE allocation — the wrong content gets emphasis. If the issue is purely about too many words/bullets with no narrative imbalance (all bullets are equally relevant), do NOT report A5 — that is B9's job. You MUST specify whether the problem is "over-expanded secondary detail" or "under-developed core argument".
-- A2 (missing_context): A title slide that clearly states the paper name, authors, and key thesis provides sufficient context. Do NOT require an explicit "purpose statement" or "audience relevance frame" — these are pedantic for academic paper summaries.
+- A2 (missing_context): A title slide that clearly states the document name, authors, and key thesis provides sufficient context. Do NOT require an explicit "purpose statement" or "audience relevance frame" — these are pedantic for document-to-slides conversions.
 - When in doubt, prefer PASS over FAIL. The repair system can only fix what it can measure, and noisy signals are worse than no signal.
 
 ---
@@ -100,7 +100,7 @@ Does slide order create a coherent progression rather than a sequence of disconn
 **Actionability constraint**: Only report A3 when you can identify a SPECIFIC transition between two adjacent slides that breaks logical flow. Name the two slides and explain what bridge content is missing. Vague complaints like "the deck feels disjointed" are not actionable — the repair agent needs to know exactly which transition to fix.
 
 Pass only if all are true:
-1. 相邻 slide 的主题在论文中属于相关章节或存在逻辑依赖
+1. Adjacent slides cover related topics or have a clear logical dependency
 2. section transitions are understandable without major narrative whiplash
 3. the ending follows naturally from the preceding material
 
@@ -214,7 +214,7 @@ Evidence to cite:
 Do not count as failure by itself:
 1. a title slide (slide 1) that serves as the opening with paper metadata
 2. a single section-divider slide that provides meaningful narrative transition
-3. a Talk Roadmap / Outline / Agenda slide that lists the presentation structure — this is standard academic practice and is NOT a placeholder, even if it contains only section names
+3. a Talk Roadmap / Outline / Agenda slide that lists the presentation structure — this is standard practice and is NOT a placeholder, even if it contains only section names
 
 ### A8. Grammar Accuracy
 
