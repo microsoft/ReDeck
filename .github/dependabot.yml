@@ -1,0 +1,10 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  # Disable npm updates for redeck-video (Remotion dev dependency, not deployed)
+  - package-ecosystem: "npm"
+    directory: "/redeck-video"
+    open-pull-requests-limit: 0
