@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1280, initial-scale=1.0" />
+<title>Slide 12 - Metric Cards with Table</title>
+<style>
+  :root{
+    --canvas:#FBF7F3;
+    --ink:#413B39;
+    --primary:#B76650;
+    --secondary:#458891;
+    --accent:#D99A63;
+    --support:#C7D3B0;
+  }
+  *{box-sizing:border-box}
+  html,body{
+    margin:0;
+    width:1280px;
+    height:720px;
+    overflow:hidden;
+    background:var(--canvas);
+    font-family:'Liberation Sans','Segoe UI',Arial,sans-serif;
+    color:var(--ink);
+  }
+  .slide{
+    width:1280px;
+    height:720px;
+    padding:28px 30px 26px 30px;
+    background:
+      radial-gradient(circle at top right, rgba(217,154,99,.10), transparent 28%),
+      radial-gradient(circle at left center, rgba(69,136,145,.08), transparent 24%),
+      var(--canvas);
+    position:relative;
+  }
+
+  .header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    margin-bottom:18px;
+  }
+  .title-wrap{
+    max-width:860px;
+  }
+  .eyebrow{
+    color:var(--secondary);
+    font-size:18px;
+    font-weight:700;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    margin-bottom:8px;
+  }
+  .title{
+    font-size:42px;
+    line-height:1.02;
+    font-weight:800;
+    margin:0 0 8px 0;
+  }
+  .subtitle{
+    font-size:18px;
+    line-height:1.35;
+    margin:0;
+    max-width:780px;
+    color:#6b6461;
+  }
+  .badge{
+    background:#fff;
+    border:2px solid rgba(65,59,57,.12);
+    border-radius:18px;
+    padding:16px 18px;
+    min-width:220px;
+    box-shadow:0 10px 24px rgba(65,59,57,.07);
+  }
+  .badge .label{
+    font-size:13px;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    color:#7d7672;
+    margin-bottom:8px;
+    font-weight:700;
+  }
+  .badge .value{
+    font-size:34px;
+    font-weight:800;
+    color:var(--primary);
+    line-height:1;
+  }
+  .badge .note{
+    margin-top:6px;
+    font-size:15px;
+    color:#6f6865;
+  }
+
+  .metrics{
+    display:grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap:16px;
+    margin-bottom:20px;
+    position:relative;
+    z-index:2;
+  }
+
+  .card{
+    background:#fff;
+    border-radius:24px;
+    padding:18px 20px 16px 20px;
+    box-shadow:0 12px 28px rgba(65,59,57,.08);
+    border:1px solid rgba(65,59,57,.08);
+    min-height:156px;
+    position:relative;
+    overflow:hidden;
+  }
+
+  .card.kpi-primary{ background:linear-gradient(180deg, rgba(183,102,80,.12), rgba(255,255,255,1) 55%); }
+  .card.kpi-secondary{ background:linear-gradient(180deg, rgba(69,136,145,.12), rgba(255,255,255,1) 55%); }
+  .card.kpi-accent{ background:linear-gradient(180deg, rgba(217,154,99,.14), rgba(255,255,255,1) 55%); }
+  .card.kpi-support{ background:linear-gradient(180deg, rgba(199,211,176,.24), rgba(255,255,255,1) 55%); }
+
+  .card .kpi-label{
+    font-size:16px;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    color:#6f6865;
+    margin-bottom:8px;
+  }
+  .card .kpi-value{
+    /* DEFECT: font too large causes clipping within KPI cards */
+    font-size:68px;
+    line-height:.9;
+    font-weight:900;
+    letter-spacing:-.03em;
+    margin-bottom:8px;
+    white-space:nowrap;
+  }
+  .card .kpi-delta{
+    font-size:18px;
+    font-weight:700;
+    margin-bottom:8px;
+  }
+  .pos{ color:var(--secondary); }
+  .warn{ color:var(--accent); }
+  .neg{ color:var(--primary); }
+
+  .card .kpi-foot{
+    /* DEFECT: low contrast text */
+    color:#D7CEC8;
+    font-size:15px;
+    line-height:1.3;
+    max-width:95%;
+  }
+
+  .content{
+    display:grid;
+    grid-template-columns: 1.75fr 1fr;
+    gap:18px;
+    height:470px;
+    position:relative;
+  }
+
+  .table-card{
+    background:#fff;
+    border-radius:26px;
+    border:1px solid rgba(65,59,57,.09);
+    box-shadow:0 12px 28px rgba(65,59,57,.08);
+    padding:18px 18px 14px 18px;
+    overflow:hidden;
+    position:relative;
+  }
+  .section-title{
+    font-size:26px;
+    font-weight:800;
+    margin:2px 0 6px 0;
+  }
+  .section-sub{
+    font-size:16px;
+    color:#6e6764;
+    margin-bottom:14px;
+  }
+
+  table{
+    width:100%;
+    border-collapse:collapse;
+    table-layout:fixed;
+    font-size:18px;
+  }
+  thead th{
+    text-align:left;
+    font-size:15px;
+    text-transform:uppercase;
+    letter-spacing:.05em;
+    color:#6f6865;
+    padding:10px 10px 12px 10px;
+    border-bottom:2px solid rgba(65,59,57,.10);
+  }
+  tbody td{
+    padding:14px 10px;
+    border-bottom:1px solid rgba(65,59,57,.08);
+    vertical-align:top;
+  }
+  tbody tr:last-child td{ border-bottom:none; }
+  .model{
+    font-weight:800;
+    color:var(--ink);
+  }
+  .muted{
+    color:#6f6865;
+  }
+  .chip{
+    display:inline-block;
+    padding:5px 10px;
+    border-radius:999px;
+    font-size:14px;
+    font-weight:700;
+    background:rgba(69,136,145,.12);
+    color:var(--secondary);
+  }
+  .chip.orange{
+    background:rgba(217,154,99,.18);
+    color:#9a6231;
+  }
+  .chip.red{
+    background:rgba(183,102,80,.14);
+    color:var(--primary);
+  }
+
+  .side{
+    display:grid;
+    grid-template-rows: 1fr 1fr;
+    gap:18px;
+    position:relative;
+  }
+
+  .insight-card, .action-card{
+    background:#fff;
+    border-radius:26px;
+    border:1px solid rgba(65,59,57,.09);
+    box-shadow:0 12px 28px rgba(65,59,57,.08);
+    padding:18px 20px;
+    position:relative;
+  }
+
+  .insight-card{
+    background:linear-gradient(180deg, rgba(69,136,145,.10), #fff 42%);
+  }
+
+  .hero-stat{
+    font-size:76px;
+    line-height:.92;
+    font-weight:900;
+    letter-spacing:-.04em;
+    color:var(--secondary);
+    margin:8px 0 6px 0;
+  }
+  .insight-text{
+    font-size:18px;
+    line-height:1.35;
+    color:#5f5956;
+  }
+
+  .bullet-list{
+    margin:10px 0 0 0;
+    padding-left:20px;
+  }
+  .bullet-list li{
+    margin:10px 0;
+    font-size:17px;
+    line-height:1.3;
+  }
+
+  .action-card{
+    background:linear-gradient(180deg, rgba(199,211,176,.26), #fff 44%);
+    /* DEFECT: card overlap via negative margin pulls card over the table */
+    margin-left:-72px;
+    z-index:5;
+  }
+
+  .action-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+    margin-top:10px;
+  }
+  .mini{
+    border-radius:18px;
+    padding:14px 14px 12px 14px;
+    background:rgba(251,247,243,.95);
+    border:1px solid rgba(65,59,57,.08);
+  }
+  .mini .mini-label{
+    font-size:13px;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    color:#756e6a;
+    font-weight:700;
+    margin-bottom:6px;
+  }
+  .mini .mini-value{
+    font-size:32px;
+    font-weight:900;
+    line-height:1;
+    margin-bottom:4px;
+    color:var(--primary);
+  }
+  .mini .mini-note{
+    font-size:14px;
+    color:#645d5a;
+    line-height:1.25;
+  }
+
+  .footer{
+    position:absolute;
+    bottom:16px;
+    left:32px;
+    right:32px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    font-size:14px;
+    color:#7a736f;
+  }
+</style>
+</head>
+<body>
+  <div class="slide">
+    <div class="header">
+      <div class="title-wrap">
+        <div class="eyebrow">Slide 12 · Medical AI Study</div>
+        <h1 class="title">Hospital Deployment Metrics for Sepsis Early-Warning Models</h1>
+        <p class="subtitle">
+          Twelve-week evaluation across three ICU networks comparing baseline triage logic with a fine-tuned transformer model and a rules-plus-LLM review workflow.
+        </p>
+      </div>
+      <div class="badge">
+        <div class="label">Study window</div>
+        <div class="value">148k</div>
+        <div class="note">patient-hours monitored across 27 ICU units</div>
+      </div>
+    </div>
+
+    <div class="metrics">
+      <div class="card kpi-primary">
+        <div class="kpi-label">AUROC</div>
+        <div class="kpi-value" style="color:var(--primary);">0.941</div>
+        <div class="kpi-delta pos">+4.8 pts vs baseline</div>
+        <div class="kpi-foot">Best discrimination came from combining structured vitals with nursing notes from the prior 6 hours.</div>
+      </div>
+
+      <div class="card kpi-secondary">
+        <div class="kpi-label">Alert Precision</div>
+        <div class="kpi-value" style="color:var(--secondary);">71.3%</div>
+        <div class="kpi-delta pos">+11.2 pts QoQ</div>
+        <div class="kpi-foot">False positives fell materially after adding medication timing and lab turnaround context.</div>
+      </div>
+
+      <div class="card kpi-accent">
+        <div class="kpi-label">Median Lead Time</div>
+        <div class="kpi-value" style="color:var(--accent);">4.6h</div>
+        <div class="kpi-delta warn">+1.4h earlier</div>
+        <div class="kpi-foot">Earlier detection was strongest in respiratory and post-operative cohorts with dense charting.</div>
+      </div>
+
+      <div class="card kpi-support">
+        <div class="kpi-label">Escalation Burden</div>
+        <div class="kpi-value" style="color:#6D7D4C;">18.9%</div>
+        <div class="kpi-delta neg">-6.1 pts nurse review load</div>
+        <div class="kpi-foot">Workflow tuning reduced duplicate alerts but handoff quality still varied by overnight staffing mix.</div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="table-card">
+        <div class="section-title">Model comparison by operating point</div>
+        <div class="section-sub">Evaluation at matched sensitivity targets for bedside intervention triage.</div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:28%;">Approach</th>
+              <th style="width:14%;">Sensitivity</th>
+              <th style="width:14%;">Precision</th>
+              <th style="width:14%;">Lead time</th>
+              <th style="width:14%;">Alerts / day</th>
+              <th style="width:16%;">Operational note</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="model">Legacy rules engine</div>
+                <div class="muted">SOFA + lactate thresholds</div>
+              </td>
+              <td>78.2%</td>
+              <td>52.4%</td>
+              <td>2.9h</td>
+              <td>46</td>
+              <td><span class="chip red">High noise</span></td>
+            </tr>
+            <tr>
+              <td>
+                <div class="model">Gradient boosting baseline</div>
+                <div class="muted">Vitals, labs, meds</div>
+              </td>
+              <td>81.0%</td>
+              <td>61.7%</td>
+              <td>3.5h</td>
+              <td>38</td>
+              <td><span class="chip orange">Stable</span></td>
+            </tr>
+            <tr>
+              <td>
+                <div class="model">Clinical transformer</div>
+                <div class="muted">Structured + note embeddings</div>
+              </td>
+              <td>82.6%</td>
+              <td>71.3%</td>
+              <td>4.6h</td>
+              <td>29</td>
+              <td><span class="chip">Best overall</span></td>
+            </tr>
+            <tr>
+              <td>
+                <div class="model">Rules + LLM review layer</div>
+                <div class="muted">Explainability-assisted escalation</div>
+              </td>
+              <td>80.9%</td>
+              <td>68.8%</td>
+              <td>4.3h</td>
+              <td>24</td>
+              <td><span class="chip">Lowest burden</span></td>
+            </tr>
+            <tr>
+              <td>
+                <div class="model">Transformer + site calibration</div>
+                <div class="muted">Per-hospital threshold tuning</div>
+              </td>
+              <td>83.1%</td>
+              <td>70.6%</td>
+              <td>4.8h</td>
+              <td>27</td>
+              <td><span class="chip orange">Pilot only</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="side">
+        <div class="insight-card">
+          <div class="section-title">Key finding</div>
+          <div class="hero-stat">29</div>
+          <div class="insight-text">
+            average daily alerts at the preferred transformer threshold, down from 46 in the legacy workflow while improving lead time and precision.
+          </div>
+          <ul class="bullet-list">
+            <li>Largest gains came in units with faster note completion.</li>
+            <li>Calibration drift appeared after week 9 in one community hospital.</li>
+          </ul>
+        </div>
+
+        <div class="action-card">
+          <div class="section-title">Deployment implications</div>
+          <div class="section-sub">Recommended next-quarter operating plan for the ICU steering committee.</div>
+          <div class="action-grid">
+            <div class="mini">
+              <div class="mini-label">Primary rollout</div>
+              <div class="mini-value">9</div>
+              <div class="mini-note">additional ICUs after threshold review and overnight staffing sign-off</div>
+            </div>
+            <div class="mini">
+              <div class="mini-label">Audit cadence</div>
+              <div class="mini-value">2x</div>
+              <div class="mini-note">weekly chart audit during the first month of expansion</div>
+            </div>
+            <div class="mini">
+              <div class="mini-label">Target precision</div>
+              <div class="mini-value">70%</div>
+              <div class="mini-note">minimum acceptable level before enterprise rollout approval</div>
+            </div>
+            <div class="mini">
+              <div class="mini-label">Risk watch</div>
+              <div class="mini-value">3</div>
+              <div class="mini-note">sites flagged for documentation-lag sensitivity and drift monitoring</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div>Source: multi-site retrospective + silent prospective evaluation, internal clinical AI program</div>
+      <div>12</div>
+    </div>
+  </div>
+</body>
+</html>

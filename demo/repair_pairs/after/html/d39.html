@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1280, initial-scale=1.0" />
+<title>Executive Summary — Renewable Energy Comparison</title>
+<style>
+  :root{
+    --canvas:#FFF8F5;
+    --ink:#29434C;
+    --primary:#D95F68;
+    --secondary:#4C9EAD;
+    --accent:#F2AD72;
+    --support:#B9D8C5;
+  }
+
+  *{box-sizing:border-box}
+  html,body{
+    margin:0;
+    width:1280px;
+    height:720px;
+    overflow:hidden;
+    background:var(--canvas);
+    font-family:'Liberation Sans','Segoe UI',Arial,sans-serif;
+    color:var(--ink);
+  }
+
+  .slide{
+    position:relative;
+    width:1280px;
+    height:720px;
+    padding:42px 54px 34px 54px;
+    background:
+      linear-gradient(180deg, rgba(217,95,104,0.06) 0%, rgba(217,95,104,0.00) 18%),
+      linear-gradient(90deg, rgba(76,158,173,0.10) 0 10px, transparent 10px 100%);
+    background-size:100% 100%, 100% 1px;
+    background-position:0 0, 0 124px;
+    background-repeat:no-repeat, no-repeat;
+  }
+
+  .topbar{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    margin-bottom:8px;
+  }
+
+  .eyebrow{
+    font-size:18px;
+    font-weight:700;
+    letter-spacing:1.6px;
+    text-transform:uppercase;
+    color:var(--primary);
+    margin-bottom:8px;
+  }
+
+  h1{
+    margin:0;
+    font-size:34px;
+    line-height:0.96;
+    font-weight:800;
+    letter-spacing:-0.8px;
+    max-width:760px;
+  }
+
+  .context{
+    width:330px;
+    text-align:right;
+    font-size:16px;
+    line-height:1.25;
+    color:rgba(41,67,76,0.85);
+    padding-top:4px;
+  }
+
+  .hero-row{
+    display:grid;
+    grid-template-columns: 1.15fr 0.85fr 0.9fr;
+    gap:24px;
+    align-items:start;
+    margin-top:12px;
+    margin-bottom:10px;
+  }
+
+  .metric{
+    position:relative;
+  }
+
+  .metric .value{
+    font-size:62px;
+    line-height:0.9;
+    font-weight:800;
+    letter-spacing:-1.8px;
+    color:var(--secondary);
+  }
+
+  .metric.primary .value{ color:var(--primary); }
+  .metric.accent .value{ color:var(--accent); }
+
+  .metric .label{
+    margin-top:6px;
+    font-size:16px;
+    font-weight:700;
+    letter-spacing:0.2px;
+  }
+
+  .metric .note{
+    margin-top:3px;
+    font-size:14px;
+    line-height:1.08;
+    color:rgba(41,67,76,0.82);
+    max-width:330px;
+  }
+
+  .divider{
+    height:2px;
+    background:linear-gradient(90deg, var(--support), rgba(185,216,197,0.1));
+    margin:2px 0 8px 0;
+  }
+
+  .bottom{
+    display:grid;
+    grid-template-columns: 0.9fr 1.45fr;
+    gap:20px;
+    align-items:start;
+    height:248px;
+  }
+
+  .summary{
+    padding-top:4px;
+  }
+
+  .section-title{
+    font-size:22px;
+    font-weight:800;
+    letter-spacing:0.2px;
+    margin:0 0 8px 0;
+  }
+
+  .summary ul{
+    margin:4px 0 0 0;
+    padding:0 0 0 20px;
+  }
+
+  .summary li{
+    margin:0 0 8px 0;
+    font-size:16px;
+    line-height:1.15;
+  }
+
+  .summary li::marker{
+    color:var(--primary);
+  }
+
+  .callout{
+    margin-top:4px;
+    border-top:2px solid var(--accent);
+    padding-top:4px;
+    width:100%;
+    height:auto;
+    overflow:visible;
+  }
+
+  .callout .callout-text{
+    font-size:14px;
+    line-height:1.05;
+    font-weight:800;
+    color:var(--ink);
+    letter-spacing:-0.1px;
+  }
+
+  .table-wrap{
+    padding-top:4px;
+  }
+
+  .table-caption{
+    display:flex;
+    justify-content:space-between;
+    align-items:end;
+    margin-bottom:6px;
+  }
+
+  .table-caption .left{
+    font-size:22px;
+    font-weight:800;
+  }
+
+  .table-caption .right{
+    font-size:15px;
+    color:rgba(41,67,76,0.72);
+  }
+
+  table{
+    width:100%;
+    border-collapse:collapse;
+    table-layout:fixed;
+    font-size:11px;
+  }
+
+  thead th{
+    text-align:left;
+    font-size:10px;
+    letter-spacing:0.3px;
+    text-transform:uppercase;
+    color:rgba(41,67,76,0.75);
+    padding:1px 3px 2px 3px;
+    border-bottom:2px solid var(--secondary);
+  }
+
+  tbody{
+    display:block;
+    height:287px;
+    overflow:hidden;
+  }
+
+  thead, tbody tr{
+    display:table;
+    width:100%;
+    table-layout:fixed;
+  }
+
+  tbody tr{
+    border-bottom:1px solid rgba(41,67,76,0.12);
+  }
+
+  tbody td{
+    padding:1px 3px;
+    vertical-align:top;
+    line-height:0.96;
+  }
+
+  .source{
+    position:absolute;
+    left:54px;
+    bottom:6px;
+    font-size:14px;
+    color:rgba(41,67,76,0.62);
+    letter-spacing:0.2px;
+  }
+
+  .em{
+    color:#B84A54;
+    font-weight:800;
+  }
+
+  .pos{
+    color:var(--secondary);
+    font-weight:800;
+  }
+
+  .small{
+    font-size:10px;
+    color:rgba(41,67,76,0.78);
+  }
+</style>
+</head>
+<body>
+  <div class="slide">
+    <div class="topbar">
+      <div>
+        <div class="eyebrow">Executive Summary</div>
+        <h1>Renewable power economics improved sharply in 2024, with storage now determining portfolio value more than generation cost alone</h1>
+      </div>
+      <div class="context">
+        Utility-scale comparison across solar PV, onshore wind, offshore wind, and hybrid solar+storage deployments in North America and Western Europe
+      </div>
+    </div>
+
+    <div class="hero-row">
+      <div class="metric primary">
+        <div class="value">18%</div>
+        <div class="label">Median decline in delivered solar LCOE vs. prior year</div>
+        <div class="note">Driven by lower module pricing, improved inverter utilization, and better curtailment management in ERCOT and Iberia.</div>
+      </div>
+
+      <div class="metric">
+        <div class="value">74%</div>
+        <div class="label">Projects with storage attached in new RFP shortlist</div>
+        <div class="note">Hybrid bids outperformed standalone generation on evening peak capture and balancing penalties.</div>
+      </div>
+
+      <div class="metric accent">
+        <div class="value">2.6×</div>
+        <div class="label">Revenue spread between top and bottom quartile assets</div>
+        <div class="note">Merchant exposure and interconnection timing created larger dispersion than turbine or panel efficiency differences.</div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="bottom">
+      <div class="summary">
+        <div class="section-title">What matters now</div>
+        <ul>
+          <li><span class="em">Hybridization is no longer optional:</span> storage consistently raises capture price and lowers imbalance risk in volatile evening ramps.</li>
+          <li><span class="pos">Interconnection queue timing</span> has become the dominant schedule risk, especially for offshore wind repowering and large PV clusters.</li>
+          <li>Procurement teams should prioritize flexible offtake structures over headline PPA price minimization when congestion risk is elevated.</li>
+        </ul>
+
+        <div class="callout">
+          <div class="callout-text">
+            Board implication: rebalance 2025 pipeline toward solar-plus-storage and defer standalone offshore commitments until transmission upgrade visibility improves materially
+          </div>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <div class="table-caption">
+          <div class="left">Comparative project economics</div>
+          <div class="right">Illustrative 2024 median values</div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width:24%">Technology</th>
+              <th style="width:18%">Capex<br><span class="small">($/kW)</span></th>
+              <th style="width:16%">Capacity<br>factor</th>
+              <th style="width:18%">Delivered LCOE<br><span class="small">($/MWh)</span></th>
+              <th style="width:24%">Executive takeaway</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Solar PV</strong></td>
+              <td>890</td>
+              <td>26%</td>
+              <td>41</td>
+              <td>Lowest build cost, but value erodes quickly in midday-congested nodes without storage.</td>
+            </tr>
+            <tr>
+              <td><strong>Solar + 4h storage</strong></td>
+              <td>1,470</td>
+              <td>31% equivalent</td>
+              <td>63</td>
+              <td>Higher nominal LCOE, yet strongest peak-hour monetization and best shortlist conversion in utility tenders.</td>
+            </tr>
+            <tr>
+              <td><strong>Onshore wind</strong></td>
+              <td>1,520</td>
+              <td>39%</td>
+              <td>54</td>
+              <td>Still attractive in high-wind corridors; permitting remains more manageable than offshore alternatives.</td>
+            </tr>
+            <tr>
+              <td><strong>Offshore wind</strong></td>
+              <td>4,380</td>
+              <td>49%</td>
+              <td>109</td>
+              <td>Resource quality is strong, but financing and cable scope inflation continue to pressure project IRR and bid discipline.</td>
+            </tr>
+            <tr>
+              <td><strong>Repowered hydro + battery</strong></td>
+              <td>2,240</td>
+              <td>58%</td>
+              <td>71</td>
+              <td>Best grid support profile in constrained systems; limited pipeline because site availability is scarce.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="source">
+      Source: internal strategy synthesis using IEA, Lazard, RFP tracker data, ISO market pricing, and developer interviews, Q1–Q4 2024.
+    </div>
+  </div>
+</body>
+</html>

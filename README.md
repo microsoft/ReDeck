@@ -1,10 +1,25 @@
-# ReDeck: Step-Level Render-Grounded Refinement for Document-to-Slide Generation
+# ReDeck
 
-> **Re**fine + **Deck** = ReDeck
+### Step-Level Render-Grounded Refinement for Document-to-Slide Generation
 
-ReDeck is an agent system for **document-to-slide generation**. It refines generated decks with multi-granular feedback: step-level render-grounded observations for local spatial repair, a turn-level Adaptive Deck Critic for semantic and design direction, and a submission-level validation gate that prevents newly introduced layout violations from being committed.
+<p align="center">
+  <a href="https://arxiv.org/abs/XXXX.XXXXX"><img src="https://img.shields.io/badge/arXiv-XXXX.XXXXX-b31b1b?style=for-the-badge&logo=arxiv" alt="arXiv"/></a>
+  <a href="https://microsoft.github.io/ReDeck"><img src="https://img.shields.io/badge/Project_Page-ReDeck-4285f4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Project Page"/></a>
+  <a href="demo/repair_pairs/"><img src="https://img.shields.io/badge/Demo-Repair_Pairs-22c55e?style=for-the-badge&logo=files&logoColor=white" alt="Demo"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License"/></a>
+</p>
 
-![ReDeck pipeline](assets/redeck_pipeline.png)
+<p align="center">
+  <img src="assets/redeck_pipeline.png" alt="ReDeck pipeline" width="800"/>
+</p>
+
+---
+
+**ReDeck** is an agent system that generates presentation slides from documents and iteratively repairs spatial layout issues through render-grounded feedback. It detects overlaps, overflow, clipping, low contrast, occlusion, and out-of-bounds placement — then fixes them automatically via an LLM-driven tool-calling loop.
+
+> 707 spatial issues → 0 in 4 repair turns ([see demo pairs](demo/repair_pairs/))
+
+---
 
 ## Overview
 
@@ -18,22 +33,38 @@ ReDeck changes the refinement loop to **"one edit, one observation"**. During a 
 
 Each ReDeck refinement turn nests two feedback scales:
 
-1. **Turn-level Adaptive Deck Critic** -- At the start of each turn, the critic evaluates the deck source and rendered slides, schedules a focused subset of checks, and updates a persistent issue list. The issue list records what remains unresolved across narrative, visual layout, completeness, correctness, and source fidelity.
-2. **Step-level render feedback** -- Within the turn, every atomic edit is followed by rendering and structured observation. The observation reports the violation delta relative to the turn-start baseline and a layout anchor containing key element positions, dimensions, and text previews.
-3. **Submission-level validation gate** -- Step-level feedback is an observation, not a verdict: temporary invalid states are allowed during repair. The hard gate appears only when the agent submits the turn, where newly introduced hard layout violations must be resolved before the deck state can advance.
+1. **Turn-level Adaptive Deck Critic** — At the start of each turn, the critic evaluates the deck source and rendered slides, schedules a focused subset of checks, and updates a persistent issue list. The issue list records what remains unresolved across narrative, visual layout, completeness, correctness, and source fidelity.
+2. **Step-level render feedback** — Within the turn, every atomic edit is followed by rendering and structured observation. The observation reports the violation delta relative to the turn-start baseline and a layout anchor containing key element positions, dimensions, and text previews.
+3. **Submission-level validation gate** — Step-level feedback is an observation, not a verdict: temporary invalid states are allowed during repair. The hard gate appears only when the agent submits the turn, where newly introduced hard layout violations must be resolved before the deck state can advance.
 
 This separation assigns feedback to the level where it is most reliable: deterministic renderer observations handle local spatial failures, the critic handles deck-wide semantic and design direction, and the submission gate prevents transient layout defects from becoming persistent progress.
+
+## Spatial Issue Detection
+
+ReDeck's detection engine (`app/modules/redeck/html_spatial_state.py`) renders each HTML slide via Playwright and extracts a structured spatial state through DOM geometry analysis. It detects:
+
+| Category | What it catches |
+|----------|----------------|
+| **Overlap** | Sibling elements colliding (partial or full containment), with filters for legitimate nesting (parent-child, SVG rect+text) |
+| **Text overflow** | Content exceeding its container via `scrollHeight > clientHeight`, styled-boundary overflow (`overflow:visible` past CSS height), and SVG text exceeding sibling rects (using `getComputedTextLength()`) |
+| **Clipping** | Content hidden by `overflow:hidden` ancestors |
+| **Out-of-bounds** | Elements extending past the 1280×720 slide canvas |
+| **Low contrast** | WCAG AA violations for text (including SVG `fill`-based text) |
+| **Occlusion** | Higher z-index opaque elements covering content (full and partial) |
+| **SVG internals** | viewBox clipping of all SVG elements (not just text), text-rect overflow within SVG |
+
+All detections pass through `count_significant_issues()` — the single source of truth for defect thresholds — ensuring the repair agent and external scorers agree on issue counts.
 
 ## Pipeline
 
 ReDeck takes documents such as scientific papers, technical reports, or business analyses as input and produces editable presentation decks through:
 
-1. **Document Extraction** -- Parse the source document into structured text, figures, tables, formulas, and page screenshots.
-2. **Evidence Indexing** -- Build a searchable evidence state over source chunks, figures, tables, and page-level context.
-3. **Deck Planning** -- Generate a slide blueprint with slide intentions, layout specifications, and evidence links.
-4. **HTML/CSS Code Generation** -- Generate each slide as HTML/CSS, render it to PNG via Playwright, and package the rendered slides into PPTX.
-5. **Adaptive Deck Critic** -- Update the persistent issue list using specialized checks for correctness, completeness, source fidelity, visual quality, and narrative flow.
-6. **Step-Level Repair Agent** -- Apply atomic edits, observe rendered consequences, rollback or retry when needed, and submit only after validation passes.
+1. **Document Extraction** — Parse the source document into structured text, figures, tables, formulas, and page screenshots.
+2. **Evidence Indexing** — Build a searchable evidence state over source chunks, figures, tables, and page-level context.
+3. **Deck Planning** — Generate a slide blueprint with slide intentions, layout specifications, and evidence links.
+4. **HTML/CSS Code Generation** — Generate each slide as HTML/CSS, render it to PNG via Playwright, and package the rendered slides into PPTX.
+5. **Adaptive Deck Critic** — Update the persistent issue list using specialized checks for correctness, completeness, source fidelity, visual quality, and narrative flow.
+6. **Step-Level Repair Agent** — Apply atomic edits, observe rendered consequences, rollback or retry when needed, and submit only after validation passes.
 
 ## Architecture
 
@@ -75,28 +106,28 @@ app/
   orchestrator/          # Pipeline orchestration
     run_manager.py       # Main entry: multi-turn loop
     eval_router.py       # Dispatches evaluation across judges
-    render_manager.py    # PPTX rendering via Playwright/LibreOffice
+    render_manager.py    # Rendering via Playwright/LibreOffice
     turn_settler.py      # Convergence & turn budget logic
   modules/
     deck_planner.py      # Blueprint generation
-    slide_layout_designer.py  # Layout constraint specification
-    source_indexer.py    # Document content indexing (BM25)
-    evaluators/          # critic checks, judges, and geometry probes
-    redeck/              # Step-level repair loop
-      agent_repair.py    # Core repair agent with tool use
-      repair_worker.py   # Multi-slide repair orchestration
+    source_indexer.py     # Document content indexing (BM25)
+    evaluators/           # Critic checks, judges, and geometry probes
+    redeck/               # Step-level repair loop
+      agent_repair.py     # Core repair agent with tool use
+      html_spatial_state.py  # Playwright-based spatial detection engine
+      spatial_state.py    # ContentBlock / SlideState data structures
   backends/
-    html_codegen/        # HTML/CSS slide generation, Playwright rendering, PPTX packaging
-      html_codegen_compiler.py
-  schemas/               # Pydantic data models
-  prompts/               # System prompts for LLM calls
-  llm_client.py          # OpenAI-compatible API wrapper
-configs/                 # Run configurations
-scripts/                 # Pipeline runner scripts
-skills/                  # Standalone Claude Code skill prompt
-demo/                    # Static project website and demo assets
-assets/                  # README and paper figures
-tests/                   # Unit tests
+    html_codegen/         # HTML/CSS slide generation and Playwright rendering
+  schemas/                # Pydantic data models
+  prompts/                # System prompts for LLM calls
+    probes/               # 30+ evaluation probes across 5 dimensions
+  llm_client.py           # OpenAI / Azure OpenAI API wrapper
+configs/                  # Run configurations
+scripts/                  # Pipeline and repair CLI scripts
+demo/                     # Static project website and demo assets
+  repair_pairs/           # 14 before/after repair examples (HTML + PNG)
+assets/                   # README and paper figures
+tests/                    # Unit tests
 ```
 
 ## Quick Start
@@ -104,9 +135,8 @@ tests/                   # Unit tests
 ### Prerequisites
 
 - Python 3.11+
-- OpenAI API access or an OpenAI-compatible API endpoint
+- An OpenAI API key (or Azure OpenAI endpoint)
 - Playwright for HTML rendering
-- LibreOffice for PPTX/PDF rendering checks
 
 ### Setup
 
@@ -118,24 +148,42 @@ playwright install chromium
 ### Environment Variables
 
 ```bash
-export OPENAI_API_KEY="your-api-key"
+# Option 1: OpenAI API (default)
+export OPENAI_API_KEY="sk-..."
 export OPENAI_MODEL="gpt-4o"
 
-# Optional: set this for an OpenAI-compatible proxy or local server.
-export OPENAI_BASE_URL="https://api.example.com/v1"
+# Option 2: Azure OpenAI
+export AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com/"
+export AZURE_OPENAI_API_KEY="your-azure-key"
+
+# Optional: OpenAI-compatible proxy (vLLM, Ollama, etc.)
+export OPENAI_BASE_URL="http://localhost:8000/v1"
 ```
 
-### Run
+### Repair a Single Slide
 
 ```bash
-# Run a prepared document case
-python3.11 scripts/run_pdf_pipeline.py \
+# Fix spatial issues in one HTML slide
+python scripts/redeck_repair.py my_slide.html -o repaired/
+```
+
+### Repair a Batch of Slides
+
+```bash
+python scripts/redeck_repair.py --dir path/to/slides/ -o repaired/ --model gpt-4o
+```
+
+### Run the Full Pipeline
+
+```bash
+# Generate a deck from a prepared document case
+python scripts/run_pdf_pipeline.py \
     --case my_document \
     --html-codegen \
     --max-turns 3
 
-# Repair an existing directory of HTML slides
-python3.11 scripts/redeck_loop.py \
+# Multi-turn repair loop on existing slides
+python scripts/redeck_loop.py \
     --dir path/to/slides \
     --max-turns 3
 ```
@@ -160,29 +208,16 @@ source_pack/
 
 Each run produces per-turn artifacts in `runs/<run_id>/turn_XX/`:
 
-- `deck_blueprint.json` -- Slide plan
-- `slide_code/` -- Generated HTML per slide
-- `slide_png/` -- Rendered slide images
-- `eval/issues.jsonl` -- Persistent issue list updates
-- `turn_summary.json` -- Turn-level convergence summary
+- `deck_blueprint.json` — Slide plan
+- `slide_code/` — Generated HTML per slide
+- `slide_png/` — Rendered slide images
+- `eval/issues.jsonl` — Persistent issue list updates
+- `turn_summary.json` — Turn-level convergence summary
 
-## Research Design Decisions
-
-- **Document-to-slide as semantic-spatial refinement**: ReDeck treats slide generation as jointly optimizing source fidelity, narrative structure, visual design, and layout validity rather than only summarizing a document into bullets.
-- **Atomic edit actions instead of monolithic rewrites**: The repair agent works through compositional actions such as editing text, moving elements, resizing blocks, replacing images, reflowing layout, rollback, and submit. This makes the rendered consequence of each edit attributable.
-- **Step-level render feedback**: After each edit, Playwright renders the slide and reports structured observations, including violation deltas and layout anchors. This collapses feedback delay from turn-level to edit-level for local spatial failures.
-- **Feedback, not per-edit verdict**: Step-level observations guide the agent but do not reject every temporary violation. This keeps multi-step repairs reachable when a correct fix must pass through an intermediate invalid state.
-- **Turn-level Adaptive Deck Critic**: Higher-level qualities are judged at the turn boundary, where narrative flow, completeness, factual correctness, source fidelity, and visual design are stable enough to evaluate.
-- **Persistent issue list**: The critic, not the repair agent, owns issue creation and resolution. This prevents agent self-reporting and keeps unresolved deck-level goals visible across turns.
-- **Submission-level validation gate**: The only hard layout gate is applied when the agent submits a turn. Newly introduced hard violations must be fixed before the turn can become the next baseline.
-
-## Claude Code Skill
-
-This repository also includes a standalone Claude Code skill in `skills/redeck.md`. The skill packages the core ReDeck prompt and an embedded Playwright-based `verify_layout` tool so Claude Code can generate or repair HTML slides with a lightweight edit-render-observe loop. It is intended for use cases where a user wants step-level render feedback without running the full multi-turn pipeline.
 
 ## Demo Website
 
-The `demo/` directory is a static website with project pages, examples, and video assets. It can be hosted with GitHub Pages by publishing `demo/` as the Pages artifact through GitHub Actions.
+The `demo/` directory includes a static website with project pages, examples, and video assets. It can be hosted with GitHub Pages.
 
 ## License
 

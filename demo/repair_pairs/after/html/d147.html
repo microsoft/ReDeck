@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1280, initial-scale=1.0" />
+<title>Timeline Phases — Autonomous Driving Metrics</title>
+<style>
+  :root{
+    --canvas:#FFFBF2;
+    --ink:#34464A;
+    --primary:#B85E3E;
+    --secondary:#2F6F7A;
+    --accent:#F0BE62;
+    --support:#A9CFBC;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    width:1280px;
+    height:720px;
+    overflow:hidden;
+    background:var(--canvas);
+    font-family:'Liberation Sans','Segoe UI',Arial,sans-serif;
+    color:var(--ink);
+  }
+  .slide{
+    width:1280px;
+    height:720px;
+    padding:24px 30px 16px 30px;
+    background:
+      radial-gradient(circle at top right, rgba(240,190,98,.18), transparent 22%),
+      radial-gradient(circle at bottom left, rgba(169,207,188,.18), transparent 24%),
+      var(--canvas);
+  }
+  .header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    margin-bottom:10px;
+  }
+  .title-wrap{
+    max-width:820px;
+  }
+  .eyebrow{
+    font-size:15px;
+    font-weight:700;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:var(--secondary);
+    margin-bottom:6px;
+  }
+  h1{
+    margin:0;
+    font-size:34px;
+    line-height:1.02;
+    font-weight:800;
+    color:var(--ink);
+  }
+  .subtitle{
+    margin-top:6px;
+    font-size:14px;
+    line-height:1.2;
+    max-width:760px;
+    color:rgba(52,70,74,.86);
+  }
+  .kpis{
+    display:grid;
+    grid-template-columns:repeat(3, 1fr);
+    gap:12px;
+    width:360px;
+  }
+  .kpi{
+    background:#fffdf8;
+    border:2px solid rgba(61,137,151,.22);
+    border-radius:18px;
+    padding:10px 12px 9px 12px;
+    box-shadow:0 4px 14px rgba(52,70,74,.06);
+  }
+  .kpi .label{
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    color:rgba(52,70,74,.68);
+    margin-bottom:8px;
+    font-weight:700;
+  }
+  .kpi .value{
+    font-size:28px;
+    font-weight:800;
+    color:var(--primary);
+    line-height:1;
+  }
+  .content{
+    display:grid;
+    grid-template-columns: 1.08fr .92fr;
+    gap:18px;
+    height:386px;
+  }
+  .card{
+    background:rgba(255,255,255,.72);
+    border:2px solid rgba(52,70,74,.10);
+    border-radius:24px;
+    box-shadow:0 8px 22px rgba(52,70,74,.06);
+    position:relative;
+  }
+  .left{
+    padding:16px 16px 14px 16px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  .section-title{
+    font-size:18px;
+    font-weight:800;
+    color:var(--ink);
+    margin:0 0 8px 0;
+  }
+  .timeline-card{
+    background:linear-gradient(180deg, rgba(169,207,188,.24), rgba(169,207,188,.10));
+    border:2px solid rgba(169,207,188,.85);
+    border-radius:20px;
+    padding:12px 14px 6px 14px;
+  }
+  .timeline-svg{
+    width:100%;
+    height:220px;
+    display:block;
+  }
+  .phase-note{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:8px;
+    margin-top:4px;
+  }
+  .phase-pill{
+    background:#fffaf1;
+    border:1.5px solid rgba(217,120,85,.28);
+    border-radius:14px;
+    padding:8px 8px 7px 8px;
+    min-height:68px;
+  }
+  .phase-pill .p-h{
+    font-size:12px;
+    font-weight:800;
+    color:var(--primary);
+    margin-bottom:4px;
+    text-transform:uppercase;
+    letter-spacing:.03em;
+  }
+  .phase-pill .p-b{
+    font-size:12px;
+    line-height:1.18;
+    color:rgba(52,70,74,.9);
+  }
+  .mini-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    grid-auto-rows:66px;
+    gap:8px;
+    flex:0 0 auto;
+  }
+  .mini{
+    border-radius:18px;
+    padding:10px 10px 8px 10px;
+    border:1.5px solid rgba(52,70,74,.10);
+  }
+  .mini.primary{ background:rgba(217,120,85,.12); }
+  .mini.secondary{ background:rgba(61,137,151,.10); }
+  .mini.accent{ background:rgba(240,190,98,.16); }
+  .mini.support{ background:rgba(169,207,188,.18); }
+  .mini h3{
+    margin:0 0 3px 0;
+    font-size:14px;
+    font-weight:800;
+  }
+  .mini.primary h3,
+  .mini.primary p,
+  .mini.secondary h3,
+  .mini.secondary p{
+    color:#34464A;
+  }
+  .mini p{
+    margin:0;
+    font-size:12px;
+    line-height:1.08;
+  }
+
+  .right{
+    padding:16px 16px 14px 16px;
+    display:flex;
+    flex-direction:column;
+  }
+  .table-wrap{
+    margin-top:4px;
+    border-radius:18px;
+    border:2px solid rgba(61,137,151,.22);
+    background:#fffef9;
+    overflow:visible;
+    height:auto;
+  }
+  table{
+    width:100%;
+    border-collapse:collapse;
+    table-layout:fixed;
+  }
+  thead th{
+    background:rgba(61,137,151,.12);
+    color:var(--ink);
+    font-size:10px;
+    text-transform:uppercase;
+    letter-spacing:.03em;
+    padding:7px 6px;
+    text-align:left;
+    border-bottom:2px solid rgba(61,137,151,.18);
+  }
+  tbody td{
+    padding:7px 6px;
+    font-size:10px;
+    line-height:1.12;
+    vertical-align:top;
+    border-bottom:1px solid rgba(52,70,74,.10);
+  }
+  tbody tr:nth-child(even){ background:rgba(255,251,242,.8); }
+  .tag{
+    display:inline-block;
+    padding:3px 7px;
+    border-radius:999px;
+    font-size:11px;
+    font-weight:700;
+    background:rgba(240,190,98,.24);
+    color:var(--ink);
+  }
+  .insight{
+    margin-top:8px;
+    background:linear-gradient(180deg, rgba(217,120,85,.12), rgba(217,120,85,.07));
+    border:2px solid rgba(217,120,85,.28);
+    border-radius:20px;
+    padding:10px 12px;
+  }
+  .insight h3{
+    margin:0 0 6px 0;
+    font-size:15px;
+    font-weight:800;
+    color:#8F472F;
+  }
+  .insight ul{
+    margin:0;
+    padding-left:16px;
+  }
+  .insight li{
+    margin:4px 0;
+    font-size:12px;
+    line-height:1.15;
+  }
+  .footer{
+    position:absolute;
+    bottom:6px;
+    right:18px;
+    font-size:11px;
+    color:rgba(52,70,74,.55);
+    font-weight:700;
+    letter-spacing:.04em;
+  }
+</style>
+</head>
+<body>
+  <div class="slide">
+    <div class="header">
+      <div class="title-wrap">
+        <div class="eyebrow">Program Timeline · Slide 147 · Autonomous Driving Metrics</div>
+        <h1>Validation phases for urban autonomy stack rollout</h1>
+        <div class="subtitle">
+          Four-phase deployment plan tracks perception quality, intervention burden, and edge-case stability
+          from closed-course simulation through supervised city-center pilots.
+        </div>
+      </div>
+      <div class="kpis">
+        <div class="kpi">
+          <div class="label">Miles logged</div>
+          <div class="value">4.8M</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Critical scenarios</div>
+          <div class="value">1,240</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Target disengagements</div>
+          <div class="value">0.18</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="card left">
+        <div class="timeline-card">
+          <div class="section-title">Phase timeline and gating criteria</div>
+          <svg class="timeline-svg" viewBox="0 0 780 255" xmlns="http://www.w3.org/2000/svg" aria-label="Timeline phases">
+            <defs>
+              <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#34464A" flood-opacity="0.10"/>
+              </filter>
+            </defs>
+
+            <line x1="58" y1="120" x2="654" y2="120" stroke="#3D8997" stroke-width="8" stroke-linecap="round" opacity="0.45"/>
+            <circle cx="110" cy="120" r="22" fill="#D97855" filter="url(#shadow)"/>
+            <circle cx="270" cy="120" r="22" fill="#F0BE62" filter="url(#shadow)"/>
+            <circle cx="430" cy="120" r="22" fill="#A9CFBC" filter="url(#shadow)"/>
+            <circle cx="590" cy="120" r="22" fill="#3D8997" filter="url(#shadow)"/>
+
+            <rect x="58" y="28" width="116" height="50" rx="14" fill="#fffaf1" stroke="#D97855" stroke-width="2"/>
+            <rect x="210" y="28" width="132" height="50" rx="14" fill="#fffaf1" stroke="#F0BE62" stroke-width="2"/>
+            <rect x="370" y="28" width="132" height="50" rx="14" fill="#fffaf1" stroke="#A9CFBC" stroke-width="2"/>
+            <rect x="530" y="28" width="120" height="50" rx="14" fill="#fffaf1" stroke="#3D8997" stroke-width="2"/>
+
+            <text x="72" y="48" font-size="13" font-weight="700" fill="#34464A">Q1 2026</text>
+            <text x="72" y="66" font-size="18" font-weight="800" fill="#D97855">Phase 1</text>
+
+            <text x="224" y="48" font-size="13" font-weight="700" fill="#34464A">Q2 2026</text>
+            <text x="224" y="66" font-size="18" font-weight="800" fill="#34464A">Phase 2</text>
+
+            <text x="384" y="48" font-size="13" font-weight="700" fill="#34464A">Q3 2026</text>
+            <text x="384" y="66" font-size="18" font-weight="800" fill="#34464A">Phase 3</text>
+
+            <text x="544" y="48" font-size="13" font-weight="700" fill="#34464A">Q4 2026</text>
+            <text x="544" y="66" font-size="18" font-weight="800" fill="#34464A">Phase 4</text>
+
+            <text x="70" y="174" font-size="16" font-weight="800" fill="#34464A">Closed-course</text>
+            <text x="70" y="194" font-size="11" fill="#34464A">Synthetic pedestrians, rain, glare</text>
+
+            <text x="230" y="174" font-size="16" font-weight="800" fill="#34464A">Shadow mode</text>
+            <text x="230" y="194" font-size="11" fill="#34464A">No-control inference on fleet video</text>
+
+            <text x="390" y="174" font-size="16" font-weight="800" fill="#34464A">Safety driver</text>
+            <text x="390" y="194" font-size="11" fill="#34464A">Industrial district daytime runs</text>
+
+            <!-- DEFECT: svg text truncation by clipping long label with clipPath too narrow -->
+            <clipPath id="clipLabel">
+              <rect x="540" y="160" width="300" height="30" rx="0" ry="0"></rect>
+            </clipPath>
+            <text x="550" y="174" font-size="16" font-weight="800" fill="#34464A" clip-path="url(#clipLabel)">
+              Commercial launch readiness
+            </text>
+            <text x="548" y="194" font-size="11" fill="#34464A">Geo-fenced downtown passenger service</text>
+
+            <text x="102" y="126" text-anchor="middle" font-size="15" font-weight="800" fill="#FFFBF2">1</text>
+            <text x="262" y="126" text-anchor="middle" font-size="15" font-weight="800" fill="#34464A">2</text>
+            <text x="422" y="126" text-anchor="middle" font-size="15" font-weight="800" fill="#34464A">3</text>
+            <text x="582" y="126" text-anchor="middle" font-size="15" font-weight="800" fill="#FFFBF2">4</text>
+          </svg>
+
+          <div class="phase-note">
+            <div class="phase-pill">
+              <div class="p-h">Perception</div>
+              <div class="p-b">mAP above 0.91 for cyclists and small obstacles in low-light scenes.</div>
+            </div>
+            <div class="phase-pill">
+              <div class="p-h">Prediction</div>
+              <div class="p-b">Lane-change intent F1 exceeds 0.83 across dense merge segments.</div>
+            </div>
+            <div class="phase-pill">
+              <div class="p-h">Planning</div>
+              <div class="p-b">Comfort score holds under 0.22 harsh-brake events per 100 miles.</div>
+            </div>
+            <div class="phase-pill">
+              <div class="p-h">Safety</div>
+              <div class="p-b">Zero unmitigated red-light violations during supervised pilot period.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mini-grid">
+          <div class="mini primary">
+            <h3>Primary risk</h3>
+            <p>Nighttime occlusion remains the main blocker, especially at unprotected left turns with mixed scooter traffic.</p>
+          </div>
+          <div class="mini secondary">
+            <h3>Instrumentation</h3>
+            <p>Fleet logging expanded from 12 to 36 channels, adding radar confidence traces and planner fallback reasons.</p>
+          </div>
+          <div class="mini accent">
+            <h3>Review cadence</h3>
+            <p>Cross-functional gate review every 3 weeks with safety, mapping, simulation, and policy operations leads.</p>
+          </div>
+          <div class="mini support">
+            <h3>Exit criterion</h3>
+            <p>Advance only when intervention rate improves for two consecutive monthly cohorts on the same route set.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card right">
+        <div class="section-title">Phase scorecard by milestone</div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:18%;">Phase</th>
+                <th style="width:23%;">Environment</th>
+                <th style="width:18%;">Miles</th>
+                <th style="width:19%;">Disengagements / 1k mi</th>
+                <th style="width:22%;">Gate</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="tag">Phase 1</span></td>
+                <td>Closed-course simulation + proving ground</td>
+                <td>420k</td>
+                <td>2.9</td>
+                <td>Emergency braking validated on 98.7% staged hazards</td>
+              </tr>
+              <tr>
+                <td><span class="tag">Phase 2</span></td>
+                <td>Shadow mode on employee commute routes</td>
+                <td>1.1M</td>
+                <td>1.6</td>
+                <td>Planner outperforms human baseline on merge timing</td>
+              </tr>
+              <tr>
+                <td><span class="tag">Phase 3</span></td>
+                <td>Safety driver, daytime, low-complexity district</td>
+                <td>1.9M</td>
+                <td>0.54</td>
+                <td>Fewer than 3 critical takeovers in 5,000-mile window</td>
+              </tr>
+              <tr>
+                <td><span class="tag">Phase 4</span></td>
+                <td>Geo-fenced downtown pilot with passengers</td>
+                <td>1.4M</td>
+                <td>0.21</td>
+                <td>Consistent curb approach and pickup success above 96%</td>
+              </tr>
+              <tr>
+                <td><span class="tag">Stretch</span></td>
+                <td>Night operations + light rain conditions</td>
+                <td>Projected 650k</td>
+                <td>0.18 target</td>
+                <td>Demonstrate stable behavior on reflective lane markings and temporary construction reroutes</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="insight">
+          <h3>Management readout</h3>
+          <ul>
+            <li>Largest quality gain occurred between shadow mode and supervised driving, where false positive braking dropped 41% after radar-camera fusion recalibration.</li>
+            <li>Downtown pilot readiness is less constrained by average disengagement rate than by long-tail curbside behavior under delivery-van occlusion.</li>
+            <li>Recommended next investment: annotation coverage for rare cyclist hand signals and temporary lane-control signage.</li>
+          </ul>
+        </div>
+
+        <div class="footer">Autonomy Program Review · FY2026 rollout plan</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

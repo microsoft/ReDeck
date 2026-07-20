@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1280, initial-scale=1.0" />
+<title>Key Findings List — Renewable Energy Comparison</title>
+<style>
+  :root{
+    --canvas:#102E35;
+    --ink:#F5F8F7;
+    --primary:#3EA4AA;
+    --secondary:#82C8C4;
+    --accent:#EF796B;
+    --support:#E8B765;
+  }
+  *{box-sizing:border-box}
+  html,body{
+    margin:0;
+    width:1280px;
+    height:720px;
+    overflow:hidden;
+    background:var(--canvas);
+    font-family:'Liberation Sans','Segoe UI',Arial,sans-serif;
+    color:var(--ink);
+  }
+
+  .slide{
+    width:1280px;
+    height:720px;
+    padding:42px 54px 34px 54px;
+    position:relative;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)),
+      radial-gradient(circle at 88% 14%, rgba(62,164,170,0.16), transparent 28%);
+  }
+
+  .topbar{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    margin-bottom:14px;
+  }
+
+  .eyebrow{
+    color:var(--secondary);
+    font-size:20px;
+    font-weight:700;
+    letter-spacing:1.8px;
+    text-transform:uppercase;
+    margin-bottom:8px;
+  }
+
+  .title{
+    font-size:48px;
+    line-height:0.96;
+    font-weight:800;
+    letter-spacing:-1.4px;
+    max-width:900px;
+    margin:0;
+  }
+
+  .slide-no{
+    color:var(--secondary);
+    font-size:22px;
+    font-weight:700;
+    padding-top:8px;
+  }
+
+  .hero-row{
+    display:grid;
+    grid-template-columns: 1.05fr 1fr;
+    gap:28px;
+    align-items:end;
+    margin-top:12px;
+    margin-bottom:10px;
+  }
+
+  .hero-stat .label{
+    color:var(--secondary);
+    font-size:18px;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:1.2px;
+    margin-bottom:8px;
+  }
+
+  .hero-stat .value{
+    font-size:58px;
+    line-height:0.9;
+    font-weight:900;
+    color:var(--support);
+    letter-spacing:-1px;
+    margin:0 0 2px 0;
+  }
+
+  .hero-stat .sub{
+    font-size:20px;
+    line-height:1.18;
+    color:var(--ink);
+    max-width:530px;
+  }
+
+  .summary{
+    padding-top:8px;
+  }
+
+  .summary .kicker{
+    color:var(--primary);
+    font-size:18px;
+    font-weight:800;
+    letter-spacing:1.4px;
+    text-transform:uppercase;
+    margin-bottom:10px;
+  }
+
+  .summary p{
+    margin:0;
+    font-size:22px;
+    line-height:1.14;
+    max-width:520px;
+    color:var(--ink);
+  }
+
+  .divider{
+    height:1px;
+    background:linear-gradient(90deg, var(--primary), rgba(130,200,196,0.2));
+    margin:8px 0 10px 0;
+  }
+
+  .findings-area{
+    display:grid;
+    grid-template-columns: 0.95fr 1.05fr;
+    gap:34px;
+    height:220px;
+  }
+
+  .section-title{
+    font-size:28px;
+    font-weight:800;
+    letter-spacing:-0.4px;
+    margin:0 0 14px 0;
+  }
+
+  .findings-list{
+    list-style:none;
+    padding:0;
+    margin:0;
+  }
+
+  .findings-list li{
+    position:relative;
+    padding-left:22px;
+    margin-bottom:4px;
+  }
+
+  .findings-list li::before{
+    content:"";
+    position:absolute;
+    left:0;
+    top:13px;
+    width:11px;
+    height:11px;
+    border-radius:50%;
+    background:var(--accent);
+  }
+
+  .findings-list h3{
+    margin:0 0 1px 0;
+    color:var(--ink);
+    font-size:18px;
+    font-weight:800;
+    line-height:0.96;
+  }
+
+  .findings-list p{
+    margin:0;
+    font-size:14px;
+    line-height:1.02;
+    color:var(--ink);
+  }
+
+  .table-wrap{
+    position:relative;
+  }
+
+  table{
+    width:100%;
+    border-collapse:collapse;
+    table-layout:fixed;
+  }
+
+  thead th{
+    text-align:left;
+    color:var(--secondary);
+    font-size:15px;
+    font-weight:800;
+    text-transform:uppercase;
+    letter-spacing:1px;
+    padding:0 8px 8px 0;
+    border-bottom:1px solid rgba(130,200,196,0.4);
+  }
+
+  tbody td{
+    padding:4px 8px 4px 0;
+    border-bottom:1px solid rgba(245,248,247,0.12);
+    vertical-align:top;
+    font-size:14px;
+    line-height:1;
+  }
+
+  tbody td.metric{
+    font-weight:800;
+    color:var(--ink);
+  }
+
+  tbody td.best{
+    color:var(--support);
+    font-weight:800;
+  }
+
+  /* DEFECT: low contrast text using canvas-adjacent color makes this explanatory note hard to read */
+  .footnote{
+    margin-top:6px;
+    font-size:11px;
+    line-height:1.1;
+    color:#6FAEAF;
+  }
+
+  /* DEFECT: font too large for the allocated findings column, causing obvious crowding/overlap pressure */
+  .oversized-callout{
+    position:absolute;
+    left:54px;
+    bottom:28px;
+    font-size:16px;
+    line-height:1;
+    font-weight:900;
+    letter-spacing:-0.3px;
+    color:var(--primary);
+    max-width:420px;
+  }
+
+  /* DEFECT: text overflow in box; fixed short height with overflow hidden cuts paragraph mid-line */
+  .overflow-box{
+    margin-top:6px;
+    border-top:2px solid var(--accent);
+    padding-top:4px;
+  }
+  .overflow-box .label{
+    font-size:11px;
+    color:var(--accent);
+    font-weight:800;
+    letter-spacing:0.7px;
+    text-transform:uppercase;
+    margin-bottom:2px;
+  }
+  .overflow-box .text{
+    font-size:11px;
+    line-height:1.18;
+    color:var(--ink);
+  }
+</style>
+</head>
+<body>
+  <div class="slide">
+    <div class="topbar">
+      <div>
+        <div class="eyebrow">Key Findings List</div>
+        <h1 class="title">Renewable energy comparison shows storage economics, not generation cost, now determine deployment pace</h1>
+      </div>
+      <div class="slide-no">78</div>
+    </div>
+
+    <div class="hero-row">
+      <div class="hero-stat">
+        <div class="label">Most competitive blended pathway</div>
+        <div class="value">41%</div>
+        <div class="sub">Lower modeled system cost for solar + 4h battery versus new peaker gas under 2030 fuel-price assumptions.</div>
+      </div>
+      <div class="summary">
+        <div class="kicker">Cross-market synthesis</div>
+        <p>Across eight utility solicitations and three merchant markets, onshore wind remained the lowest-cost bulk MWh source, while solar paired with storage delivered the strongest evening reliability value and the fastest construction timeline.</p>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="findings-area">
+      <div>
+        <h2 class="section-title">Primary findings</h2>
+        <ul class="findings-list">
+          <li>
+            <h3>Solar-plus-storage closed the dispatchability gap</h3>
+            <p>In summer peak windows, paired assets captured 78% of the capacity credit assigned to gas peakers, up from 51% in the 2021 benchmark set.</p>
+          </li>
+          <li>
+            <h3>Onshore wind still leads on unsubsidized bulk energy cost</h3>
+            <p>Median levelized cost landed at $34/MWh in high-resource regions, but interconnection delays widened project risk premiums by 180 basis points.</p>
+          </li>
+          <li>
+            <h3>Offshore wind improved output quality, not headline price</h3>
+            <p>Capacity factors above 49% materially reduced winter supply volatility, yet capex remained more than double utility-scale solar in the sampled pipeline.</p>
+          </li>
+          <li>
+            <h3>Geothermal remained niche but operationally valuable</h3>
+            <p>Where resource quality was proven, geothermal delivered the highest availability and the lowest balancing requirement of any zero-carbon technology reviewed.</p>
+          </li>
+        </ul>
+      </div>
+
+      <div class="table-wrap">
+        <h2 class="section-title">Comparative metrics</h2>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:34%">Technology</th>
+              <th style="width:22%">LCOE</th>
+              <th style="width:22%">Capacity factor</th>
+              <th style="width:22%">Build time</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="metric">Utility solar</td>
+              <td>$29–42/MWh</td>
+              <td>24–31%</td>
+              <td class="best">12–18 mo</td>
+            </tr>
+            <tr>
+              <td class="metric">Solar + 4h battery</td>
+              <td>$52–71/MWh</td>
+              <td>Firm evening shift</td>
+              <td>14–22 mo</td>
+            </tr>
+            <tr>
+              <td class="metric">Onshore wind</td>
+              <td class="best">$34–45/MWh</td>
+              <td class="best">38–46%</td>
+              <td>18–30 mo</td>
+            </tr>
+            <tr>
+              <td class="metric">Offshore wind</td>
+              <td>$86–118/MWh</td>
+              <td>45–52%</td>
+              <td>36–54 mo</td>
+            </tr>
+            <tr>
+              <td class="metric">Enhanced geothermal</td>
+              <td>$72–96/MWh</td>
+              <td>82–94%</td>
+              <td>30–48 mo</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="footnote">
+          Source set combines 2023–2025 utility IRPs, ISO queue disclosures, and developer bid summaries normalized to real 2024 dollars.
+        </div>
+
+        <div class="overflow-box">
+          <div class="label">Implication for planners</div>
+          <div class="text">Segment renewable tenders by delivery profile, not technology class — evening ramp support, curtailment exposure, and interconnection timing explain more variance in project value than PPA price alone.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="oversized-callout">
+      Storage duration—not panel cost—is now the decisive procurement variable
+    </div>
+  </div>
+</body>
+</html>

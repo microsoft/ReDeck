@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1280, initial-scale=1.0" />
+<title>Renewable Energy Comparison Grid</title>
+<style>
+  :root{
+    --canvas:#F4FAFA;
+    --ink:#24434A;
+    --primary:#2F7F88;
+    --secondary:#76BFC2;
+    --accent:#E88476;
+    --support:#EBD4A0;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    width:1280px;
+    height:720px;
+    overflow:hidden;
+    background:var(--canvas);
+    font-family:'Liberation Sans','Segoe UI',Arial,sans-serif;
+    color:var(--ink);
+  }
+  .slide{
+    width:1280px;
+    height:720px;
+    padding:28px 34px 26px 34px;
+    position:relative;
+    background:
+      radial-gradient(circle at 92% 10%, rgba(118,191,194,.18), transparent 180px),
+      radial-gradient(circle at 8% 92%, rgba(232,132,118,.10), transparent 200px),
+      var(--canvas);
+  }
+  .header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    margin-bottom:18px;
+  }
+  .title-block h1{
+    margin:0;
+    font-size:34px;
+    line-height:1.02;
+    letter-spacing:-0.6px;
+    color:var(--ink);
+    font-weight:800;
+  }
+  .title-block p{
+    margin:8px 0 0 0;
+    font-size:16px;
+    color:rgba(36,67,74,.82);
+    max-width:760px;
+  }
+  .tag{
+    background:#fff;
+    border:2px solid var(--secondary);
+    color:var(--primary);
+    border-radius:18px;
+    padding:10px 16px;
+    font-weight:700;
+    font-size:14px;
+    letter-spacing:.3px;
+    box-shadow:0 2px 0 rgba(47,127,136,.08);
+  }
+
+  .top-band{
+    display:grid;
+    grid-template-columns: 1.1fr 1.15fr;
+    gap:18px;
+    margin-bottom:18px;
+  }
+  .card{
+    background:rgba(255,255,255,.88);
+    border:2px solid rgba(47,127,136,.22);
+    border-radius:24px;
+    box-shadow:0 8px 22px rgba(36,67,74,.06);
+  }
+  .summary{
+    padding:20px 22px 18px 22px;
+    height:170px;
+  }
+  .summary h2, .mini-chart h2, .grid-card h2{
+    margin:0 0 10px 0;
+    font-size:18px;
+    color:var(--primary);
+    letter-spacing:.2px;
+  }
+  .summary-row{
+    display:grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap:14px;
+    margin-top:12px;
+  }
+  .kpi{
+    background:linear-gradient(180deg, rgba(118,191,194,.18), rgba(118,191,194,.08));
+    border:1px solid rgba(47,127,136,.18);
+    border-radius:18px;
+    padding:14px 14px 12px 14px;
+    min-height:96px;
+  }
+  .kpi .label{
+    font-size:13px;
+    text-transform:uppercase;
+    letter-spacing:.8px;
+    color:rgba(36,67,74,.72);
+    margin-bottom:6px;
+    font-weight:700;
+  }
+  .kpi .value{
+    /* DEFECT: font too large for KPI card causing crowding and clipping pressure */
+    font-size:48px;
+    line-height:.95;
+    font-weight:800;
+    color:var(--ink);
+    margin-bottom:4px;
+  }
+  .kpi .sub{
+    font-size:13px;
+    color:rgba(36,67,74,.78);
+  }
+
+  .mini-chart{
+    padding:18px 20px 12px 20px;
+    height:170px;
+  }
+  .mini-chart svg{
+    display:block;
+    width:100%;
+    height:118px;
+    overflow:hidden;
+  }
+
+  .bottom{
+    display:grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap:16px;
+    height:476px;
+  }
+  .grid-card{
+    padding:18px 18px 16px 18px;
+    position:relative;
+    overflow:hidden;
+  }
+  .energy-name{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:10px;
+  }
+  .energy-name .name{
+    font-size:24px;
+    font-weight:800;
+    letter-spacing:-.2px;
+  }
+  .badge{
+    background:var(--support);
+    color:var(--ink);
+    border-radius:14px;
+    padding:6px 10px;
+    font-size:12px;
+    font-weight:800;
+    text-transform:uppercase;
+    letter-spacing:.7px;
+  }
+  .score{
+    margin:6px 0 12px 0;
+    display:flex;
+    align-items:flex-end;
+    gap:10px;
+  }
+  .score .num{
+    /* DEFECT: font too large for column header area */
+    font-size:72px;
+    line-height:.85;
+    font-weight:800;
+    color:var(--primary);
+  }
+  .score .meta{
+    font-size:14px;
+    color:rgba(36,67,74,.78);
+    padding-bottom:8px;
+  }
+  .metric-list{
+    display:grid;
+    gap:10px;
+  }
+  .metric{
+    background:rgba(244,250,250,.8);
+    border:1px solid rgba(47,127,136,.16);
+    border-radius:16px;
+    padding:10px 12px;
+  }
+  .metric .m-label{
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.7px;
+    color:rgba(36,67,74,.66);
+    margin-bottom:4px;
+    font-weight:700;
+  }
+  .metric .m-value{
+    font-size:26px;
+    font-weight:800;
+    color:var(--ink);
+    line-height:1;
+  }
+  .metric .m-note{
+    margin-top:4px;
+    font-size:13px;
+    color:rgba(36,67,74,.78);
+    line-height:1.2;
+  }
+  .findings{
+    margin-top:12px;
+    padding:12px 14px;
+    border-radius:16px;
+    background:rgba(232,132,118,.10);
+    border:1px solid rgba(232,132,118,.28);
+  }
+  .findings .head{
+    font-size:12px;
+    text-transform:uppercase;
+    font-weight:800;
+    letter-spacing:.8px;
+    color:var(--accent);
+    margin-bottom:6px;
+  }
+  .findings ul{
+    margin:0;
+    padding-left:18px;
+  }
+  .findings li{
+    font-size:14px;
+    line-height:1.28;
+    margin-bottom:4px;
+  }
+
+  /* DEFECT: column content overflow by making cards too short for their content */
+  .grid-card{
+    height:476px;
+  }
+
+  .footer{
+    position:absolute;
+    left:36px;
+    right:36px;
+    bottom:10px;
+    display:flex;
+    justify-content:space-between;
+    font-size:12px;
+    color:rgba(36,67,74,.56);
+  }
+</style>
+</head>
+<body>
+  <div class="slide">
+    <div class="header">
+      <div class="title-block">
+        <h1>Renewable Energy Comparison Grid</h1>
+        <p>Utility-scale technologies compared across levelized cost, emissions intensity, build speed, and operational constraints. Data reflects 2025 planning assumptions used by North American grid operators and project finance teams.</p>
+      </div>
+      <div class="tag">Slide 178 · Portfolio Screening</div>
+    </div>
+
+    <div class="top-band">
+      <div class="card summary">
+        <h2>Portfolio Snapshot</h2>
+        <div class="summary-row">
+          <div class="kpi">
+            <div class="label">Lowest LCOE</div>
+            <div class="value">$31</div>
+            <div class="sub">Onshore wind median, $/MWh in high-resource regions</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Fastest Build</div>
+            <div class="value">14</div>
+            <div class="sub">Months to COD for modular battery-storage paired solar</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Firmest Output</div>
+            <div class="value">92%</div>
+            <div class="sub">Capacity factor for modern geothermal baseload assets</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mini-chart">
+        <h2>Illustrative Cost Curve by Technology</h2>
+        <svg viewBox="0 0 560 118" xmlns="http://www.w3.org/2000/svg" aria-label="Cost comparison bars">
+          <line x1="44" y1="96" x2="530" y2="96" stroke="#24434A" stroke-opacity="0.25" stroke-width="2"/>
+          <line x1="44" y1="18" x2="44" y2="96" stroke="#24434A" stroke-opacity="0.25" stroke-width="2"/>
+          <rect x="70" y="54" width="72" height="42" rx="8" fill="#76BFC2"/>
+          <rect x="180" y="44" width="72" height="52" rx="8" fill="#2F7F88"/>
+          <rect x="290" y="58" width="72" height="38" rx="8" fill="#EBD4A0"/>
+          <rect x="400" y="24" width="72" height="72" rx="8" fill="#E88476"/>
+
+          <text x="106" y="112" text-anchor="middle" font-size="13" font-weight="700" fill="#24434A">Solar + Storage</text>
+          <text x="216" y="112" text-anchor="middle" font-size="13" font-weight="700" fill="#24434A">Onshore Wind</text>
+          <text x="326" y="112" text-anchor="middle" font-size="13" font-weight="700" fill="#24434A">Geothermal</text>
+          <!-- DEFECT: svg text truncation via placing label beyond viewBox so text is visibly cut -->
+          <text x="506" y="112" text-anchor="start" font-size="13" font-weight="700" fill="#24434A">Offshore Wind (deep-water Atlantic)</text>
+
+          <text x="22" y="28" font-size="12" fill="#24434A" fill-opacity=".7">$70</text>
+          <text x="22" y="60" font-size="12" fill="#24434A" fill-opacity=".7">$50</text>
+          <text x="22" y="92" font-size="12" fill="#24434A" fill-opacity=".7">$30</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="bottom">
+      <div class="card grid-card">
+        <h2>Technology Profile</h2>
+        <div class="energy-name">
+          <div class="name">Solar + Storage</div>
+          <div class="badge">Scalable</div>
+        </div>
+        <div class="score">
+          <div class="num">8.4</div>
+          <div class="meta">Composite bankability score<br/>for 100–300 MW projects</div>
+        </div>
+        <div class="metric-list">
+          <div class="metric">
+            <div class="m-label">LCOE</div>
+            <div class="m-value">$36–48/MWh</div>
+            <div class="m-note">Competitive in regions with high summer peak pricing and strong interconnection queues.</div>
+          </div>
+          <div class="metric">
+            <div class="m-label">Capacity Factor</div>
+            <div class="m-value">29–34%</div>
+            <div class="m-note">Battery shifting improves delivered value but not gross generation.</div>
+          </div>
+          <div class="metric">
+            <div class="m-label">Operational Risk</div>
+            <div class="m-value">Low</div>
+            <div class="m-note">Mature EPC base, straightforward maintenance, inverter replacement cycle well understood.</div>
+          </div>
+        </div>
+        <div class="findings">
+          <div class="head">Investment Takeaway</div>
+          <ul>
+            <li>Best fit for merchant exposure with flexible dispatch windows.</li>
+            <li>Land and transmission remain the principal gating factors.</li>
+            <li>Storage duration above four hours materially changes revenue stack assumptions.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card grid-card">
+        <h2>Technology Profile</h2>
+        <div class="energy-name">
+          <div class="name">Onshore Wind</div>
+          <div class="badge">Lowest Cost</div>
+        </div>
+        <div class="score">
+          <div class="num">8.9</div>
+          <div class="meta">Composite bankability score<br/>for high-resource corridors</div>
+        </div>
+        <div class="metric-list">
+          <div class="metric">
+            <div class="m-label">LCOE</div>
+            <div class="m-value">$31–43/MWh</div>
+            <div class="m-note">Still the lowest-cost utility-scale source where wind resource quality supports high utilization.</div>
+          </div>
+          <div class="metric">
+            <div class="m-label">Capacity Factor</div>
+            <div class="m-value">41–49%</div>
+            <div class="m-note">Improved rotor diameters continue to lift output on moderate wind sites.</div>
+          </div>
+          <div class="metric">
+            <div class="m-label">Operational Risk</div>
+            <div class="m-value">Medium</div>
+            <div class="m-note">Community acceptance, curtailment exposure, and blade logistics can delay schedules.</div>
+          </div>
+        </div>
+        <div class="findings">
+          <div class="head">Investment Takeaway</div>
+          <ul>
+            <li>Most attractive pure-cost option for large corporate offtake portfolios.</li>
+            <li>Revenue volatility increases in markets with concentrated nighttime generation.</li>
+            <li>Repowering economics are increasingly favorable after year ten.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card grid-card">
+        <h2>Technology Profile</h2>
+        <div class="energy-name">
+          <div class="name">Geothermal</div>
+          <div class="badge">Firm Power</div>
+        </div>
+        <div class="score">
+          <div class="num">7.6</div>
+          <div class="meta">Composite bankability score<br/>for enhanced geothermal pilots</div>
+        </div>
+        <div class="metric-list">
+          <div class="metric">
+            <div class="m-label">LCOE</div>
+            <div class="m-value">$44–62/MWh</div>
+            <div class="m-note">Higher drilling intensity is offset by premium valuation for dispatchable clean generation.</div>
+          </div>
+          <div class="metric">
+            <div class="m-label">Capacity Factor</div>
+            <div class="m-value">88–92%</div>
+            <div class="m-note">Provides near-baseload output with low weather sensitivity and attractive ancillary service value.</div>
+          </div>
+          <div class="metric">
+            <div class="m-label">Operational Risk</div>
+            <div class="m-value">Medium-High</div>
+            <div class="m-note">Reservoir uncertainty and subsurface exploration risk remain key underwriting concerns.</div>
+          </div>
+        </div>
+        <div class="findings">
+          <div class="head">Investment Takeaway</div>
+          <ul>
+            <li>Strategic asset for grids requiring clean firm capacity, not just low-cost energy.</li>
+            <li>Project selection quality matters more than portfolio scale at current market maturity.</li>
+            <li>Public loan guarantees can materially improve first-of-a-kind economics.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card grid-card">
+        <h2>Technology Profile</h2>
+        <div class="energy-name">
+          <div class="name">Offshore Wind</div>
+          <div class="badge">Premium Resource</div>
+        </div>
+        <div class="score">
+          <div class="num">6.8</div>
+          <div class="meta">Composite bankability score<br/>for fixed-bottom coastal projects</div>
+        </div>
+        <div class="metric-list">
+          <div class="metric">
+            <div class="m-label">LCOE</div>
+            <div class="m-value">$58–79/MWh</div>
+            <div class="m-note">Higher capex and marine installation costs are partially offset by stronger output profiles.</div>
+          </div>
+          <div class="metric">
+            <div class="m-label">Capacity Factor</div>
+            <div class="m-value">48–57%</div>
+            <div class="m-note">Delivers high winter generation during periods of elevated coastal demand.</div>
+          </div>
+          <div class="metric">
+            <div class="m-label">Operational Risk</div>
+            <div class="m-value">High</div>
+            <div class="m-note">Permitting complexity, vessel availability, and localized supply chain bottlenecks remain significant.</div>
+          </div>
+        </div>
+        <div class="findings">
+          <div class="head">Investment Takeaway</div>
+          <ul>
+            <li>Compelling for decarbonizing dense coastal load centers with limited land availability.</li>
+            <li>Policy stability is essential because financing assumptions are highly rate-sensitive.</li>
+            <li>Domestic manufacturing credits can narrow the cost gap faster than expected.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div>Source: IEA, Lazard, NREL, regional ISO planning filings</div>
+      <div>All figures illustrative for strategic comparison</div>
+    </div>
+  </div>
+</body>
+</html>

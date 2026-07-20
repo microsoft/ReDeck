@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1280, initial-scale=1.0" />
+<title>Timeline Phases — Renewable Energy Comparison</title>
+<style>
+  :root{
+    --canvas:#FFFBF2;
+    --ink:#34464A;
+    --primary:#D97855;
+    --secondary:#3D8997;
+    --accent:#F0BE62;
+    --support:#A9CFBC;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    background:var(--canvas);
+    font-family:'Liberation Sans','Segoe UI',Arial,sans-serif;
+    overflow:hidden;
+  }
+  .slide{
+    width:1280px;
+    height:720px;
+    margin:0 auto;
+    background:var(--canvas);
+    color:var(--ink);
+    position:relative;
+    overflow:hidden;
+    padding:34px 36px 28px 36px;
+  }
+  .header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    margin-bottom:20px;
+  }
+  .title-wrap{
+    max-width:820px;
+  }
+  .eyebrow{
+    font-size:18px;
+    font-weight:700;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:var(--secondary);
+    margin-bottom:10px;
+  }
+  h1{
+    margin:0;
+    font-size:38px;
+    line-height:1.05;
+    letter-spacing:-0.02em;
+  }
+  .subtitle{
+    margin-top:10px;
+    font-size:18px;
+    line-height:1.35;
+    color:#5D6E72;
+    max-width:760px;
+  }
+
+  .metrics{
+    display:flex;
+    gap:14px;
+    width:360px;
+    justify-content:flex-end;
+  }
+  .metric{
+    flex:1;
+    border-radius:22px;
+    padding:16px 16px 14px 16px;
+    border:2px solid rgba(52,70,74,.10);
+    background:#fff7ea;
+    min-width:0;
+    box-shadow:0 8px 20px rgba(52,70,74,.06);
+  }
+  .metric.primary{
+    background:rgba(217,120,85,.12);
+    border-color:rgba(217,120,85,.28);
+  }
+  .metric.secondary{
+    background:rgba(61,137,151,.12);
+    border-color:rgba(61,137,151,.26);
+  }
+  .metric .label{
+    font-size:13px;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    font-weight:700;
+    color:#66777B;
+    margin-bottom:8px;
+  }
+  .metric .value{
+    font-size:44px;
+    line-height:.95;
+    font-weight:800;
+    color:var(--ink);
+    letter-spacing:-0.03em;
+  }
+  .metric .note{
+    margin-top:8px;
+    font-size:14px;
+    line-height:1.2;
+    color:#5D6E72;
+  }
+
+  /* DEFECT: metric box overflow — box height is too small and clips the note/value content */
+  .metric.overflow-bug{
+    height:104px;
+    overflow:hidden;
+  }
+
+  .main{
+    display:grid;
+    grid-template-columns: 1.6fr 1fr;
+    gap:20px;
+    height:590px;
+  }
+
+  .card{
+    background:#fffdf8;
+    border:2px solid rgba(52,70,74,.10);
+    border-radius:28px;
+    box-shadow:0 10px 24px rgba(52,70,74,.05);
+  }
+
+  .timeline-card{
+    padding:24px 24px 18px 24px;
+    position:relative;
+  }
+
+  .section-title{
+    font-size:24px;
+    font-weight:800;
+    margin:0 0 8px 0;
+    letter-spacing:-0.02em;
+  }
+  .section-sub{
+    font-size:15px;
+    color:#607175;
+    margin-bottom:18px;
+    line-height:1.35;
+    max-width:620px;
+  }
+
+  .timeline-grid{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:14px;
+    height:462px;
+  }
+  .phase{
+    border-radius:22px;
+    padding:16px 14px 14px 14px;
+    position:relative;
+    overflow:hidden;
+    border:2px solid transparent;
+  }
+  .phase:nth-child(1){
+    background:rgba(169,207,188,.22);
+    border-color:rgba(169,207,188,.65);
+  }
+  .phase:nth-child(2){
+    background:rgba(240,190,98,.18);
+    border-color:rgba(240,190,98,.6);
+  }
+  .phase:nth-child(3){
+    background:rgba(61,137,151,.13);
+    border-color:rgba(61,137,151,.38);
+  }
+  .phase:nth-child(4){
+    background:rgba(217,120,85,.12);
+    border-color:rgba(217,120,85,.38);
+  }
+  .phase-top{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:12px;
+  }
+  .phase-tag{
+    font-size:12px;
+    font-weight:800;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    color:#647579;
+  }
+  .phase-month{
+    font-size:13px;
+    font-weight:700;
+    color:#5E7074;
+  }
+  .phase h3{
+    margin:0 0 10px 0;
+    font-size:24px;
+    line-height:1.05;
+    letter-spacing:-0.02em;
+  }
+  .phase p{
+    margin:0 0 14px 0;
+    font-size:15px;
+    line-height:1.35;
+    color:#56686C;
+  }
+  .mini-kpi{
+    display:inline-block;
+    padding:8px 10px;
+    border-radius:14px;
+    background:rgba(255,255,255,.72);
+    font-weight:800;
+    font-size:14px;
+    margin-bottom:12px;
+  }
+  .phase ul{
+    margin:0;
+    padding-left:18px;
+    font-size:14px;
+    line-height:1.35;
+    color:var(--ink);
+  }
+  .phase li{ margin-bottom:8px; }
+
+  .right-col{
+    display:grid;
+    grid-template-rows: 250px 1fr;
+    gap:18px;
+  }
+
+  .summary-card{
+    padding:22px 22px 18px 22px;
+  }
+  .summary-list{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+    margin-top:14px;
+  }
+  .summary-item{
+    background:#fff;
+    border:1.5px solid rgba(52,70,74,.10);
+    border-radius:18px;
+    padding:14px 14px 12px 14px;
+  }
+  .summary-item .k{
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    color:#6A7B7E;
+    font-weight:700;
+    margin-bottom:8px;
+  }
+  .summary-item .v{
+    font-size:28px;
+    font-weight:800;
+    letter-spacing:-0.03em;
+    margin-bottom:4px;
+  }
+  .summary-item .d{
+    font-size:13px;
+    line-height:1.25;
+    color:#5E7074;
+  }
+
+  .svg-card{
+    padding:18px 18px 12px 18px;
+    position:relative;
+  }
+  .svg-title{
+    font-size:22px;
+    font-weight:800;
+    margin-bottom:6px;
+  }
+  .svg-sub{
+    font-size:14px;
+    color:#607175;
+    margin-bottom:10px;
+    line-height:1.3;
+  }
+  .footer{
+    position:absolute;
+    left:36px;
+    right:36px;
+    bottom:16px;
+    display:flex;
+    justify-content:space-between;
+    font-size:12px;
+    color:#7A8A8D;
+  }
+</style>
+</head>
+<body>
+  <div class="slide">
+    <div class="header">
+      <div class="title-wrap">
+        <div class="eyebrow">Renewable Energy Comparison · Slide 171</div>
+        <h1>Project timeline phases for utility-scale solar + battery deployment</h1>
+        <div class="subtitle">
+          Four-phase rollout for a 280 MW solar portfolio with co-located storage. Program sequencing emphasizes interconnection readiness, procurement timing, and construction ramp efficiency across three regional sites.
+        </div>
+      </div>
+
+      <div class="metrics">
+        <div class="metric primary overflow-bug">
+          <div class="label">Portfolio IRR</div>
+          <div class="value">12.8%</div>
+          <div class="note">Base-case return after tax credits, merchant hedge, and storage arbitrage upside in year 3 commissioning window.</div>
+        </div>
+        <div class="metric secondary">
+          <div class="label">LCOE</div>
+          <div class="value">$41</div>
+          <div class="note">Per MWh blended across the three sites.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="main">
+      <div class="card timeline-card">
+        <div class="section-title">Phase roadmap</div>
+        <div class="section-sub">
+          The program starts with siting and permitting, moves through equipment lock-in, then transitions to EPC execution and commercial operations handoff.
+        </div>
+
+        <div class="timeline-grid">
+          <div class="phase">
+            <div class="phase-top">
+              <div class="phase-tag">Phase 1</div>
+              <div class="phase-month">Q1–Q2</div>
+            </div>
+            <h3>Site Origination</h3>
+            <div class="mini-kpi">42 parcels screened</div>
+            <p>Filter candidate land positions using irradiance, grid congestion, and environmental constraints.</p>
+            <ul>
+              <li>Rank substations by spare capacity and curtailment risk</li>
+              <li>Secure land options covering 1,940 acres</li>
+              <li>Complete avian and wetland baseline review</li>
+            </ul>
+          </div>
+
+          <div class="phase">
+            <div class="phase-top">
+              <div class="phase-tag">Phase 2</div>
+              <div class="phase-month">Q3–Q4</div>
+            </div>
+            <h3>Permitting &amp; Queue</h3>
+            <div class="mini-kpi">18 mo. median lead time</div>
+            <p>Advance environmental filings and interconnection studies while narrowing design assumptions.</p>
+            <ul>
+              <li>Submit county conditional-use applications</li>
+              <li>Finalize single-line diagrams for utility review</li>
+              <li>Negotiate battery fire-suppression requirements</li>
+            </ul>
+          </div>
+
+          <div class="phase">
+            <div class="phase-top">
+              <div class="phase-tag">Phase 3</div>
+              <div class="phase-month">Q1–Q2 next year</div>
+            </div>
+            <h3>Procurement Lock</h3>
+            <div class="mini-kpi">71% equipment cost hedged</div>
+            <p>Protect schedule by reserving modules, inverters, transformers, and battery containers.</p>
+            <ul>
+              <li>Dual-source modules to reduce import volatility</li>
+              <li>Align PCS delivery with foundation completion</li>
+              <li>Close EPC pricing before steel escalation resets</li>
+            </ul>
+          </div>
+
+          <div class="phase">
+            <div class="phase-top">
+              <div class="phase-tag">Phase 4</div>
+              <div class="phase-month">Q3 onward</div>
+            </div>
+            <h3>Build &amp; COD</h3>
+            <div class="mini-kpi">280 MW / 560 MWh</div>
+            <p>Execute civil works, energization tests, and staged commercial operations across all sites.</p>
+            <ul>
+              <li>Commission storage first to support ramp testing</li>
+              <li>Reach substantial completion in three tranches</li>
+              <li>Transfer O&amp;M playbooks to asset operations team</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="right-col">
+        <div class="card summary-card">
+          <div class="section-title">Program checkpoints</div>
+          <div class="summary-list">
+            <div class="summary-item">
+              <div class="k">Capex</div>
+              <div class="v">$462M</div>
+              <div class="d">Includes storage balance-of-plant and transmission upgrades.</div>
+            </div>
+            <div class="summary-item">
+              <div class="k">PPA coverage</div>
+              <div class="v">64%</div>
+              <div class="d">Contracted output at signing, remainder merchant + tolling.</div>
+            </div>
+            <div class="summary-item">
+              <div class="k">Expected COD</div>
+              <div class="v">Sep 2027</div>
+              <div class="d">Assumes no queue restudy after facilities study issue.</div>
+            </div>
+            <div class="summary-item">
+              <div class="k">Primary risk</div>
+              <div class="v" style="font-size:24px;">Transformer lead time</div>
+              <div class="d">Current supplier quotes remain above 52 weeks.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card svg-card">
+          <div class="svg-title">Schedule compression opportunity</div>
+          <div class="svg-sub">Parallelizing procurement and permit close-out can reduce overall duration, but only if interconnection assumptions remain stable.</div>
+
+          <svg width="100%" height="210" viewBox="0 0 360 210" xmlns="http://www.w3.org/2000/svg" aria-label="timeline summary graphic" style="display:block;">
+            <defs>
+              <clipPath id="clipText">
+                <!-- DEFECT: svg text truncation — clip path is intentionally too narrow, cutting labels mid-word -->
+                <rect x="0" y="0" width="255" height="210"></rect>
+              </clipPath>
+            </defs>
+
+            <line x1="26" y1="118" x2="334" y2="118" stroke="#34464A" stroke-width="4" stroke-linecap="round"/>
+            <circle cx="48" cy="118" r="12" fill="#A9CFBC"/>
+            <circle cx="132" cy="118" r="12" fill="#F0BE62"/>
+            <circle cx="222" cy="118" r="12" fill="#3D8997"/>
+            <circle cx="314" cy="118" r="12" fill="#D97855"/>
+
+            <rect x="32" y="42" width="86" height="42" rx="14" fill="rgba(169,207,188,.35)" stroke="rgba(169,207,188,.9)"/>
+            <rect x="108" y="146" width="108" height="42" rx="14" fill="rgba(240,190,98,.30)" stroke="rgba(240,190,98,.9)"/>
+            <rect x="188" y="42" width="116" height="42" rx="14" fill="rgba(61,137,151,.20)" stroke="rgba(61,137,151,.9)"/>
+            <rect x="268" y="146" width="104" height="42" rx="14" fill="rgba(217,120,85,.20)" stroke="rgba(217,120,85,.9)"/>
+
+            <g clip-path="url(#clipText)" fill="#34464A" font-family="Liberation Sans, Segoe UI, Arial, sans-serif">
+              <text x="38" y="68" font-size="13" font-weight="700">Origination &amp; land control</text>
+              <text x="116" y="172" font-size="13" font-weight="700">Permit filing + queue studies</text>
+              <text x="196" y="68" font-size="13" font-weight="700">Module + inverter reservation</text>
+              <text x="276" y="172" font-size="13" font-weight="700">Construction and commissioning</text>
+            </g>
+
+            <text x="36" y="107" font-size="12" fill="#6A7B7E">0 mo</text>
+            <text x="120" y="107" font-size="12" fill="#6A7B7E">6 mo</text>
+            <text x="210" y="107" font-size="12" fill="#6A7B7E">12 mo</text>
+            <text x="300" y="107" font-size="12" fill="#6A7B7E">18+ mo</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div>Source: internal development model, utility queue filings, EPC market checks</div>
+      <div>171</div>
+    </div>
+  </div>
+</body>
+</html>

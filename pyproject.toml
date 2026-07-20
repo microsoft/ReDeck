@@ -9,13 +9,10 @@ description = "ReDeck: LLM-powered slide deck generation from academic papers wi
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.5,<3",
-    "python-pptx>=1.0,<2",
     "openai>=1.30,<2",
     "Pillow>=10.0,<11",
-    "pdf2image>=1.17,<2",
     "httpx>=0.27,<1",
     "tenacity>=8.2,<10",
-    "msal>=1.28,<2",
     "PyMuPDF>=1.24,<2",
     "rank_bm25>=0.2.2,<1",
     "beautifulsoup4>=4.12,<5",
@@ -24,6 +21,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+azure = [
+    "azure-identity>=1.15",
+]
+pptx = [
+    "python-pptx>=1.0,<2",
+    "pdf2image>=1.17,<2",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
