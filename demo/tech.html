@@ -1,370 +1,287 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ReDeck | Technical Details</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@600&display=block" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=block" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css">
-<style>
-/* ===== Data Tables ===== */
-.data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.data-table th {
-  text-align: left; padding: 10px 12px;
-  font-size: 11px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.08em; color: #8ea5ff;
-  border-bottom: 2px solid rgba(255,255,255,0.2);
-}
-.data-table td {
-  padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.08);
-  color: #d3dcf0; font-family: 'JetBrains Mono', monospace; font-size: 13px;
-}
-.data-table td:first-child { font-family: 'Outfit', sans-serif; font-weight: 600; color: #e9eeff; }
-.data-table tr.ours td { color: #4ae3b5; font-weight: 700; }
-.data-table tr.ours td:first-child { color: #4ae3b5; }
-.data-table tr.t0 td { color: #8b949e; font-style: italic; }
-.data-table .model-header td {
-  padding: 14px 12px 6px; font-family: 'Outfit', sans-serif;
-  font-weight: 800; font-size: 15px; color: #f4f7ff;
-  border-bottom: 1px solid rgba(255,255,255,0.15);
-  letter-spacing: 0.02em;
-}
-.best { color: #4ae3b5 !important; font-weight: 800 !important; }
-
-/* Ablation block headers */
-.data-table tr.block-header td {
-  padding: 14px 12px 6px; font-family: 'Outfit', sans-serif;
-  font-weight: 700; font-size: 13px; color: #8ea5ff;
-  font-style: italic; border-bottom: 1px solid rgba(255,255,255,0.12);
-}
-
-/* Bar charts */
-.bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.bar-label { min-width: 130px; font-size: 13px; color: #d3dcf0; font-weight: 600; }
-.bar-track { flex: 1; height: 28px; background: rgba(255,255,255,0.06); border-radius: 6px; position: relative; overflow: hidden; }
-.bar-fill { height: 100%; border-radius: 6px; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; font-size: 11px; font-weight: 700; color: white; transition: width 1s ease; }
-.bar-fill.accent { background: linear-gradient(90deg, rgba(124,92,252,0.6), var(--accent)); }
-.bar-fill.green { background: linear-gradient(90deg, rgba(74,227,181,0.5), var(--accent2)); }
-.bar-fill.red { background: linear-gradient(90deg, rgba(247,74,106,0.4), var(--red)); }
-.bar-fill.dim { background: rgba(255,255,255,0.15); color: #a5b0c9; }
-
-/* Human study pill */
-.win-pill {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 14px; border-radius: 999px; font-size: 13px; font-weight: 700;
-}
-.win-pill.high { background: rgba(74,227,181,0.15); color: var(--accent2); }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ReDeck Technical Details</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@600;700&family=Outfit:wght@100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="theme.js"></script>
+  <link rel="stylesheet" href="palette-themes.css">
 </head>
 <body>
-
-<header class="nav" id="nav">
-  <a class="brand" href="index.html">
-    <img class="brand-logo" src="assets/microsoft-logo.svg" alt="Microsoft">
-  </a>
-  <nav class="nav-links">
-    <a href="index.html">Home</a>
-    <a href="video.html">Promo Video</a>
-    <a class="active" href="tech.html">Technical Details</a>
-    <a href="team.html">Team</a>
-  </nav>
-  <div class="nav-right"></div>
-</header>
-
-<main class="section-wrap" style="padding-top: 118px; padding-bottom: 56px;">
-
-  <!-- Hero Panel -->
-  <div class="tech-hero-panel">
-    <p class="tech-kicker">Technical Details</p>
-    <h1>ReDeck: Step-Level Render-Grounded Refinement for Reliable Slide Generation</h1>
-    <div class="tech-authors">
-      <span>Muzhao Tian<sup>1</sup></span>
-      <span>Zezi Zeng<sup>1</sup></span>
-      <span>Yifan Yang<sup>2</sup></span>
-      <span>Xin Gao<sup>2</sup></span>
-      <span>Yan Li<sup>2</sup></span>
-      <span>Zisu Huang<sup>2</sup></span>
-      <span>Xiaohua Wang<sup>1</sup></span>
-      <span>Changze Lv<sup>1</sup></span>
-      <span>Mingxi Cheng<sup>2</sup></span>
-      <span>Bei Liu<sup>2</sup></span>
-      <span>Kai Qiu<sup>2</sup></span>
-      <span>Qi Dai<sup>2</sup></span>
-      <span>Dong Chen<sup>2</sup></span>
-      <span>Yue Dong<sup>3</sup></span>
-      <span>Xiaoqing Zheng<sup>1</sup></span>
-      <span>Ji Li<sup>2</sup></span>
-      <span>Chong Luo<sup>2</sup></span>
+  <header class="nav" id="nav">
+    <div class="nav-identity">
+      <a class="nav-microsoft" href="https://www.microsoft.com/en-us/research/" target="_blank" rel="noopener" aria-label="Microsoft Research">
+        <img src="assets/microsoft.svg" alt="">
+      </a>
+      <span class="nav-separator" aria-hidden="true"></span>
+      <a class="nav-brand" href="index.html">ReDeck</a>
     </div>
-    <div class="tech-affiliations">
-      <span><sup>1</sup> Fudan University</span>
-      <span><sup>2</sup> Microsoft Research</span>
-      <span><sup>3</sup> UC Riverside</span>
-    </div>
-    <div class="stat-grid">
-      <article class="stat-card">
-        <p class="stat-key">vs. Best Baseline</p>
-        <p class="stat-val" style="color: var(--accent2);">+11.8</p>
-        <p class="stat-desc">Fidelity improvement over DeepPresenter (GPT-5.4)</p>
-      </article>
-      <article class="stat-card">
-        <p class="stat-key">Spatial Clean Rate</p>
-        <p class="stat-val" style="color: var(--accent2);">91.5%</p>
-        <p class="stat-desc">vs. 88.2% SlideTailor &middot; +27.4 over T0</p>
-      </article>
-      <article class="stat-card">
-        <p class="stat-key">Cross-Domain Win</p>
-        <p class="stat-val" style="color: var(--accent2);">0.70</p>
-        <p class="stat-desc">Avg win rate on PresentBench (5 genres)</p>
-      </article>
-      <article class="stat-card">
-        <p class="stat-key">Human Preference</p>
-        <p class="stat-val" style="color: var(--accent2);">87%</p>
-        <p class="stat-desc">Win rate vs. SlideGen (15-task study)</p>
-      </article>
-      <article class="stat-card">
-        <p class="stat-key">LLM Backbones</p>
-        <p class="stat-val">3</p>
-        <p class="stat-desc">GPT-5.4, Claude-4.6, Gemini-3.1</p>
-      </article>
-      <article class="stat-card">
-        <p class="stat-key">Benchmark</p>
-        <p class="stat-val">DeckQuiz</p>
-        <p class="stat-desc">4 modules: Fidelity, Spatial, Aesthetics, Design</p>
-      </article>
-    </div>
-  </div>
+    <nav class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="video.html">Demo Video</a>
+      <a class="active" href="tech.html">Technical Details</a>
+      <a href="team.html">Team</a>
+    </nav>
+  </header>
 
-  <!-- Abstract -->
-  <section class="section-block">
-    <div class="section-head">
-      <p class="section-idx">01</p>
-      <h2>Abstract</h2>
-    </div>
-    <article class="panel">
-      <p class="tech-abstract">Document-to-slide generation is challenging because slides are dense editable artifacts that require both faithful content selection and precise spatial layout. Recent slide agents adopt iterative reflection, but typically follow a monolithic "one version, one feedback" loop: a slide or deck is rewritten, rendered afterward, and critiqued only at the turn boundary. This delayed feedback makes local failures such as overflow, overlap, clipping, and off-canvas placement difficult to attribute and repair. We propose <strong>ReDeck</strong>, a step-level render-grounded refinement framework that decomposes slide revision into atomic edit actions and returns renderer-derived observations after each step, turning refinement into "one edit, one observation." To balance local repair with global quality, ReDeck uses multi-granular feedback: step-level render feedback for spatial errors, a turn-level adaptive critic for semantic and design guidance, and a submission-level gate for hard layout validation. We further introduce <strong>DeckQuiz</strong>, a benchmark that decouples content fidelity, spatial correctness, and design quality. Across GPT-5.4, Claude-4.6, and Gemini-3.1, ReDeck consistently outperforms existing slide-generation agents, and ablations confirm that feedback timing and granularity are critical for reliable slide refinement.</p>
-    </article>
-  </section>
+  <main>
+    <!-- Tech Hero -->
+    <section class="tech-hero">
+      <p class="tech-kicker">Technical Details</p>
+      <h1 class="tech-title">ReDeck: Step-Level Render-Grounded Refinement for Document-to-Slide Generation</h1>
+      <div class="tech-authors">
+        <span>Muzhao Tian<sup>4,*&dagger;</sup></span>
+        <span>Zezi Zeng<sup>3,*</sup></span>
+        <span>Yifan Yang<sup>1</sup></span>
+        <span>Xin Gao<sup>4</sup></span>
+        <span>Yan Li<sup>2</sup></span>
+        <span>Zisu Huang<sup>4</sup></span>
+        <span>Xiaohua Wang<sup>4</sup></span>
+        <span>Changze Lv<sup>4</sup></span>
+        <span>Mingxi Cheng<sup>1</sup></span>
+        <span>Bei Liu<sup>1</sup></span>
+        <span>Kai Qiu<sup>1</sup></span>
+        <span>Qi Dai<sup>1</sup></span>
+        <span>Dong Chen<sup>1</sup></span>
+        <span>Yue Dong<sup>1</sup></span>
+        <span>Xiaoqing Zheng<sup>4</sup></span>
+        <span>Ji Li<sup>1,&ddagger;</sup></span>
+        <span>Chong Luo<sup>1,&ddagger;</sup></span>
+      </div>
+      <p class="tech-affiliations">
+        <span><sup>1</sup> Microsoft Corporation</span>
+        <span><sup>2</sup> Shanghai Jiao Tong University</span>
+        <span><sup>3</sup> Xi'an Jiaotong University</span>
+        <span><sup>4</sup> Fudan University</span>
+      </p>
+      <p class="tech-notes">
+        <sup>*</sup> Equal contribution. &nbsp;
+        <sup>&dagger;</sup> Work done during an internship at Microsoft. &nbsp;
+        <sup>&ddagger;</sup> Corresponding authors.
+      </p>
+      <p class="tech-lead">
+        ReDeck decomposes slide revision into atomic edit actions and returns renderer-derived observations after each step, turning refinement from "one version, one feedback" into "one edit, one observation."
+      </p>
+    </section>
 
-  <!-- Pipeline -->
-  <section class="section-block">
-    <div class="section-head">
-      <p class="section-idx">02</p>
-      <h2>Pipeline Overview</h2>
-    </div>
-    <figure class="panel" style="padding: clamp(10px,1.4vw,16px);">
-      <img src="figures/fig2.png" alt="ReDeck pipeline overview">
-      <figcaption>Monolithic refinement (left) applies all edits at once, making failure attribution impossible. ReDeck (right) renders after each atomic edit and rolls back regressions.</figcaption>
-    </figure>
-  </section>
+    <!-- Abstract -->
+    <section class="section tech-section">
+      <div class="tech-section-head">
+        <p class="section-index">01</p>
+        <h2>Abstract</h2>
+      </div>
+      <div class="panel text-panel">
+        <p>Document-to-slide generation is challenging because slides are dense editable artifacts that require both faithful content selection and precise spatial layout. Recent slide agents adopt iterative reflection, but typically follow a monolithic "one version, one feedback" loop: a slide or deck is rewritten, rendered afterward, and critiqued only at the turn boundary. This delayed feedback makes local failures such as overflow, overlap, clipping, and off-canvas placement difficult to attribute and repair.</p>
+        <p>We propose <strong>ReDeck</strong>, a step-level render-grounded refinement framework that decomposes slide revision into atomic edit actions and returns renderer-derived observations after each step, turning refinement into "one edit, one observation." To balance local repair with global quality, ReDeck uses multi-granular feedback: step-level render feedback for spatial errors, a turn-level adaptive critic for semantic and design guidance, and a submission-level gate for hard layout validation.</p>
+        <p>We further introduce <strong>DeckQuiz</strong>, a benchmark that decouples content fidelity, spatial correctness, and design quality. Across GPT-5.4, Claude-4.6, and Gemini-3.1, ReDeck consistently outperforms existing slide-generation agents, and ablations confirm that feedback timing and granularity are critical for reliable slide refinement.</p>
+      </div>
+    </section>
 
-  <!-- Main Results Table -->
-  <section class="section-block">
-    <div class="section-head">
-      <p class="section-idx">03</p>
-      <h2>Main Results</h2>
-      <p class="section-intro">DeckQuiz evaluation across 3 models &times; 100 tasks &times; 3 seeds, under matched per-task call budgets. Higher is better for all metrics.</p>
-    </div>
-    <div class="panel" style="overflow-x: auto;">
-      <table class="data-table">
+    <!-- Method Overview -->
+    <section class="section tech-section" id="method">
+      <div class="tech-section-head">
+        <p class="section-index">02</p>
+        <h2>Method Overview</h2>
+      </div>
+      <p class="section-intro">Each turn nests a Turn-Level Adaptive Deck Critic around Step-Level Render Feedback. The critic updates the deck-wide issue list once per turn; after every atomic action, the renderer returns spatial facts to the next reasoning step. Only submission triggers the hard validation gate.</p>
+      <figure class="paper-figure method-figure">
+        <a href="assets/paper-fig2.png" target="_blank" rel="noopener" aria-label="Open the ReDeck pipeline figure at full resolution">
+          <img src="assets/paper-fig2.png" alt="ReDeck pipeline with a turn-level adaptive deck critic, a step-level edit loop, rendered feedback, rollback, and a submission gate" loading="lazy">
+        </a>
+        <figcaption><strong>Fig. 2 &middot; ReDeck pipeline.</strong> The critic provides deck-wide semantic and design guidance; step-level feedback reports the rendered consequence of each edit without acting as a verdict.</figcaption>
+      </figure>
+    </section>
+
+    <!-- Main Results -->
+    <section class="section tech-section">
+      <div class="tech-section-head">
+        <p class="section-index">03</p>
+        <h2>Main Results</h2>
+      </div>
+      <p class="section-intro">Performance comparison with published slide agents on DeckQuiz (3 models &times; 100 tasks &times; 3 seeds) under matched per-task LLM-call-count caps.</p>
+      <div class="metric-lift" aria-label="GPT-5.4 metric improvements from the initial ReDeck generation to the final ReDeck output">
+        <div class="metric-lift-head">
+          <div>
+            <p class="visual-kicker">GPT-5.4 &middot; T0 to final</p>
+            <h3>Refinement improves every quality axis</h3>
+          </div>
+          <div class="metric-legend"><span class="before"></span>T0 <span class="after"></span>ReDeck</div>
+        </div>
+        <div class="metric-lift-grid">
+          <div class="metric-lift-item">
+            <div class="metric-lift-title"><span>Content Fidelity</span><strong>+8.2</strong></div>
+            <div class="metric-bar-row"><span>T0</span><div class="metric-bar"><i class="before" style="--score:80.4%"></i></div><b>80.4</b></div>
+            <div class="metric-bar-row"><span>Final</span><div class="metric-bar"><i class="after" style="--score:88.6%"></i></div><b>88.6</b></div>
+          </div>
+          <div class="metric-lift-item">
+            <div class="metric-lift-title"><span>Spatial Clean Rate</span><strong>+27.4pp</strong></div>
+            <div class="metric-bar-row"><span>T0</span><div class="metric-bar"><i class="before" style="--score:64.1%"></i></div><b>64.1</b></div>
+            <div class="metric-bar-row"><span>Final</span><div class="metric-bar"><i class="after" style="--score:91.5%"></i></div><b>91.5</b></div>
+          </div>
+          <div class="metric-lift-item">
+            <div class="metric-lift-title"><span>Aesthetics</span><strong>+0.69</strong></div>
+            <div class="metric-bar-row"><span>T0</span><div class="metric-bar"><i class="before" style="--score:59%"></i></div><b>2.95</b></div>
+            <div class="metric-bar-row"><span>Final</span><div class="metric-bar"><i class="after" style="--score:72.8%"></i></div><b>3.64</b></div>
+          </div>
+          <div class="metric-lift-item">
+            <div class="metric-lift-title"><span>Information Architecture</span><strong>+8.4</strong></div>
+            <div class="metric-bar-row"><span>T0</span><div class="metric-bar"><i class="before" style="--score:62.8%"></i></div><b>62.8</b></div>
+            <div class="metric-bar-row"><span>Final</span><div class="metric-bar"><i class="after" style="--score:71.2%"></i></div><b>71.2</b></div>
+          </div>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table class="results-table">
         <thead>
-          <tr><th>System</th><th>Fid. &uarr;</th><th>SCR &uarr;</th><th>Aes. &uarr;</th><th>Des. &uarr;</th></tr>
+          <tr><th>Model</th><th>System</th><th>Fid. &uarr;</th><th>SCR &uarr;</th><th>Aes. &uarr;</th><th>Des. &uarr;</th></tr>
         </thead>
         <tbody>
-          <tr class="model-header"><td colspan="5">GPT-5.4</td></tr>
-          <tr><td>SlideGen</td><td>65.3</td><td>83.4</td><td>3.08</td><td>50.2</td></tr>
+          <tr><td rowspan="5">GPT-5.4</td><td>SlideGen</td><td>65.3</td><td>83.4</td><td>3.08</td><td>50.2</td></tr>
           <tr><td>SlideTailor</td><td>60.2</td><td>88.2</td><td>2.90</td><td>56.4</td></tr>
           <tr><td>DeepPresenter</td><td>76.8</td><td>66.8</td><td>3.47</td><td>55.1</td></tr>
-          <tr class="t0"><td>ReDeck (T0, no repair)</td><td>80.4</td><td>64.1</td><td>2.95</td><td>62.8</td></tr>
-          <tr class="ours"><td>ReDeck (ours)</td><td class="best">88.6</td><td class="best">91.5</td><td class="best">3.64</td><td class="best">71.2</td></tr>
+          <tr><td style="color: var(--muted)">ReDeck (T0, before repair)</td><td style="color: var(--muted)">80.4</td><td style="color: var(--muted)">64.1</td><td style="color: var(--muted)">2.95</td><td style="color: var(--muted)">62.8</td></tr>
+          <tr class="ours-row"><td><strong>ReDeck (ours)</strong></td><td class="highlight"><strong>88.6</strong></td><td class="highlight"><strong>91.5</strong></td><td class="highlight"><strong>3.64</strong></td><td class="highlight"><strong>71.2</strong></td></tr>
 
-          <tr class="model-header"><td colspan="5">Gemini-3.1</td></tr>
-          <tr><td>SlideGen</td><td>61.5</td><td>80.1</td><td>2.92</td><td>47.3</td></tr>
+          <tr><td rowspan="5">Gemini-3.1</td><td>SlideGen</td><td>61.5</td><td>80.1</td><td>2.92</td><td>47.3</td></tr>
           <tr><td>SlideTailor</td><td>56.8</td><td>84.7</td><td>2.71</td><td>53.2</td></tr>
           <tr><td>DeepPresenter</td><td>72.4</td><td>63.5</td><td>3.31</td><td>52.0</td></tr>
-          <tr class="t0"><td>ReDeck (T0, no repair)</td><td>76.8</td><td>61.2</td><td>2.81</td><td>59.4</td></tr>
-          <tr class="ours"><td>ReDeck (ours)</td><td class="best">85.1</td><td class="best">88.2</td><td class="best">3.48</td><td class="best">68.1</td></tr>
+          <tr><td style="color: var(--muted)">ReDeck (T0, before repair)</td><td style="color: var(--muted)">76.8</td><td style="color: var(--muted)">61.2</td><td style="color: var(--muted)">2.81</td><td style="color: var(--muted)">59.4</td></tr>
+          <tr class="ours-row"><td><strong>ReDeck (ours)</strong></td><td class="highlight"><strong>85.1</strong></td><td class="highlight"><strong>88.2</strong></td><td class="highlight"><strong>3.48</strong></td><td class="highlight"><strong>68.1</strong></td></tr>
 
-          <tr class="model-header"><td colspan="5">Claude-4.6</td></tr>
-          <tr><td>SlideGen</td><td>63.2</td><td>81.6</td><td>3.01</td><td>48.6</td></tr>
+          <tr><td rowspan="5">Claude-4.6</td><td>SlideGen</td><td>63.2</td><td>81.6</td><td>3.01</td><td>48.6</td></tr>
           <tr><td>SlideTailor</td><td>58.4</td><td>86.2</td><td>2.82</td><td>54.7</td></tr>
           <tr><td>DeepPresenter</td><td>74.5</td><td>64.9</td><td>3.38</td><td>53.4</td></tr>
-          <tr class="t0"><td>ReDeck (T0, no repair)</td><td>78.5</td><td>62.5</td><td>2.88</td><td>61.0</td></tr>
-          <tr class="ours"><td>ReDeck (ours)</td><td class="best">86.8</td><td class="best">89.6</td><td class="best">3.55</td><td class="best">69.5</td></tr>
+          <tr><td style="color: var(--muted)">ReDeck (T0, before repair)</td><td style="color: var(--muted)">78.5</td><td style="color: var(--muted)">62.5</td><td style="color: var(--muted)">2.88</td><td style="color: var(--muted)">61.0</td></tr>
+          <tr class="ours-row"><td><strong>ReDeck (ours)</strong></td><td class="highlight"><strong>86.8</strong></td><td class="highlight"><strong>89.6</strong></td><td class="highlight"><strong>3.55</strong></td><td class="highlight"><strong>69.5</strong></td></tr>
         </tbody>
-      </table>
-    </div>
-  </section>
+        </table>
+      </div>
+    </section>
 
-  <!-- Ablation Table -->
-  <section class="section-block">
-    <div class="section-head">
-      <p class="section-idx">04</p>
-      <h2>Ablation Study</h2>
-      <p class="section-intro">Each block isolates one design choice (GPT-5.4, 30 tasks &times; 3 seeds). The highlighted row is the full ReDeck configuration.</p>
-    </div>
-    <div class="panel" style="overflow-x: auto;">
-      <table class="data-table">
+    <!-- Ablations -->
+    <section class="section tech-section">
+      <div class="tech-section-head">
+        <p class="section-index">04</p>
+        <h2>Ablation Studies</h2>
+      </div>
+      <p class="section-intro">Each block isolates a single design choice. The highlighted row is the full ReDeck configuration.</p>
+      <div class="table-scroll">
+        <table class="results-table">
         <thead>
           <tr><th>Variant</th><th>Fid. &uarr;</th><th>SCR &uarr;</th><th>Aes. &uarr;</th><th>Des. &uarr;</th></tr>
         </thead>
         <tbody>
-          <tr class="block-header"><td colspan="5">Feedback Paradigm</td></tr>
-          <tr class="t0"><td>Initial generation (T0, no repair)</td><td>80.4</td><td>64.1</td><td>2.95</td><td>62.8</td></tr>
+          <tr><td colspan="5" style="font-style: italic; color: var(--muted); font-size: 12px; text-align: left; padding: 8px 20px;">Feedback paradigm</td></tr>
+          <tr><td style="color: var(--muted)">Initial generation (T0, no repair)</td><td style="color: var(--muted)">80.4</td><td style="color: var(--muted)">64.1</td><td style="color: var(--muted)">2.95</td><td style="color: var(--muted)">62.8</td></tr>
           <tr><td>NL critique, per-turn (Self-Refine / Reflexion)</td><td>76.8</td><td>68.2</td><td>3.18</td><td>60.5</td></tr>
           <tr><td>Screenshot critique, per-turn</td><td>78.2</td><td>78.4</td><td>3.41</td><td>65.1</td></tr>
-          <tr class="ours"><td>ReDeck [default]</td><td class="best">88.6</td><td class="best">91.5</td><td class="best">3.64</td><td class="best">71.2</td></tr>
-
-          <tr class="block-header"><td colspan="5">Components</td></tr>
+          <tr class="ours-row"><td><strong>ReDeck [default]</strong></td><td class="highlight"><strong>88.6</strong></td><td class="highlight"><strong>91.5</strong></td><td class="highlight"><strong>3.64</strong></td><td class="highlight"><strong>71.2</strong></td></tr>
+          <tr><td colspan="5" style="font-style: italic; color: var(--muted); font-size: 12px; text-align: left; padding: 8px 20px;">Components</td></tr>
           <tr><td>Turn-level critic only</td><td>78.7</td><td>60.8</td><td>3.02</td><td>63.5</td></tr>
           <tr><td>Action-level render feedback only</td><td>78.5</td><td>80.2</td><td>3.12</td><td>59.4</td></tr>
-
-          <tr class="block-header"><td colspan="5">Per-Step Observation Frequency</td></tr>
+          <tr><td colspan="5" style="font-style: italic; color: var(--muted); font-size: 12px; text-align: left; padding: 8px 20px;">Per-step observation frequency</td></tr>
           <tr><td>N=4 (every 4 actions)</td><td>86.2</td><td>87.4</td><td>3.51</td><td>69.2</td></tr>
           <tr><td>N=8 (every 8 actions)</td><td>83.5</td><td>82.1</td><td>3.38</td><td>67.5</td></tr>
-
-          <tr class="block-header"><td colspan="5">Scheduling</td></tr>
-          <tr><td>All-probes-every-turn (no scheduling)</td><td>80.1</td><td>62.8</td><td>3.08</td><td>62.5</td></tr>
         </tbody>
-      </table>
-    </div>
-  </section>
-
-  <!-- Cross-Domain Win Rate (visual bar chart) -->
-  <section class="section-block">
-    <div class="section-head">
-      <p class="section-idx">05</p>
-      <h2>Cross-Domain Win Rate</h2>
-      <p class="section-intro">Per-domain pairwise win rate on PresentBench (5 genres, 3 models &times; 2 seeds). Kendall's &tau; = 0.87 across all domain pairs.</p>
-    </div>
-    <div class="panel">
-      <div id="winRateBars"></div>
-    </div>
-  </section>
-
-  <!-- Refinement Dynamics -->
-  <section class="section-block">
-    <div class="section-head">
-      <p class="section-idx">06</p>
-      <h2>Refinement Dynamics</h2>
-    </div>
-    <figure class="panel" style="padding: clamp(10px,1.4vw,16px);">
-      <img src="figures/fig_dynamics-1.png" alt="Refinement dynamics">
-      <figcaption>(a) Open issues drop sharply with ReDeck while all-probes baseline diverges. (b) Per-turn resolution rate climbs to ~77%. (c) New issues raised per turn converge to near-zero.</figcaption>
-    </figure>
-  </section>
-
-  <!-- Case Study -->
-  <section class="section-block">
-    <div class="section-head">
-      <p class="section-idx">07</p>
-      <h2>Case Study</h2>
-      <p class="section-intro">Step-level render feedback prevents cascading layout regressions. Without it, well-intentioned edits grow issues from 3 to 5; with ReDeck, step checks preserve 0 hard issues.</p>
-    </div>
-    <figure class="panel" style="padding: clamp(10px,1.4vw,16px);">
-      <img src="figures/fig_case_study-1.png" alt="Case study">
-      <figcaption>Left: without step-level feedback, edits e1'&ndash;e3' cascade regressions (3&rarr;5 issues). Right: ReDeck rejects e2 for off-canvas violation (red cross), retries with a different edit, and ends with 0 hard issues.</figcaption>
-    </figure>
-  </section>
-
-  <!-- Human Study -->
-  <section class="section-block">
-    <div class="section-head">
-      <p class="section-idx">08</p>
-      <h2>Human Pairwise Study</h2>
-      <p class="section-intro">Majority-vote win rates from 3 blinded annotators on 15 GPT-5.4 tasks.</p>
-    </div>
-    <div class="panel">
-      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; text-align: center;">
-        <div>
-          <p style="color: var(--muted); font-size: 12px; margin-bottom: 6px;">vs. SlideGen</p>
-          <p style="font-size: 32px; font-weight: 800; color: var(--accent2);">87%</p>
-          <p style="color: var(--muted); font-size: 12px;">13/15 wins &middot; p&lt;0.05</p>
-        </div>
-        <div>
-          <p style="color: var(--muted); font-size: 12px; margin-bottom: 6px;">vs. SlideTailor</p>
-          <p style="font-size: 32px; font-weight: 800; color: var(--accent2);">80%</p>
-          <p style="color: var(--muted); font-size: 12px;">12/15 wins &middot; p&lt;0.05</p>
-        </div>
-        <div>
-          <p style="color: var(--muted); font-size: 12px; margin-bottom: 6px;">vs. DeepPresenter</p>
-          <p style="font-size: 32px; font-weight: 800; color: var(--accent2);">73%</p>
-          <p style="color: var(--muted); font-size: 12px;">11/15 wins &middot; p=0.06</p>
+        </table>
+      </div>
+      <div class="evidence-split">
+        <figure class="paper-figure compact-figure">
+          <a href="assets/paper-dynamics.png" target="_blank" rel="noopener" aria-label="Open the convergence dynamics figure at full resolution">
+            <img src="assets/paper-dynamics.png" alt="Three plots comparing open issues, per-turn resolution rate, and newly raised issues across ReDeck and ablation variants" loading="lazy">
+          </a>
+          <figcaption><strong>Refinement dynamics.</strong> Adaptive scheduling steadily closes issues; evaluating every probe every turn causes issue count to drift upward.</figcaption>
+        </figure>
+        <div class="evidence-notes">
+          <p class="visual-kicker">Why scheduling matters</p>
+          <h3>More critique is not automatically better</h3>
+          <ul>
+            <li><strong>8 open issues</strong> at turn 6 for ReDeck, versus <strong>49</strong> with all probes every turn.</li>
+            <li>Resolution rate rises to approximately <strong>77%</strong>, while the unscheduled variant stays near 20%.</li>
+            <li>Per-edit observations keep newly introduced issues close to zero.</li>
+          </ul>
         </div>
       </div>
-    </div>
-  </section>
-
-  <!-- BibTeX -->
-  <section class="section-block">
-    <div class="section-head">
-      <p class="section-idx">09</p>
-      <h2>Citation</h2>
-    </div>
-    <div class="bibtex-wrap">
-      <div class="bibtex-header">
-        <span>BibTeX</span>
-        <button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('bib').textContent).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)})">Copy</button>
+      <div class="family-dynamics-block">
+        <div class="family-dynamics-head">
+          <p class="visual-kicker">Issue-family decomposition</p>
+          <h3>Unscheduled style findings propagate into layout regressions</h3>
+          <p>ReDeck reduces every issue family across turns. Without adaptive scheduling, visual findings continue to accumulate and the edits they trigger raise geometric issues in parallel.</p>
+        </div>
+        <figure class="paper-figure family-dynamics-figure">
+          <a href="assets/paper-family-dynamics.png" target="_blank" rel="noopener" aria-label="Open the issue-family dynamics figure at full resolution">
+            <img src="assets/paper-family-dynamics.png" alt="Stacked issue-family dynamics showing all issue families decreasing under ReDeck while visual and geometric issues grow under all-probes-every-turn" loading="lazy">
+          </a>
+          <figcaption><strong>Issue-family dynamics.</strong> The aggregate drift comes from style-motivated edits propagating new regressions into the geometric layout family.</figcaption>
+        </figure>
       </div>
-      <pre class="bibtex-code" id="bib">@article{tian2025redeck,
-  title   = {ReDeck: Step-Level Render-Grounded Refinement
-             for Reliable Slide Generation},
-  author  = {Tian, Muzhao and Zeng, Zezi and Yang, Yifan
-             and Gao, Xin and Li, Yan and Huang, Zisu
-             and Wang, Xiaohua and Lv, Changze
-             and Cheng, Mingxi and Liu, Bei and Qiu, Kai
-             and Dai, Qi and Chen, Dong and Dong, Yue
-             and Zheng, Xiaoqing and Li, Ji and Luo, Chong},
-  journal = {arXiv preprint},
-  year    = {2025}
+    </section>
+
+    <!-- Robustness -->
+    <section class="section tech-section">
+      <div class="tech-section-head">
+        <p class="section-index">05</p>
+        <h2>Cross-Domain Robustness</h2>
+      </div>
+      <p class="section-intro">On PresentBench, ReDeck remains the top-ranked system across academia, advertising, economics, education, and talk slides.</p>
+      <div class="robustness-layout">
+        <figure class="paper-figure compact-figure">
+          <a href="assets/paper-cross-domain.png" target="_blank" rel="noopener" aria-label="Open the cross-domain win-rate figure at full resolution">
+            <img src="assets/paper-cross-domain.png" alt="Heatmap of system win rates across five PresentBench domains, with ReDeck leading every domain" loading="lazy">
+          </a>
+          <figcaption><strong>PresentBench transfer.</strong> ReDeck leads all five domains, including settings far from scientific presentations.</figcaption>
+        </figure>
+        <div class="robustness-facts">
+          <div><strong>5 / 5</strong><span>domains led</span></div>
+          <div><strong>0.72</strong><span>academia win rate</span></div>
+          <div><strong>0.87</strong><span>cross-domain Kendall's &tau;</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Contributions -->
+    <section class="section tech-section">
+      <div class="tech-section-head">
+        <p class="section-index">06</p>
+        <h2>Contributions</h2>
+      </div>
+      <div class="panel text-panel">
+        <p><strong>1) Step-level render-grounded refinement.</strong> We formulate slide refinement as a sequence of atomic edit actions, each followed by renderer-derived observations, enabling local layout failures to be detected and repaired at the moment they occur.</p>
+        <p><strong>2) Multi-granular feedback for slide agents.</strong> We combine step-level deterministic render feedback, turn-level adaptive reflection, and submission-level validation, assigning different feedback sources to the levels where they are most reliable and useful.</p>
+        <p><strong>3) DeckQuiz for component-level evaluation.</strong> We introduce a benchmark that decouples content fidelity, spatial correctness, and design quality, enabling fine-grained attribution of improvements in document-to-slide generation.</p>
+      </div>
+    </section>
+
+    <!-- Citation -->
+    <section class="section tech-section">
+      <div class="tech-section-head">
+        <p class="section-index">07</p>
+        <h2>Citation</h2>
+      </div>
+      <div class="citation-box">
+        <pre>@article{redeck2026,
+  title={ReDeck: Step-Level Render-Grounded Refinement for Document-to-Slide Generation},
+  author={Tian, Muzhao and Zeng, Zezi and Yang, Yifan and Gao, Xin and Li, Yan and Huang, Zisu and Wang, Xiaohua and Lv, Changze and Cheng, Mingxi and Liu, Bei and Qiu, Kai and Dai, Qi and Chen, Dong and Dong, Yue and Zheng, Xiaoqing and Li, Ji and Luo, Chong},
+  journal={Microsoft Technical Report},
+  year={2026},
+  url={https://microsoft.github.io/ReDeck}
 }</pre>
-    </div>
-  </section>
+      </div>
+    </section>
+  </main>
 
-</main>
+  <footer class="footer">
+    <p>Copyright &copy; 2026 Microsoft Research</p>
+  </footer>
 
-<footer class="footer">
-  <p>ReDeck &mdash; Microsoft Research &middot; Fudan University &middot; UC Riverside</p>
-</footer>
-
-<script>
-/* ====== Win-rate bar chart ====== */
-const systems = [
-  { name: "ReDeck (ours)", domains: { Academia: 0.72, Advertising: 0.68, Economics: 0.70, Education: 0.74, Talk: 0.66 }, avg: 0.70, cls: "green" },
-  { name: "DeepPresenter", domains: { Academia: 0.55, Advertising: 0.52, Economics: 0.54, Education: 0.58, Talk: 0.50 }, avg: 0.54, cls: "accent" },
-  { name: "SlideTailor", domains: { Academia: 0.42, Advertising: 0.45, Economics: 0.40, Education: 0.43, Talk: 0.51 }, avg: 0.44, cls: "dim" },
-  { name: "SlideGen", domains: { Academia: 0.31, Advertising: 0.28, Economics: 0.34, Education: 0.30, Talk: 0.36 }, avg: 0.32, cls: "dim" },
-];
-const wrap = document.getElementById('winRateBars');
-systems.forEach(s => {
-  const row = document.createElement('div');
-  row.className = 'bar-row';
-  const pct = Math.round(s.avg * 100);
-  row.innerHTML = `
-    <span class="bar-label">${s.name}</span>
-    <div class="bar-track">
-      <div class="bar-fill ${s.cls}" style="width: ${pct}%">${s.avg.toFixed(2)}</div>
-    </div>
-  `;
-  wrap.appendChild(row);
-});
-// Add subtitle with domain breakdown
-const sub = document.createElement('div');
-sub.style.cssText = 'margin-top:12px; display:flex; flex-wrap:wrap; gap:8px 20px; font-size:12px; color:#8ea5ff;';
-['Academia', 'Advertising', 'Economics', 'Education', 'Talk'].forEach(d => {
-  const vals = systems.map(s => `${s.name.split(' ')[0]} ${s.domains[d]}`).join(' · ');
-  sub.innerHTML += `<span><strong>${d}:</strong> ReDeck ${systems[0].domains[d]}</span>`;
-});
-wrap.appendChild(sub);
-
-/* ====== Nav scroll ====== */
-window.addEventListener('scroll', () => {
-  document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 60);
-});
-</script>
+  <script>
+    window.addEventListener('scroll', () => {
+      document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 20);
+    });
+  </script>
 </body>
 </html>

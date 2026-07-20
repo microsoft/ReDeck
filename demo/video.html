@@ -1,57 +1,68 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ReDeck | Promo Video</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@600&display=block" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=block" rel="stylesheet">
-<link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ReDeck Demo Video</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@600;700&family=Outfit:wght@100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="theme.js"></script>
+  <link rel="stylesheet" href="palette-themes.css">
 </head>
 <body>
-
-<header class="nav" id="nav">
-  <a class="brand" href="index.html">
-    <img class="brand-logo" src="assets/microsoft-logo.svg" alt="Microsoft">
-  </a>
-  <nav class="nav-links">
-    <a href="index.html">Home</a>
-    <a class="active" href="video.html">Promo Video</a>
-    <a href="tech.html">Technical Details</a>
-    <a href="team.html">Team</a>
-  </nav>
-  <div class="nav-right"></div>
-</header>
-
-<main class="section-wrap" style="padding-top: 118px; padding-bottom: 56px;">
-
-  <section class="section-block">
-    <div class="section-head">
-      <p class="section-idx">Promo Video</p>
-      <h2>ReDeck: Render-Grounded Deck Refinement</h2>
-      <p class="section-intro">A 44-second overview of our agentic slide repair pipeline &mdash; from defective AI-generated slides to professional-quality decks through iterative render-grounded refinement.</p>
+  <header class="nav" id="nav">
+    <div class="nav-identity">
+      <a class="nav-microsoft" href="https://www.microsoft.com/en-us/research/" target="_blank" rel="noopener" aria-label="Microsoft Research">
+        <img src="assets/microsoft.svg" alt="">
+      </a>
+      <span class="nav-separator" aria-hidden="true"></span>
+      <a class="nav-brand" href="index.html">ReDeck</a>
     </div>
+    <nav class="nav-links">
+      <a href="index.html">Home</a>
+      <a class="active" href="video.html">Demo Video</a>
+      <a href="tech.html">Technical Details</a>
+      <a href="team.html">Team</a>
+    </nav>
+  </header>
 
-    <div class="video-stage">
-      <video controls preload="metadata">
-        <source src="redeck_promo_v2.mp4" type="video/mp4">
+  <main class="video-stage">
+    <div class="video-heading">
+      <p class="tech-kicker">Demo Reel</p>
+      <h1>ReDeck in 60 Seconds</h1>
+      <p class="video-intro">See how turn-level guidance, per-edit render observations, and submission-level validation work together.</p>
+    </div>
+    <div class="video-frame-wrap">
+      <video id="demo-video" controls preload="metadata" poster="assets/demo-reel-poster.png">
+        <source src="assets/demo-reel.mp4" type="video/mp4">
         Your browser does not support the video tag.
       </video>
+      <audio id="demo-music" preload="auto" src="assets/bassa-redeck-60s.mp3"></audio>
     </div>
-  </section>
+    <p class="music-credit">
+      Music:
+      <a href="https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1100840" target="_blank" rel="noopener">&ldquo;Bassa Island Game Loop&rdquo; by Kevin MacLeod</a>
+      &middot;
+      <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>
+      &middot; edited for this demo
+    </p>
+    <div class="video-actions">
+      <a class="btn btn-ghost" href="index.html">Home</a>
+      <a class="btn btn-ghost" href="tech.html">Technical Details</a>
+    </div>
+  </main>
 
-</main>
+  <footer class="footer">
+    <p>Copyright &copy; 2026 Microsoft Research</p>
+  </footer>
 
-<footer class="footer">
-  <p>ReDeck &mdash; Microsoft Research &middot; Fudan University &middot; UC Riverside</p>
-</footer>
-
-<script>
-window.addEventListener('scroll', () => {
-  document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 60);
-});
-</script>
+  <script>
+    window.addEventListener('scroll', () => {
+      document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 20);
+    });
+  </script>
+  <script src="video-player.js"></script>
 </body>
 </html>

@@ -1,106 +1,148 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ReDeck | Team</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@600&display=block" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=block" rel="stylesheet">
-<link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ReDeck Team</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@600;700&family=Outfit:wght@100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="theme.js"></script>
+  <link rel="stylesheet" href="palette-themes.css">
 </head>
 <body>
-
-<header class="nav" id="nav">
-  <a class="brand" href="index.html">
-    <img class="brand-logo" src="assets/microsoft-logo.svg" alt="Microsoft">
-  </a>
-  <nav class="nav-links">
-    <a href="index.html">Home</a>
-    <a href="video.html">Promo Video</a>
-    <a href="tech.html">Technical Details</a>
-    <a class="active" href="team.html">Team</a>
-  </nav>
-  <div class="nav-right"></div>
-</header>
-
-<main class="section-wrap" style="padding-top: 118px; padding-bottom: 56px;">
-
-  <div class="tech-hero-panel" style="background: linear-gradient(155deg, rgba(124,92,252,0.18), rgba(22,32,52,0.92)), radial-gradient(circle at 82% 16%, rgba(74,227,181,0.22), transparent 34%);">
-    <p class="tech-kicker">Team</p>
-    <h1>The People Behind ReDeck</h1>
-    <p style="color: #d7def2; font-size: 16px; line-height: 1.68; max-width: 920px; margin-top: 10px;">
-      A collaboration between Fudan University, Microsoft Research, and UC Riverside.
-    </p>
-  </div>
-
-  <section class="section-block">
-    <div class="team-grid">
-      <div class="team-card">
-        <span class="team-name-text">Muzhao Tian</span>
-      </div>
-      <div class="team-card">
-        <span class="team-name-text">Zezi Zeng</span>
-      </div>
-      <div class="team-card">
-        <span class="team-name-text">Yifan Yang</span>
-      </div>
-      <div class="team-card">
-        <span class="team-name-text">Xin Gao</span>
-      </div>
-      <div class="team-card">
-        <span class="team-name-text">Yan Li</span>
-      </div>
-      <div class="team-card">
-        <span class="team-name-text">Zisu Huang</span>
-      </div>
-      <div class="team-card">
-        <span class="team-name-text">Xiaohua Wang</span>
-      </div>
-      <div class="team-card">
-        <span class="team-name-text">Changze Lv</span>
-      </div>
-      <div class="team-card">
-        <span class="team-name-text">Mingxi Cheng</span>
-      </div>
-      <div class="team-card">
-        <span class="team-name-text">Bei Liu</span>
-      </div>
-      <div class="team-card">
-        <span class="team-name-text">Kai Qiu</span>
-      </div>
-      <div class="team-card">
-        <span class="team-name-text">Qi Dai</span>
-      </div>
-      <div class="team-card">
-        <span class="team-name-text">Dong Chen</span>
-      </div>
-      <div class="team-card">
-        <span class="team-name-text">Yue Dong</span>
-      </div>
-      <div class="team-card">
-        <span class="team-name-text">Xiaoqing Zheng</span>
-      </div>
-      <div class="team-card">
-        <span class="team-name-text">Ji Li</span>
-      </div>
-      <div class="team-card">
-        <span class="team-name-text">Chong Luo</span>
-      </div>
+  <header class="nav" id="nav">
+    <div class="nav-identity">
+      <a class="nav-microsoft" href="https://www.microsoft.com/en-us/research/" target="_blank" rel="noopener" aria-label="Microsoft Research">
+        <img src="assets/microsoft.svg" alt="">
+      </a>
+      <span class="nav-separator" aria-hidden="true"></span>
+      <a class="nav-brand" href="index.html">ReDeck</a>
     </div>
-  </section>
+    <nav class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="video.html">Demo Video</a>
+      <a href="tech.html">Technical Details</a>
+      <a class="active" href="team.html">Team</a>
+    </nav>
+  </header>
 
-</main>
+  <main>
+    <section class="tech-hero">
+      <p class="tech-kicker">Team</p>
+      <h1 class="tech-title">ReDeck Team</h1>
+      <p class="tech-lead">
+        ReDeck is a collaboration between Microsoft Research and academic partners on step-level render-grounded refinement for document-to-slide generation.
+      </p>
+    </section>
 
-<footer class="footer">
-  <p>ReDeck &mdash; Microsoft Research &middot; Fudan University &middot; UC Riverside</p>
-</footer>
+    <!-- Collaboration -->
+    <section class="section tech-section">
+      <div class="tech-section-head">
+        <p class="section-index">01</p>
+        <h2>Collaboration</h2>
+      </div>
+      <div class="group-grid">
+        <div class="panel text-panel">
+          <p class="stat-key">Microsoft Research Asia + academic partners</p>
+          <h3>A cross-institution research team</h3>
+          <p>ReDeck brings together researchers from Microsoft Research Asia, Fudan University, Xi'an Jiaotong University, and Shanghai Jiao Tong University.</p>
+        </div>
+      </div>
+    </section>
 
-<script>
-window.addEventListener('scroll', () => {
-  document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 60);
-});
-</script>
+    <!-- Authors -->
+    <section class="section tech-section">
+      <div class="tech-section-head">
+        <p class="section-index">02</p>
+        <h2>Authors</h2>
+      </div>
+      <div class="team-grid">
+        <div class="team-card">
+          <p class="team-name">Muzhao Tian</p>
+          <p class="team-meta">Fudan University / Microsoft</p>
+          <p class="team-note">* Equal contribution, &dagger; Intern</p>
+        </div>
+        <div class="team-card">
+          <p class="team-name">Zezi Zeng</p>
+          <p class="team-meta">Xi'an Jiaotong University</p>
+          <p class="team-note">* Equal contribution</p>
+        </div>
+        <div class="team-card">
+          <p class="team-name">Yifan Yang</p>
+          <p class="team-meta">Microsoft Corporation</p>
+        </div>
+        <div class="team-card">
+          <p class="team-name">Xin Gao</p>
+          <p class="team-meta">Fudan University</p>
+        </div>
+        <div class="team-card">
+          <p class="team-name">Yan Li</p>
+          <p class="team-meta">Shanghai Jiao Tong University</p>
+        </div>
+        <div class="team-card">
+          <p class="team-name">Zisu Huang</p>
+          <p class="team-meta">Fudan University</p>
+        </div>
+        <div class="team-card">
+          <p class="team-name">Xiaohua Wang</p>
+          <p class="team-meta">Fudan University</p>
+        </div>
+        <div class="team-card">
+          <p class="team-name">Changze Lv</p>
+          <p class="team-meta">Fudan University</p>
+        </div>
+        <div class="team-card">
+          <p class="team-name">Mingxi Cheng</p>
+          <p class="team-meta">Microsoft Corporation</p>
+        </div>
+        <div class="team-card">
+          <p class="team-name">Bei Liu</p>
+          <p class="team-meta">Microsoft Corporation</p>
+        </div>
+        <div class="team-card">
+          <p class="team-name">Kai Qiu</p>
+          <p class="team-meta">Microsoft Corporation</p>
+        </div>
+        <div class="team-card">
+          <p class="team-name">Qi Dai</p>
+          <p class="team-meta">Microsoft Corporation</p>
+        </div>
+        <div class="team-card">
+          <p class="team-name">Dong Chen</p>
+          <p class="team-meta">Microsoft Corporation</p>
+        </div>
+        <div class="team-card">
+          <p class="team-name">Yue Dong</p>
+          <p class="team-meta">Microsoft Corporation</p>
+        </div>
+        <div class="team-card">
+          <p class="team-name">Xiaoqing Zheng</p>
+          <p class="team-meta">Fudan University</p>
+        </div>
+        <div class="team-card">
+          <p class="team-name">Ji Li</p>
+          <p class="team-meta">Microsoft Corporation</p>
+          <p class="team-note">&ddagger; Corresponding author</p>
+        </div>
+        <div class="team-card">
+          <p class="team-name">Chong Luo</p>
+          <p class="team-meta">Microsoft Corporation</p>
+          <p class="team-note">&ddagger; Corresponding author</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>Copyright &copy; 2026 Microsoft Research</p>
+  </footer>
+
+  <script>
+    window.addEventListener('scroll', () => {
+      document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 20);
+    });
+  </script>
 </body>
 </html>

@@ -1,33 +1,22 @@
-# ReDeck
+# ReDeck: Step-Level Render-Grounded Refinement for Document-to-Slide Generation
 
-### Step-Level Render-Grounded Refinement for Document-to-Slide Generation
+*Generate presentation slides from documents — then automatically detect and repair spatial layout issues through render-grounded feedback, without manual intervention.*
 
-<p align="center">
-  <a href="https://arxiv.org/abs/XXXX.XXXXX"><img src="https://img.shields.io/badge/arXiv-XXXX.XXXXX-b31b1b?style=for-the-badge&logo=arxiv" alt="arXiv"/></a>
-  <a href="https://microsoft.github.io/ReDeck"><img src="https://img.shields.io/badge/Project_Page-ReDeck-4285f4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Project Page"/></a>
-  <a href="demo/repair_pairs/"><img src="https://img.shields.io/badge/Demo-Repair_Pairs-22c55e?style=for-the-badge&logo=files&logoColor=white" alt="Demo"/></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License"/></a>
-</p>
-
-<p align="center">
-  <img src="assets/redeck_pipeline.png" alt="ReDeck pipeline" width="800"/>
-</p>
-
----
-
-**ReDeck** is an agent system that generates presentation slides from documents and iteratively repairs spatial layout issues through render-grounded feedback. It detects overlaps, overflow, clipping, low contrast, occlusion, and out-of-bounds placement — then fixes them automatically via an LLM-driven tool-calling loop.
-
-> 707 spatial issues → 0 in 4 repair turns ([see demo pairs](demo/repair_pairs/))
+[![Paper](https://img.shields.io/badge/Paper-arXiv-b31b1b)](https://arxiv.org/abs/XXXX.XXXXX) [![Project Page](https://img.shields.io/badge/Project%20Page-ReDeck-4285f4)](https://microsoft.github.io/ReDeck/) [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
 ## Overview
 
-Presentation slides are dense visual artifacts. A good deck must preserve the source document's semantics, organize information into a coherent narrative, and place text, figures, charts, and visual emphasis within a bounded two-dimensional canvas. This makes document-to-slide generation a coupled semantic-spatial problem rather than a plain summarization task.
+Most iterative slide agents follow a monolithic "one version, one feedback" loop: they rewrite a slide or deck, render it afterward, and receive feedback only at the turn boundary. That delayed feedback makes local spatial failures — overflow, overlap, clipping, low contrast, occlusion — hard to attribute to the edit that caused them.
 
-Most iterative slide agents follow a monolithic "one version, one feedback" loop: they rewrite a slide or deck, render it afterward, and receive feedback only at the turn boundary. That delayed feedback makes local failures such as overflow, overlap, clipping, low contrast, and off-canvas placement hard to attribute to the edit that caused them.
+**ReDeck changes the refinement loop to "one edit, one observation."** During a refinement turn, the agent edits the deck through atomic actions and receives Playwright-rendered observations after each step. This lets the agent fix local layout errors while their causes are still clear, while the turn-level critic tracks global issues such as narrative flow, completeness, correctness, and source fidelity.
 
-ReDeck changes the refinement loop to **"one edit, one observation"**. During a refinement turn, the agent edits the deck through atomic actions and receives renderer-derived observations after each step. This lets the agent fix local layout errors while their causes are still clear, while the turn-level critic continues to track global issues such as narrative flow, completeness, correctness, source fidelity, and visual design.
+The deployed spatial detection engine covers **7 issue categories** across both HTML DOM and SVG internals, with calibrated thresholds as a single source of truth. Across 14 representative slides with 707 total spatial issues, ReDeck's 4-turn repair loop resolves all of them to zero.
+
+<p align="center">
+  <img src="assets/redeck_pipeline.png" alt="ReDeck pipeline" width="780"/>
+</p>
 
 ## Method
 
