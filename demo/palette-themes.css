@@ -1,0 +1,420 @@
+/* Palette studies derived from the three supplied visual references. */
+html[data-theme="summer-beach"] {
+  --purple: #c94f5a;
+  --blue: #3c9bc9;
+  --rose: #f97f5f;
+  --teal: #65bdba;
+  --amber: #faa26f;
+  --text: #263b49;
+  --text-2: #576b75;
+  --text-3: #8d9aa0;
+  --bg: #fffaf8;
+  --surface: #ffffff;
+  --line: #efdfda;
+  --green: #559b83;
+  --red: #d95660;
+  --radius: 20px;
+  --theme-nav: rgba(255, 250, 248, 0.78);
+  --theme-shadow: rgba(201, 79, 90, 0.18);
+}
+
+html[data-theme="ocean-breeze"] {
+  --purple: #347f8d;
+  --blue: #4198ac;
+  --rose: #ed8d5a;
+  --teal: #51999f;
+  --amber: #ecb66c;
+  --text: #183e47;
+  --text-2: #526f73;
+  --text-3: #8ba2a2;
+  --bg: #f8fcfb;
+  --surface: #ffffff;
+  --line: #dbe9e5;
+  --green: #4f9584;
+  --red: #d56f55;
+  --radius: 8px;
+  --theme-nav: rgba(248, 252, 251, 0.8);
+  --theme-shadow: rgba(52, 127, 141, 0.18);
+}
+
+html[data-theme="brand-visuals"] {
+  --purple: #3f98a4;
+  --blue: #64b9c4;
+  --rose: #f48678;
+  --teal: #78c9cf;
+  --amber: #efb66f;
+  --text: #31484f;
+  --text-2: #667a7f;
+  --text-3: #9aabaa;
+  --bg: #fffaf6;
+  --surface: #ffffff;
+  --line: #eedfda;
+  --green: #63a595;
+  --red: #dc746b;
+  --radius: 6px;
+  --theme-nav: rgba(255, 250, 246, 0.8);
+  --theme-shadow: rgba(63, 152, 164, 0.18);
+}
+
+html[data-theme] .nav {
+  background: var(--theme-nav);
+}
+
+html[data-theme] .hero-noise {
+  display: none;
+}
+
+html[data-theme] .hero-aurora {
+  animation: none;
+  transform: none;
+}
+
+html[data-theme] .btn-primary {
+  box-shadow: 0 2px 14px var(--theme-shadow);
+}
+
+html[data-theme] .btn-primary:hover {
+  box-shadow: 0 7px 24px var(--theme-shadow);
+}
+
+html[data-theme] .btn-ghost:hover {
+  border-color: var(--purple);
+}
+
+html[data-theme] .g-item:hover {
+  box-shadow: 0 16px 40px var(--theme-shadow), 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+/* Summer Beach: a clear sunset-to-water color field with bold type. */
+html[data-theme="summer-beach"] .hero {
+  background: linear-gradient(180deg, #ffd8dc 0%, #ffe9dc 38%, #fff3d9 60%, #dcf2f4 100%);
+}
+
+html[data-theme="summer-beach"] .hero-aurora {
+  background:
+    linear-gradient(163deg, transparent 0 58%, rgba(60, 155, 201, 0.13) 58% 66%, transparent 66%),
+    linear-gradient(198deg, transparent 0 64%, rgba(101, 189, 186, 0.15) 64% 72%, transparent 72%),
+    linear-gradient(24deg, transparent 0 70%, rgba(252, 117, 123, 0.12) 70% 76%, transparent 76%);
+}
+
+html[data-theme="summer-beach"] .nav {
+  border-top: 4px solid #fc757b;
+}
+
+html[data-theme="summer-beach"] .hero-title {
+  text-shadow: 4px 5px 0 rgba(60, 155, 201, 0.18);
+}
+
+html[data-theme="summer-beach"] .hero-title .re {
+  color: #c94f5a;
+}
+
+html[data-theme="summer-beach"] .hero-title .deck {
+  color: #304d58;
+}
+
+html[data-theme="summer-beach"] .hero-stats {
+  gap: 0;
+}
+
+html[data-theme="summer-beach"] .stat {
+  min-width: 170px;
+  padding: 18px 24px 0;
+  border-top: 5px solid #fc757b;
+}
+
+html[data-theme="summer-beach"] .stat:nth-child(2) {
+  border-top-color: #65bdba;
+}
+
+html[data-theme="summer-beach"] .stat:nth-child(3) {
+  border-top-color: #3c9bc9;
+}
+
+html[data-theme="summer-beach"] .sep {
+  height: 3px;
+  background: linear-gradient(90deg, #fc757b, #fee199, #65bdba, #3c9bc9);
+}
+
+html[data-theme="summer-beach"] .tech-hero {
+  background: linear-gradient(180deg, #ffd8dc 0%, #ffeddf 48%, #f9f5df 72%, #eef8f6 100%);
+}
+
+html[data-theme="summer-beach"] .tech-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(165deg, transparent 0 67%, rgba(101, 189, 186, 0.12) 67% 75%, transparent 75%),
+    linear-gradient(202deg, transparent 0 74%, rgba(60, 155, 201, 0.1) 74% 81%, transparent 81%);
+}
+
+html[data-theme="summer-beach"] .tech-section-head::after {
+  content: "";
+  flex: 1;
+  height: 3px;
+  margin-left: 8px;
+  background: linear-gradient(90deg, #fc757b, #fee199 38%, #65bdba 72%, transparent);
+}
+
+html[data-theme="summer-beach"] .panel {
+  border-color: #efddd6;
+  border-left: 5px solid #65bdba;
+}
+
+html[data-theme="summer-beach"] .results-table th {
+  color: #ffffff;
+  background: #304d58;
+}
+
+html[data-theme="summer-beach"] .results-table .ours-row {
+  background: linear-gradient(90deg, rgba(252, 117, 123, 0.13), rgba(254, 225, 153, 0.2), rgba(101, 189, 186, 0.1));
+}
+
+html[data-theme="summer-beach"] .results-table .highlight {
+  color: #b84350;
+}
+
+html[data-theme="summer-beach"] .citation-box {
+  border-color: #efddd6;
+  background: linear-gradient(135deg, rgba(254, 225, 153, 0.24), rgba(101, 189, 186, 0.09));
+}
+
+html[data-theme="summer-beach"] .paper-figure {
+  border-color: #efddd6;
+  box-shadow: 0 14px 38px rgba(48, 77, 88, 0.09);
+}
+
+html[data-theme="summer-beach"] .metric-lift {
+  border-color: #eadbd5;
+}
+
+html[data-theme="summer-beach"] .robustness-facts strong {
+  color: #3c9bc9;
+}
+
+html[data-theme="summer-beach"] .video-stage {
+  position: relative;
+}
+
+html[data-theme="summer-beach"] .video-stage::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 84px;
+  left: 50%;
+  width: 100vw;
+  height: 280px;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, rgba(255, 216, 220, 0.58), rgba(255, 243, 217, 0.46), rgba(220, 242, 244, 0));
+}
+
+html[data-theme="summer-beach"] .video-frame-wrap {
+  border: 6px solid #ffffff;
+  outline: 1px solid #efddd6;
+  box-shadow: 0 22px 64px rgba(48, 77, 88, 0.16);
+}
+
+html[data-theme="summer-beach"] .team-card {
+  border-color: #efddd6;
+  box-shadow: 0 8px 24px rgba(48, 77, 88, 0.05);
+}
+
+html[data-theme="summer-beach"] .group-grid .panel {
+  background: linear-gradient(125deg, #ffffff 0%, #fff9f2 58%, #f3fbfa 100%);
+}
+
+/* Ocean Breeze: an editorial split layout with mint and peach geometry. */
+html[data-theme="ocean-breeze"] .hero {
+  background: linear-gradient(135deg, #edf7f3 0%, #f6fbf8 56%, #fff0e6 100%);
+}
+
+html[data-theme="ocean-breeze"] .hero-aurora {
+  background:
+    linear-gradient(90deg, rgba(191, 223, 210, 0.35) 0 31%, transparent 31% 100%),
+    linear-gradient(90deg, transparent 0 82%, rgba(237, 141, 90, 0.12) 82% 100%),
+    linear-gradient(0deg, transparent 0 86%, rgba(123, 192, 205, 0.18) 86% 100%);
+}
+
+html[data-theme="ocean-breeze"] .nav::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #bfdfd2 0 25%, #4198ac 25% 50%, #ecb66c 50% 75%, #ed8d5a 75%);
+}
+
+html[data-theme="ocean-breeze"] .hero-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr);
+  grid-template-areas:
+    "title stats"
+    "sub stats"
+    "actions stats";
+  column-gap: 72px;
+  width: min(1080px, 100%);
+  max-width: none;
+  text-align: left;
+}
+
+html[data-theme="ocean-breeze"] .hero-title {
+  grid-area: title;
+  margin-bottom: 24px;
+  text-shadow: 4px 4px 0 rgba(237, 141, 90, 0.2);
+}
+
+html[data-theme="ocean-breeze"] .hero-title .re {
+  color: #347f8d;
+}
+
+html[data-theme="ocean-breeze"] .hero-title .deck {
+  color: #234b54;
+}
+
+html[data-theme="ocean-breeze"] .hero-sub {
+  grid-area: sub;
+}
+
+html[data-theme="ocean-breeze"] .hero-actions {
+  grid-area: actions;
+  justify-content: flex-start;
+  margin-bottom: 0;
+}
+
+html[data-theme="ocean-breeze"] .hero-stats {
+  grid-area: stats;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding-left: 46px;
+  border-left: 1px solid rgba(52, 127, 141, 0.24);
+}
+
+html[data-theme="ocean-breeze"] .stat {
+  padding: 20px 0;
+  text-align: left;
+  border-bottom: 1px solid rgba(52, 127, 141, 0.16);
+}
+
+html[data-theme="ocean-breeze"] .stat:last-child {
+  border-bottom: 0;
+}
+
+html[data-theme="ocean-breeze"] .stat-label {
+  margin-top: 4px;
+}
+
+html[data-theme="ocean-breeze"] .sep {
+  background: linear-gradient(90deg, transparent, #bfdfd2 20%, #7bc0cd 50%, #ecb66c 80%, transparent);
+}
+
+/* Brand Visuals: airy white canvas with flowing coral, cream, and teal ribbons. */
+html[data-theme="brand-visuals"] .hero {
+  justify-content: flex-start;
+  background: #fffdfb;
+}
+
+html[data-theme="brand-visuals"] .hero-aurora {
+  background:
+    radial-gradient(84% 72% at 104% 102%, transparent 54%, rgba(181, 225, 230, 0.72) 54.5% 58%, transparent 58.5%),
+    radial-gradient(82% 68% at 102% 96%, transparent 61%, rgba(100, 185, 196, 0.5) 61.5% 64.5%, transparent 65%),
+    radial-gradient(78% 66% at 98% 88%, transparent 69%, rgba(255, 212, 202, 0.72) 69.5% 73%, transparent 73.5%),
+    radial-gradient(74% 62% at 94% 80%, transparent 77%, rgba(255, 238, 219, 0.95) 77.5% 81%, transparent 81.5%),
+    linear-gradient(110deg, transparent 0 58%, rgba(255, 212, 202, 0.1) 58% 59%, transparent 59% 100%);
+}
+
+html[data-theme="brand-visuals"] .hero-content {
+  width: min(1120px, 100%);
+  max-width: none;
+  margin: 0 auto;
+  text-align: left;
+}
+
+html[data-theme="brand-visuals"] .hero-title {
+  max-width: 760px;
+  font-size: clamp(64px, 9vw, 104px);
+}
+
+html[data-theme="brand-visuals"] .hero-title .re {
+  color: #f48678;
+}
+
+html[data-theme="brand-visuals"] .hero-title .deck {
+  color: #3f98a4;
+}
+
+html[data-theme="brand-visuals"] .hero-sub {
+  max-width: 560px;
+}
+
+html[data-theme="brand-visuals"] .hero-actions,
+html[data-theme="brand-visuals"] .hero-stats {
+  justify-content: flex-start;
+}
+
+html[data-theme="brand-visuals"] .hero-stats {
+  gap: 0;
+  max-width: 720px;
+  border-top: 1px solid #eadfda;
+}
+
+html[data-theme="brand-visuals"] .stat {
+  flex: 1;
+  padding: 22px 30px 0 0;
+  text-align: left;
+}
+
+html[data-theme="brand-visuals"] .sep {
+  height: 4px;
+  background: linear-gradient(90deg, #ffeedb 0 33%, #ffd4ca 33% 66%, #b5e1e6 66%);
+}
+
+@media (max-width: 768px) {
+  html[data-theme="ocean-breeze"] .hero-content {
+    display: block;
+    text-align: center;
+  }
+
+  html[data-theme="ocean-breeze"] .hero-actions {
+    justify-content: center;
+    margin-bottom: 48px;
+  }
+
+  html[data-theme="ocean-breeze"] .hero-stats {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 20px;
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  html[data-theme="ocean-breeze"] .stat {
+    padding: 14px 0 0;
+    text-align: center;
+    border-bottom: 0;
+    border-top: 3px solid #51999f;
+  }
+
+  html[data-theme="brand-visuals"] .hero-content {
+    text-align: center;
+  }
+
+  html[data-theme="brand-visuals"] .hero-actions,
+  html[data-theme="brand-visuals"] .hero-stats {
+    justify-content: center;
+  }
+
+  html[data-theme="brand-visuals"] .stat {
+    padding-right: 0;
+    text-align: center;
+  }
+
+  html[data-theme="summer-beach"] .stat {
+    min-width: 0;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+}

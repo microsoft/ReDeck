@@ -1,262 +1,203 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ReDeck | Render-Grounded Deck Refinement</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@600&display=block" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=block" rel="stylesheet">
-<link rel="stylesheet" href="styles.css">
-<style>
-/* ===== Before/After Pair Grid ===== */
-.ba-grid {
-  display: flex; flex-direction: column; gap: 48px;
-}
-.ba-pair {
-  display: grid;
-  grid-template-columns: 1fr 48px 1fr;
-  align-items: center;
-  gap: 0;
-}
-.ba-side {
-  position: relative;
-  border: 1px solid var(--line-strong);
-  border-radius: 10px;
-  overflow: hidden;
-  background: #0a0e18;
-  transition: border-color 0.2s;
-}
-.ba-side:hover { border-color: rgba(142,165,255,0.5); }
-.ba-side img {
-  width: 100%; display: block; aspect-ratio: 16/9; object-fit: contain;
-  background: #0a0e18;
-}
-.ba-label {
-  position: absolute; top: 10px; font-size: 11px; font-weight: 700;
-  padding: 4px 12px; border-radius: 999px; z-index: 5;
-  text-transform: uppercase; letter-spacing: 0.06em;
-}
-.ba-label.before { left: 10px; background: rgba(247,74,106,0.82); color: #fff; }
-.ba-label.after { right: 10px; background: rgba(74,227,181,0.85); color: #06080f; }
-.ba-arrow {
-  display: flex; align-items: center; justify-content: center;
-  color: var(--accent); font-size: 28px; font-weight: 300;
-}
-.ba-arrow svg { width: 32px; height: 32px; opacity: 0.7; }
-.ba-pair-caption {
-  grid-column: 1 / -1;
-  color: var(--muted); font-size: 14px; line-height: 1.55;
-  margin-top: 10px; padding: 0 4px;
-  text-align: center;
-}
-@media (max-width: 900px) {
-  .ba-pair { grid-template-columns: 1fr; gap: 8px; }
-  .ba-arrow { transform: rotate(90deg); }
-  .ba-pair-caption { grid-column: 1; }
-}
-
-/* ===== 3-Way Comparison Grid ===== */
-.comparison-grid {
-  display: flex; flex-direction: column; gap: 56px;
-}
-.cmp-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 12px;
-}
-.cmp-cell {
-  position: relative;
-  border: 1px solid var(--line-strong);
-  border-radius: 10px;
-  overflow: hidden;
-  background: #0a0e18;
-  transition: border-color 0.2s;
-}
-.cmp-cell:hover { border-color: rgba(142,165,255,0.5); }
-.cmp-cell img {
-  width: 100%; display: block; aspect-ratio: 16/9; object-fit: contain;
-  background: #0a0e18;
-}
-.cmp-label {
-  position: absolute; top: 8px; left: 8px;
-  font-size: 10px; font-weight: 700; padding: 3px 10px;
-  border-radius: 999px; z-index: 5;
-  text-transform: uppercase; letter-spacing: 0.06em;
-}
-.cmp-label.original { background: rgba(255,255,255,0.15); color: #fff; backdrop-filter: blur(8px); }
-.cmp-label.claude { background: rgba(247,74,106,0.82); color: #fff; }
-.cmp-label.redeck { background: rgba(74,227,181,0.85); color: #06080f; }
-.cmp-issues {
-  position: absolute; bottom: 8px; right: 8px;
-  font-size: 11px; font-weight: 700; padding: 3px 10px;
-  border-radius: 999px; z-index: 5;
-}
-.cmp-issues.bad { background: rgba(247,74,106,0.75); color: #fff; }
-.cmp-issues.partial { background: rgba(255,180,50,0.75); color: #fff; }
-.cmp-issues.clean { background: rgba(74,227,181,0.8); color: #06080f; }
-.cmp-row-caption {
-  grid-column: 1 / -1;
-  color: var(--muted); font-size: 14px; line-height: 1.55;
-  margin-top: 8px; text-align: center;
-}
-@media (max-width: 900px) {
-  .cmp-row { grid-template-columns: 1fr; gap: 8px; }
-  .cmp-row-caption { grid-column: 1; }
-}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ReDeck | Step-Level Render-Grounded Refinement for Slide Generation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@600;700;800&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="theme.js"></script>
+  <link rel="stylesheet" href="palette-themes.css">
 </head>
 <body>
-
-<header class="nav" id="nav">
-  <a class="brand" href="index.html">
-    <img class="brand-logo" src="assets/microsoft-logo.svg" alt="Microsoft">
-  </a>
-  <nav class="nav-links">
-    <a class="active" href="index.html">Home</a>
-    <a href="video.html">Promo Video</a>
-    <a href="tech.html">Technical Details</a>
-    <a href="team.html">Team</a>
-  </nav>
-  <div class="nav-right"></div>
-</header>
-
-<!-- Hero -->
-<section class="hero">
-  <div class="hero-bg" aria-hidden="true"></div>
-  <div class="hero-content">
-    <h1 class="hero-title">Re<span>Deck</span></h1>
-    <p class="hero-subtitle">Step-Level Render-Grounded Refinement for Reliable Slide Generation</p>
-  </div>
-</section>
-
-<!-- Before / After Showcase -->
-<main class="section-wrap" style="padding-top: 74px; padding-bottom: 48px;">
-  <section class="section-block">
-    <div class="section-head">
-      <p class="section-idx">Before &amp; After</p>
-      <h2>Before &amp; After Refinement</h2>
-      <p class="section-intro">Each row shows a slide before and after ReDeck refinement. All defects were detected and repaired automatically.</p>
+  <header class="nav" id="nav">
+    <div class="nav-identity">
+      <a class="nav-microsoft" href="https://www.microsoft.com/en-us/research/" target="_blank" rel="noopener" aria-label="Microsoft Research">
+        <img src="assets/microsoft.svg" alt="">
+      </a>
+      <span class="nav-separator" aria-hidden="true"></span>
+      <a class="nav-brand" href="index.html">ReDeck</a>
     </div>
-    <div class="ba-grid" id="showcase"></div>
+    <nav class="nav-links">
+      <a class="active" href="index.html">Home</a>
+      <a href="video.html">Demo Video</a>
+      <a href="tech.html">Technical Details</a>
+      <a href="team.html">Team</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <div class="hero-aurora"></div>
+    <div class="hero-noise"></div>
+    <div class="hero-content">
+      <h1 class="hero-title"><span class="re">Re</span><span class="deck">Deck</span></h1>
+      <p class="hero-sub">Step-level render-grounded refinement<br>for document-to-slide generation</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="#">
+          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Paper
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/microsoft/ReDeck" target="_blank">
+          <svg viewBox="0 0 24 24"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+          Code
+        </a>
+        <a class="btn btn-ghost" href="video.html">
+          <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Demo
+        </a>
+        <a class="btn btn-ghost" href="tech.html">Details</a>
+      </div>
+      <p class="hero-stats-context">GPT-5.4 &middot; DeckQuiz &middot; initial draft &rarr; final refinement</p>
+      <div class="hero-stats">
+        <div class="stat"><div class="stat-num c1">+27.4pp</div><div class="stat-label">Spatial Clean Rate</div></div>
+        <div class="stat"><div class="stat-num c2">+8.2</div><div class="stat-label">Content Fidelity</div></div>
+        <div class="stat"><div class="stat-num c3">+0.69</div><div class="stat-label">Aesthetics Gain</div></div>
+      </div>
+    </div>
   </section>
-</main>
 
-<!-- 3-Way Comparison: Original vs Claude vs ReDeck -->
-<main class="section-wrap" style="padding-bottom: 56px;">
-  <section class="section-block">
-    <div class="section-head">
-      <p class="section-idx">Comparison</p>
-      <h2>Claude Code Repair vs. ReDeck Repair</h2>
-      <p class="section-intro">Same slides repaired by vanilla Claude Code (screenshot-only self-repair) vs Claude Code equipped with the ReDeck skill (render-grounded iterative refinement). Without ReDeck, Claude Code fails to resolve most spatial defects; with ReDeck's verify_layout loop, all issues are fixed.</p>
+  <div class="sep"></div>
+
+  <section class="section reveal">
+    <div class="tag purple"><span class="tag-dot"></span>Method</div>
+    <h2 class="heading">Multi-Granular Feedback with Separated Responsibilities</h2>
+    <p class="desc method-desc">Different feedback sources are assigned to the levels where they are most reliable and useful.</p>
+    <div class="method-story">
+      <div class="method-story-row step">
+        <span class="method-story-index">Step</span>
+        <div class="method-story-level"><strong>Step-Level Render Feedback</strong><small>Local spatial repair</small></div>
+        <p>After each atomic edit, renderer-derived observations report immediate spatial facts before the next action. <b>Observation, not verdict.</b></p>
+      </div>
+      <div class="method-story-row turn">
+        <span class="method-story-index">Turn</span>
+        <div class="method-story-level"><strong>Turn-Level Adaptive Deck Critic</strong><small>Global semantic and design guidance</small></div>
+        <p>Maintains a persistent issue list for narrative flow, content completeness, factual correctness, source fidelity, and visual design.</p>
+      </div>
+      <div class="method-story-row verdict">
+        <span class="method-story-index">Submit</span>
+        <div class="method-story-level"><strong>Submission-Level Validation Gate</strong><small>Hard layout validation</small></div>
+        <p>Ensures the total hard-violation count does not increase relative to the session baseline before a turn is committed.</p>
+      </div>
     </div>
-    <div class="comparison-grid" id="comparison"></div>
+    <a class="method-details-link" href="tech.html#method">Explore the full method <span aria-hidden="true">&rarr;</span></a>
   </section>
-</main>
 
-<footer class="footer">
-  <p>ReDeck &mdash; Microsoft Research &middot; Fudan University &middot; UC Riverside</p>
-</footer>
+  <div class="sep"></div>
 
-<script>
-/* 3-Way Comparison: Original vs Claude vs ReDeck */
-const cmpCases = [
-  {
-    original: "comparison/db_003_v4_slide03_original.png",
-    claude: "comparison/db_003_v4_slide03_claude.png",
-    redeck: "comparison/db_003_v4_slide03_redeck.png",
-    origIssues: 17, claudeIssues: 7, redeckIssues: 0,
-    caption: "Dense table with clipped research gap section — Claude fixed 10 surface issues but left 7 spatial defects, ReDeck resolved all 17 for a fully readable slide"
-  },
-  {
-    original: "comparison/leapgnn_slide11_original.png",
-    claude: "comparison/leapgnn_slide11_claude.png",
-    redeck: "comparison/leapgnn_slide11_redeck.png",
-    origIssues: 2, claudeIssues: 2, redeckIssues: 0,
-    caption: "Training time comparison chart and table overlap — Claude's screenshot-only repair broke the chart image entirely, ReDeck preserved the figure and fixed layout"
-  },
-  {
-    original: "comparison/leapgnn_slide15_original.png",
-    claude: "comparison/leapgnn_slide15_claude.png",
-    redeck: "comparison/leapgnn_slide15_redeck.png",
-    origIssues: 2, claudeIssues: 2, redeckIssues: 0,
-    caption: "Sensitivity analysis with truncated bullets — Claude lost the chart images while attempting layout fixes, ReDeck kept all figures and made every bullet fully visible"
-  },
-];
-
-function issueClass(n, orig) {
-  if (n === 0) return 'clean';
-  if (n >= orig * 0.7) return 'bad';
-  return 'partial';
-}
-
-const cmpGrid = document.getElementById('comparison');
-cmpCases.forEach(c => {
-  const row = document.createElement('div');
-  row.className = 'cmp-row';
-  row.innerHTML = `
-    <div class="cmp-cell">
-      <span class="cmp-label original">Original</span>
-      <span class="cmp-issues bad">${c.origIssues} issues</span>
-      <img src="${c.original}" alt="Original" loading="lazy">
+  <section class="section reveal" id="repairs">
+    <div class="tag blue"><span class="tag-dot"></span>Repair Examples</div>
+    <h2 class="heading">14 Before &amp; After Pairs</h2>
+    <p class="desc repair-section-desc">Each pair shows the input render and the final ReDeck output. Cases are ordered from the most immediately visible repairs to denser structural layouts.</p>
+    <div class="repair-list">
+      <figure class="repair-example">
+        <figcaption>Case 01</figcaption>
+        <div class="repair-images">
+          <a class="repair-shot before" href="demo-pairs/before/p43.png" target="_blank" rel="noopener"><span>Before</span><img src="demo-pairs/before/p43.png" alt="RAGTruth overview before repair" loading="lazy"></a>
+          <a class="repair-shot after" href="demo-pairs/after/p43.png" target="_blank" rel="noopener"><span>After</span><img src="demo-pairs/after/p43.png" alt="RAGTruth overview after repair" loading="lazy"></a>
+        </div>
+      </figure>
+      <figure class="repair-example">
+        <figcaption>Case 02</figcaption>
+        <div class="repair-images">
+          <a class="repair-shot before" href="demo-pairs/before/d78.png" target="_blank" rel="noopener"><span>Before</span><img src="demo-pairs/before/d78.png" alt="Renewable energy findings before repair" loading="lazy"></a>
+          <a class="repair-shot after" href="demo-pairs/after/d78.png" target="_blank" rel="noopener"><span>After</span><img src="demo-pairs/after/d78.png" alt="Renewable energy findings after repair" loading="lazy"></a>
+        </div>
+      </figure>
+      <figure class="repair-example">
+        <figcaption>Case 03</figcaption>
+        <div class="repair-images">
+          <a class="repair-shot before" href="demo-pairs/before/d181.png" target="_blank" rel="noopener"><span>Before</span><img src="demo-pairs/before/d181.png" alt="Renewable cost comparison before repair" loading="lazy"></a>
+          <a class="repair-shot after" href="demo-pairs/after/d181.png" target="_blank" rel="noopener"><span>After</span><img src="demo-pairs/after/d181.png" alt="Renewable cost comparison after repair" loading="lazy"></a>
+        </div>
+      </figure>
+      <figure class="repair-example">
+        <figcaption>Case 04</figcaption>
+        <div class="repair-images">
+          <a class="repair-shot before" href="demo-pairs/before/d120.png" target="_blank" rel="noopener"><span>Before</span><img src="demo-pairs/before/d120.png" alt="Solar cost outlook before repair" loading="lazy"></a>
+          <a class="repair-shot after" href="demo-pairs/after/d120.png" target="_blank" rel="noopener"><span>After</span><img src="demo-pairs/after/d120.png" alt="Solar cost outlook after repair" loading="lazy"></a>
+        </div>
+      </figure>
+      <figure class="repair-example">
+        <figcaption>Case 05</figcaption>
+        <div class="repair-images">
+          <a class="repair-shot before" href="demo-pairs/before/d171.png" target="_blank" rel="noopener"><span>Before</span><img src="demo-pairs/before/d171.png" alt="Solar and battery roadmap before repair" loading="lazy"></a>
+          <a class="repair-shot after" href="demo-pairs/after/d171.png" target="_blank" rel="noopener"><span>After</span><img src="demo-pairs/after/d171.png" alt="Solar and battery roadmap after repair" loading="lazy"></a>
+        </div>
+      </figure>
+      <figure class="repair-example">
+        <figcaption>Case 06</figcaption>
+        <div class="repair-images">
+          <a class="repair-shot before" href="demo-pairs/before/d178.png" target="_blank" rel="noopener"><span>Before</span><img src="demo-pairs/before/d178.png" alt="Renewable comparison grid before repair" loading="lazy"></a>
+          <a class="repair-shot after" href="demo-pairs/after/d178.png" target="_blank" rel="noopener"><span>After</span><img src="demo-pairs/after/d178.png" alt="Renewable comparison grid after repair" loading="lazy"></a>
+        </div>
+      </figure>
+      <figure class="repair-example">
+        <figcaption>Case 07</figcaption>
+        <div class="repair-images">
+          <a class="repair-shot before" href="demo-pairs/before/d94.png" target="_blank" rel="noopener"><span>Before</span><img src="demo-pairs/before/d94.png" alt="Chest CT key findings before repair" loading="lazy"></a>
+          <a class="repair-shot after" href="demo-pairs/after/d94.png" target="_blank" rel="noopener"><span>After</span><img src="demo-pairs/after/d94.png" alt="Chest CT key findings after repair" loading="lazy"></a>
+        </div>
+      </figure>
+      <figure class="repair-example">
+        <figcaption>Case 08</figcaption>
+        <div class="repair-images">
+          <a class="repair-shot before" href="demo-pairs/before/d13.png" target="_blank" rel="noopener"><span>Before</span><img src="demo-pairs/before/d13.png" alt="Chest CT model evaluation before repair" loading="lazy"></a>
+          <a class="repair-shot after" href="demo-pairs/after/d13.png" target="_blank" rel="noopener"><span>After</span><img src="demo-pairs/after/d13.png" alt="Chest CT model evaluation after repair" loading="lazy"></a>
+        </div>
+      </figure>
+      <figure class="repair-example">
+        <figcaption>Case 09</figcaption>
+        <div class="repair-images">
+          <a class="repair-shot before" href="demo-pairs/before/d69.png" target="_blank" rel="noopener"><span>Before</span><img src="demo-pairs/before/d69.png" alt="Renewable cost table before repair" loading="lazy"></a>
+          <a class="repair-shot after" href="demo-pairs/after/d69.png" target="_blank" rel="noopener"><span>After</span><img src="demo-pairs/after/d69.png" alt="Renewable cost table after repair" loading="lazy"></a>
+        </div>
+      </figure>
+      <figure class="repair-example">
+        <figcaption>Case 10</figcaption>
+        <div class="repair-images">
+          <a class="repair-shot before" href="demo-pairs/before/d39.png" target="_blank" rel="noopener"><span>Before</span><img src="demo-pairs/before/d39.png" alt="Renewable economics summary before repair" loading="lazy"></a>
+          <a class="repair-shot after" href="demo-pairs/after/d39.png" target="_blank" rel="noopener"><span>After</span><img src="demo-pairs/after/d39.png" alt="Renewable economics summary after repair" loading="lazy"></a>
+        </div>
+      </figure>
+      <figure class="repair-example">
+        <figcaption>Case 11</figcaption>
+        <div class="repair-images">
+          <a class="repair-shot before" href="demo-pairs/before/d147.png" target="_blank" rel="noopener"><span>Before</span><img src="demo-pairs/before/d147.png" alt="Autonomy rollout timeline before repair" loading="lazy"></a>
+          <a class="repair-shot after" href="demo-pairs/after/d147.png" target="_blank" rel="noopener"><span>After</span><img src="demo-pairs/after/d147.png" alt="Autonomy rollout timeline after repair" loading="lazy"></a>
+        </div>
+      </figure>
+      <figure class="repair-example">
+        <figcaption>Case 12</figcaption>
+        <div class="repair-images">
+          <a class="repair-shot before" href="demo-pairs/before/d12.png" target="_blank" rel="noopener"><span>Before</span><img src="demo-pairs/before/d12.png" alt="Early-warning model metrics before repair" loading="lazy"></a>
+          <a class="repair-shot after" href="demo-pairs/after/d12.png" target="_blank" rel="noopener"><span>After</span><img src="demo-pairs/after/d12.png" alt="Early-warning model metrics after repair" loading="lazy"></a>
+        </div>
+      </figure>
+      <figure class="repair-example">
+        <figcaption>Case 13</figcaption>
+        <div class="repair-images">
+          <a class="repair-shot before" href="demo-pairs/before/d58.png" target="_blank" rel="noopener"><span>Before</span><img src="demo-pairs/before/d58.png" alt="Low-carbon deployment comparison before repair" loading="lazy"></a>
+          <a class="repair-shot after" href="demo-pairs/after/d58.png" target="_blank" rel="noopener"><span>After</span><img src="demo-pairs/after/d58.png" alt="Low-carbon deployment comparison after repair" loading="lazy"></a>
+        </div>
+      </figure>
+      <figure class="repair-example">
+        <figcaption>Case 14</figcaption>
+        <div class="repair-images">
+          <a class="repair-shot before" href="demo-pairs/before/d89.png" target="_blank" rel="noopener"><span>Before</span><img src="demo-pairs/before/d89.png" alt="Renewable energy KPI dashboard before repair" loading="lazy"></a>
+          <a class="repair-shot after" href="demo-pairs/after/d89.png" target="_blank" rel="noopener"><span>After</span><img src="demo-pairs/after/d89.png" alt="Renewable energy KPI dashboard after repair" loading="lazy"></a>
+        </div>
+      </figure>
     </div>
-    <div class="cmp-cell">
-      <span class="cmp-label claude">Claude Code</span>
-      <span class="cmp-issues ${issueClass(c.claudeIssues, c.origIssues)}">${c.claudeIssues} issues</span>
-      <img src="${c.claude}" alt="Claude Code repair" loading="lazy">
-    </div>
-    <div class="cmp-cell">
-      <span class="cmp-label redeck">ReDeck</span>
-      <span class="cmp-issues ${issueClass(c.redeckIssues, c.origIssues)}">${c.redeckIssues === 0 ? '0 issues ✓' : c.redeckIssues + ' issues'}</span>
-      <img src="${c.redeck}" alt="ReDeck repair" loading="lazy">
-    </div>
-    <div class="cmp-row-caption">${c.caption}</div>
-  `;
-  cmpGrid.appendChild(row);
-});
-</script>
+  </section>
 
-<script>
-const arrow = `<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16h20M20 10l6 6-6 6"/></svg>`;
+  <footer class="footer">Copyright &copy; 2026 Microsoft Research</footer>
 
-const cards = [
-  /* ---- Before/After Cases ---- */
-  { before: "slides/pdf_025_demo_t0/slide_11.png", after: "slides/pdf_025_demo_t1/slide_11.png",
-    caption: "Table layout shattered into scattered numbers and fragments — restored into coherent text with all metrics and analysis visible" },
-  { before: "slides/pdf_011_t0/slide_03.png", after: "slides/pdf_011_t1/slide_03.png",
-    caption: "Verdict boxes overlap into unreadable collision — clean two-column comparison with takeaway" },
-  { before: "slides/db_031_fix26_t0/slide_10.png", after: "slides/db_031_fix26_t1/slide_10.png",
-    caption: "Table rows overlap at bottom — clean contribution table with benchmark data fully visible" },
-  { before: "slides/db_010_fix28_t0/slide_02.png", after: "slides/db_010_fix28_t1/slide_02.png",
-    caption: "Key takeaway box overlaps final bullet — all 5 argument steps + takeaway cleanly separated" },
-  { before: "slides/db_003_v4_t0/slide_02.png", after: "slides/db_003_v4_redeck/slide_02.png",
-    caption: "Failure-mode / desired-property boxes overlap bullet text — resolved into clean dual-column layout with all content visible" },
-];
-
-const grid = document.getElementById('showcase');
-cards.forEach(c => {
-  const pair = document.createElement('div');
-  pair.className = 'ba-pair';
-  pair.innerHTML = `
-    <div class="ba-side">
-      <span class="ba-label before">Before</span>
-      <img src="${c.before}" alt="Before refinement" loading="lazy">
-    </div>
-    <div class="ba-arrow">${arrow}</div>
-    <div class="ba-side">
-      <span class="ba-label after">After</span>
-      <img src="${c.after}" alt="After refinement" loading="lazy">
-    </div>
-    <div class="ba-pair-caption">${c.caption}</div>
-  `;
-  grid.appendChild(pair);
-});
-
-/* Nav scroll */
-window.addEventListener('scroll', () => {
-  document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 60);
-});
-</script>
+  <script>
+    window.addEventListener('scroll',()=>{document.getElementById('nav').classList.toggle('scrolled',window.scrollY>20)});
+    const io=new IntersectionObserver(e=>{e.forEach(x=>{if(x.isIntersecting){x.target.classList.add('visible');io.unobserve(x.target)}})},{threshold:0.08});
+    document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+  </script>
 </body>
 </html>
