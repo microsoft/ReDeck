@@ -6,6 +6,20 @@
 
 ---
 
+## 🎬 Demo Video
+
+<p align="center">
+  <a href="https://microsoft.github.io/ReDeck/assets/demo-reel.mp4">
+    <img src="demo/assets/demo-reel-poster.png" alt="ReDeck Demo Video" width="720"/>
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://microsoft.github.io/ReDeck/assets/demo-reel.mp4"><b>▶ Watch the demo video</b></a>
+</p>
+
+---
+
 ## Overview
 
 Most iterative slide agents follow a monolithic "one version, one feedback" loop: they rewrite a slide or deck, render it afterward, and receive feedback only at the turn boundary. That delayed feedback makes local spatial failures — overflow, overlap, clipping, low contrast, occlusion — hard to attribute to the edit that caused them.
