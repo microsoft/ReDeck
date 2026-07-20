@@ -8,15 +8,7 @@
 
 ## 🎬 Demo Video
 
-<p align="center">
-  <a href="https://microsoft.github.io/ReDeck/assets/demo-reel.mp4">
-    <img src="demo/assets/demo-reel-poster.png" alt="ReDeck Demo Video" width="720"/>
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://microsoft.github.io/ReDeck/assets/demo-reel.mp4"><b>▶ Watch the demo video</b></a>
-</p>
+https://github.com/user-attachments/assets/704bde98-141c-4c3f-9768-a9c6dba5e9e9
 
 ---
 
