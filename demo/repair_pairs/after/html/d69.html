@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1280, initial-scale=1.0" />
+<title>Quantitative Table Slide - Renewable Energy Comparison</title>
+<style>
+  :root{
+    --canvas:#F7F8F8;
+    --ink:#283B42;
+    --primary:#355F6B;
+    --secondary:#739FA5;
+    --accent:#D66A5F;
+    --support:#D8B66E;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    width:1280px;
+    height:720px;
+    overflow:hidden;
+    background:var(--canvas);
+    font-family:'Liberation Sans','Segoe UI',Arial,sans-serif;
+    color:var(--ink);
+  }
+  .slide{
+    width:1280px;
+    height:720px;
+    padding:36px 56px 18px 56px;
+    position:relative;
+    background:var(--canvas);
+  }
+  .topline{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    margin-bottom:8px;
+  }
+  .kicker{
+    font-size:16px;
+    letter-spacing:1.8px;
+    text-transform:uppercase;
+    color:var(--primary);
+    font-weight:700;
+    margin-bottom:6px;
+  }
+  .title{
+    font-size:36px;
+    line-height:0.98;
+    font-weight:800;
+    color:var(--ink);
+    max-width:780px;
+  }
+  .subtitle{
+    margin-top:6px;
+    font-size:16px;
+    line-height:1.16;
+    color:var(--primary);
+    max-width:760px;
+  }
+  .hero{
+    text-align:right;
+    padding-top:4px;
+    min-width:280px;
+  }
+  .hero-number{
+    font-size:62px;
+    line-height:0.82;
+    font-weight:800;
+    color:var(--accent);
+    letter-spacing:-2px;
+  }
+  .hero-label{
+    margin-top:8px;
+    font-size:17px;
+    line-height:1.15;
+    color:var(--primary);
+    font-weight:700;
+  }
+
+  .section-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    margin-top:10px;
+    margin-bottom:8px;
+    border-bottom:2px solid rgba(53,95,107,0.22);
+    padding-bottom:8px;
+  }
+  .section-title{
+    font-size:22px;
+    font-weight:800;
+    color:var(--ink);
+    letter-spacing:0.2px;
+  }
+  .section-note{
+    font-size:15px;
+    color:var(--secondary);
+    font-weight:700;
+  }
+
+  /* DEFECT: table wrapper intentionally too short, clipping lower rows */
+  .table-wrap{
+    height:356px;
+    overflow:hidden;
+    border-top:3px solid var(--primary);
+    border-bottom:1px solid rgba(40,59,66,0.12);
+  }
+
+  table{
+    width:100%;
+    border-collapse:collapse;
+    table-layout:fixed;
+    font-size:18px;
+  }
+  thead th{
+    text-align:left;
+    color:var(--primary);
+    font-size:14px;
+    text-transform:uppercase;
+    letter-spacing:1.1px;
+    font-weight:800;
+    padding:10px 10px 8px 10px;
+    border-bottom:2px solid rgba(53,95,107,0.28);
+  }
+  tbody td{
+    padding:8px 10px 8px 10px;
+    border-bottom:1px solid rgba(40,59,66,0.10);
+    vertical-align:middle;
+    color:var(--ink);
+  }
+  tbody tr{
+    height:42px;
+  }
+  .source{
+    font-weight:800;
+    color:var(--ink);
+  }
+  .num{
+    text-align:right;
+    font-variant-numeric:tabular-nums;
+  }
+  .best{
+    color:var(--accent);
+    font-weight:800;
+  }
+  .muted{
+    color:var(--primary);
+  }
+
+  .bottom{
+    display:grid;
+    grid-template-columns: 1.2fr 0.9fr;
+    gap:24px;
+    margin-top:0px;
+    align-items:start;
+  }
+  .insight-title,
+  .method-title{
+    font-size:22px;
+    font-weight:800;
+    color:var(--ink);
+    margin-bottom:2px;
+  }
+  .insight-list{
+    margin:0;
+    padding-left:20px;
+  }
+  .insight-list li{
+    margin-bottom:2px;
+    font-size:14px;
+    line-height:1.08;
+    color:var(--ink);
+  }
+
+  /* DEFECT: intentionally low contrast note text against canvas */
+  .method-copy{
+    font-size:14px;
+    line-height:1.18;
+    color:#6A7E84;
+    max-width:420px;
+  }
+
+  .foot{
+    position:absolute;
+    left:56px;
+    right:56px;
+    bottom:2px;
+    display:flex;
+    justify-content:space-between;
+    font-size:14px;
+    color:var(--secondary);
+    border-top:1px solid rgba(53,95,107,0.16);
+    padding-top:4px;
+  }
+</style>
+</head>
+<body>
+  <div class="slide">
+    <div class="topline">
+      <div>
+        <div class="kicker">Renewable Energy Comparison</div>
+        <div class="title">Levelized cost and grid value vary sharply by technology, even before storage integration</div>
+        <div class="subtitle">
+          Benchmark of utility-scale generation options across 2024 procurement rounds in North America and Western Europe.
+          Values shown are medians from public auctions and developer disclosures.
+        </div>
+      </div>
+      <div class="hero">
+        <div class="hero-number">38%</div>
+        <div class="hero-label">median cost premium for firmed solar<br/>versus standalone onshore wind</div>
+      </div>
+    </div>
+
+    <div class="section-head">
+      <div class="section-title">Comparative generation economics</div>
+      <div class="section-note">USD/MWh unless noted</div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:26%;">Technology</th>
+            <th style="width:14%;" class="num">LCOE</th>
+            <th style="width:14%;" class="num">Capacity Factor</th>
+            <th style="width:16%;" class="num">Capture Price</th>
+            <th style="width:14%;" class="num">CO₂ Avoided</th>
+            <th style="width:16%;" class="num">Build Time</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="source">Onshore wind</td>
+            <td class="num best">46</td>
+            <td class="num">38%</td>
+            <td class="num">51</td>
+            <td class="num">0.71 t/MWh</td>
+            <td class="num muted">24 mo</td>
+          </tr>
+          <tr>
+            <td class="source">Utility solar PV</td>
+            <td class="num">52</td>
+            <td class="num">27%</td>
+            <td class="num">43</td>
+            <td class="num">0.64 t/MWh</td>
+            <td class="num muted">16 mo</td>
+          </tr>
+          <tr>
+            <td class="source">Solar + 4h battery</td>
+            <td class="num">63</td>
+            <td class="num">31%</td>
+            <td class="num best">67</td>
+            <td class="num">0.66 t/MWh</td>
+            <td class="num muted">20 mo</td>
+          </tr>
+          <tr>
+            <td class="source">Offshore wind</td>
+            <td class="num">89</td>
+            <td class="num best">49%</td>
+            <td class="num">72</td>
+            <td class="num best">0.79 t/MWh</td>
+            <td class="num muted">42 mo</td>
+          </tr>
+          <tr>
+            <td class="source">Enhanced geothermal</td>
+            <td class="num">97</td>
+            <td class="num">91%</td>
+            <td class="num">84</td>
+            <td class="num">0.74 t/MWh</td>
+            <td class="num muted">54 mo</td>
+          </tr>
+          <tr>
+            <td class="source">Small modular nuclear</td>
+            <td class="num">128</td>
+            <td class="num">94%</td>
+            <td class="num">93</td>
+            <td class="num">0.78 t/MWh</td>
+            <td class="num muted">72 mo</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bottom">
+      <div>
+        <div class="insight-title">Key findings</div>
+        <ul class="insight-list">
+          <li>Onshore wind remains the lowest-cost zero-carbon option in median tenders, but revenue quality weakens in saturated midday markets.</li>
+          <li>Firmed solar closes much of the capture-price gap and outperforms standalone PV on dispatchability, especially in summer peak windows.</li>
+          <li>Offshore wind and geothermal deliver higher system value where winter reliability and evening demand are heavily weighted.</li>
+        </ul>
+      </div>
+      <div>
+        <div class="method-title">Method note</div>
+        <div class="method-copy">
+          Sample includes 61 projects announced between Q4 2023 and Q3 2024. LCOE values normalized to a 7.2% WACC, 25-year asset life, and regional interconnection charges. Capture price estimates use hourly nodal pricing with curtailment assumptions from operator filings.
+        </div>
+      </div>
+    </div>
+
+    <div class="foot">
+      <div>Source: IEA procurement trackers, developer filings, Aurora market simulations</div>
+      <div>Slide 69</div>
+    </div>
+  </div>
+</body>
+</html>

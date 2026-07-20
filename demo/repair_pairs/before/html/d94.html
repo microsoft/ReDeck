@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1280, initial-scale=1.0" />
+<title>Key Findings List — Slide 94</title>
+<style>
+  :root{
+    --canvas:#102E35;
+    --ink:#F5F8F7;
+    --primary:#3EA4AA;
+    --secondary:#82C8C4;
+    --accent:#EF796B;
+    --support:#E8B765;
+  }
+  *{box-sizing:border-box}
+  html,body{
+    margin:0;
+    width:1280px;
+    height:720px;
+    overflow:hidden;
+    background:var(--canvas);
+    font-family:'Liberation Sans','Segoe UI',Arial,sans-serif;
+    color:var(--ink);
+  }
+  .slide{
+    position:relative;
+    width:1280px;
+    height:720px;
+    padding:42px 54px 34px 56px;
+    background:
+      radial-gradient(circle at 86% 14%, rgba(62,164,170,.12), transparent 180px),
+      radial-gradient(circle at 12% 88%, rgba(232,183,101,.10), transparent 220px),
+      var(--canvas);
+  }
+  .topline{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    margin-bottom:18px;
+  }
+  .eyebrow{
+    font-size:18px;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    color:var(--secondary);
+    font-weight:700;
+  }
+  .slide-no{
+    font-size:18px;
+    letter-spacing:.08em;
+    color:var(--secondary);
+    opacity:.9;
+    margin-top:4px;
+  }
+  .title{
+    font-size:52px;
+    line-height:1.02;
+    font-weight:800;
+    letter-spacing:-0.03em;
+    margin:8px 0 12px 0;
+    max-width:860px;
+  }
+  .subtitle{
+    font-size:22px;
+    line-height:1.35;
+    color:#d4e3e1;
+    max-width:900px;
+    margin-bottom:22px;
+  }
+
+  .hero-row{
+    display:grid;
+    grid-template-columns: 300px 1fr;
+    column-gap:42px;
+    align-items:start;
+    margin-top:8px;
+  }
+  .hero{
+    padding-top:8px;
+  }
+  .hero-number{
+    font-size:92px;
+    line-height:.92;
+    font-weight:800;
+    color:var(--support);
+    letter-spacing:-0.05em;
+    margin:0;
+  }
+  .hero-label{
+    margin-top:10px;
+    font-size:20px;
+    line-height:1.2;
+    color:var(--secondary);
+    font-weight:700;
+    max-width:220px;
+  }
+
+  .findings{
+    position:relative;
+    padding-top:8px;
+  }
+  .section-label{
+    font-size:16px;
+    text-transform:uppercase;
+    letter-spacing:.16em;
+    color:var(--primary);
+    font-weight:800;
+    margin-bottom:10px;
+  }
+  .finding-list{
+    list-style:none;
+    padding:0;
+    margin:0;
+    width:100%;
+  }
+  .finding{
+    display:grid;
+    grid-template-columns: 44px 1fr 160px;
+    align-items:start;
+    gap:18px;
+    padding:15px 0 15px 0;
+    border-top:1px solid rgba(245,248,247,.16);
+  }
+  .finding:first-child{border-top:2px solid rgba(130,200,196,.35)}
+  .idx{
+    font-size:26px;
+    font-weight:800;
+    color:var(--accent);
+    line-height:1;
+    padding-top:3px;
+  }
+  .finding h3{
+    margin:0 0 6px 0;
+    font-size:28px;
+    line-height:1.08;
+    letter-spacing:-0.02em;
+    color:var(--ink);
+  }
+  .finding p{
+    margin:0;
+    font-size:20px;
+    line-height:1.33;
+    color:#dce8e6;
+  }
+  .metric{
+    text-align:right;
+    font-size:42px;
+    line-height:1;
+    font-weight:800;
+    color:var(--primary);
+    letter-spacing:-0.04em;
+    padding-top:2px;
+  }
+  .metric small{
+    display:block;
+    font-size:15px;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:var(--secondary);
+    margin-top:6px;
+    font-weight:700;
+  }
+
+  .bottom{
+    position:absolute;
+    left:56px;
+    right:54px;
+    bottom:28px;
+    display:grid;
+    grid-template-columns: 1.15fr .85fr;
+    column-gap:36px;
+    align-items:end;
+  }
+
+  .note-block{
+    border-top:2px solid rgba(245,248,247,.18);
+    padding-top:14px;
+  }
+  .note-title{
+    font-size:17px;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--support);
+    font-weight:800;
+    margin-bottom:8px;
+  }
+  .note-text{
+    font-size:18px;
+    line-height:1.38;
+    max-width:690px;
+    /* DEFECT: intentionally low contrast text blends into canvas */
+    color:#48656a;
+  }
+
+  .mini-viz{
+    justify-self:end;
+    width:400px;
+    height:126px;
+    overflow:hidden;
+    border-top:2px solid rgba(245,248,247,.18);
+    padding-top:10px;
+  }
+  .mini-viz-title{
+    font-size:15px;
+    text-transform:uppercase;
+    letter-spacing:.16em;
+    color:var(--secondary);
+    font-weight:800;
+    margin-bottom:8px;
+  }
+  svg{display:block}
+  .axis{
+    font-size:13px;
+    fill:#cfe2df;
+    font-weight:700;
+  }
+  .bar-a{fill:var(--primary)}
+  .bar-b{fill:var(--support)}
+  .bar-c{fill:var(--accent)}
+  .svg-label{
+    font-size:16px;
+    fill:var(--ink);
+    font-weight:700;
+  }
+
+  /* DEFECT: overlap created by pulling the findings block upward into the title/subtitle area */
+  .findings-overlap{
+    margin-top:-26px;
+  }
+
+  /* DEFECT: svg text truncation caused by clipping region that is too narrow for labels */
+  .clip-tight{
+    clip-path: inset(0 118px 0 0);
+  }
+</style>
+</head>
+<body>
+  <div class="slide">
+    <div class="topline">
+      <div class="eyebrow">Medical AI Study — Key Findings</div>
+      <div class="slide-no">94</div>
+    </div>
+
+    <div class="title">Chest CT triage model improved early escalation without increasing false alarms</div>
+    <div class="subtitle">
+      Multi-site evaluation across 11 hospitals compared the production classifier against radiologist-first workflow for acute pulmonary embolism prioritization.
+    </div>
+
+    <div class="hero-row">
+      <div class="hero">
+        <div class="hero-number">4.7%</div>
+        <div class="hero-label">absolute gain in urgent-case recall at matched specificity</div>
+      </div>
+
+      <div class="findings findings-overlap">
+        <div class="section-label">Top findings</div>
+        <ul class="finding-list">
+          <li class="finding">
+            <div class="idx">01</div>
+            <div>
+              <h3>Recall improved most on low-volume overnight shifts</h3>
+              <p>
+                The model lifted urgent-case recall from 81.9% to 86.6% between 11pm and 6am, when attending coverage was thinnest and queue latency was highest.
+              </p>
+            </div>
+            <div class="metric">+4.7<small>pts recall</small></div>
+          </li>
+
+          <li class="finding">
+            <div class="idx">02</div>
+            <div>
+              <h3>Median time-to-first-review fell despite stable reading volume</h3>
+              <p>
+                Priority routing reduced median first-review time from 22 minutes to 14 minutes for positive studies, with no measurable slowdown for routine chest CTs.
+              </p>
+            </div>
+            <div class="metric">-36%<small>triage delay</small></div>
+          </li>
+
+          <li class="finding">
+            <div class="idx">03</div>
+            <div>
+              <h3>Calibration remained consistent across scanner vendors</h3>
+              <p>
+                Performance varied by less than 1.2 AUC points across Siemens, GE, and Philips cohorts, suggesting limited site-specific tuning was required before deployment.
+              </p>
+            </div>
+            <div class="metric">0.91<small>macro AUC</small></div>
+          </li>
+
+          <li class="finding">
+            <div class="idx">04</div>
+            <div>
+              <h3>False positives concentrated in post-surgical cases</h3>
+              <p>
+                Most erroneous escalations were linked to clips, drains, and motion artifacts; adding 4,200 post-op studies to retraining cut this subgroup error by 18%.
+              </p>
+            </div>
+            <div class="metric">18%<small>error reduction</small></div>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="bottom">
+      <div class="note-block">
+        <div class="note-title">Operational implication</div>
+        <div class="note-text">
+          Sites with overnight backlog and limited subspecialty coverage saw the largest benefit. The study recommends deploying AI triage as a queue-ordering layer rather than an autonomous diagnostic gate, with targeted retraining on post-surgical imaging before broader rollout.
+        </div>
+      </div>
+
+      <div class="mini-viz">
+        <div class="mini-viz-title">Subgroup lift in urgent-case recall</div>
+        <svg width="400" height="96" viewBox="0 0 400 96" aria-label="Subgroup recall lift chart">
+          <g transform="translate(0,6)">
+            <line x1="0" y1="74" x2="398" y2="74" stroke="rgba(245,248,247,.22)" stroke-width="1"/>
+            <g class="clip-tight">
+              <text class="svg-label" x="0" y="18">Overnight emergency admissions</text>
+              <text class="svg-label" x="0" y="48">Community hospital transfers</text>
+              <text class="svg-label" x="0" y="78">Post-surgical follow-up imaging</text>
+            </g>
+            <rect class="bar-a" x="254" y="6" width="108" height="16" rx="8"></rect>
+            <rect class="bar-b" x="254" y="36" width="84" height="16" rx="8"></rect>
+            <rect class="bar-c" x="254" y="66" width="40" height="16" rx="8"></rect>
+            <text class="axis" x="370" y="19">+5.8 pts</text>
+            <text class="axis" x="346" y="49">+4.1 pts</text>
+            <text class="axis" x="302" y="79">+1.9 pts</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

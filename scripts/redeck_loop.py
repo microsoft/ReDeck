@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.modules.redeck.html_spatial_state import extract_html_slide_state
 from app.modules.redeck.agent_repair import AgentRepair
-from app.backends.html_codegen.html_codegen_compiler import HtmlCodeGenCompiler
+from app.backends.python_pptx.html_codegen_compiler import HtmlCodeGenCompiler
 from app.llm_client import LLMClient
 from app.schemas.issue import Issue, IssueEvidence
 from app.schemas.common import Severity, Confidence, Verdict

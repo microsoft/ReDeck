@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1280, initial-scale=1.0" />
+<title>Quantitative Table Slide - Medical AI Study</title>
+<style>
+  :root{
+    --canvas:#F7F8F8;
+    --ink:#283B42;
+    --primary:#355F6B;
+    --secondary:#739FA5;
+    --accent:#D66A5F;
+    --support:#D8B66E;
+  }
+  *{box-sizing:border-box}
+  html,body{
+    margin:0;
+    width:1280px;
+    height:720px;
+    overflow:hidden;
+    background:var(--canvas);
+    font-family:'Liberation Sans','Segoe UI',Arial,sans-serif;
+    color:var(--ink);
+  }
+  .slide{
+    width:1280px;
+    height:720px;
+    padding:34px 54px 24px 54px;
+    position:relative;
+    background:
+      linear-gradient(180deg, rgba(53,95,107,0.04), rgba(53,95,107,0) 180px),
+      var(--canvas);
+  }
+  .topbar{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    margin-bottom:10px;
+  }
+  .kicker{
+    font-size:16px;
+    font-weight:700;
+    letter-spacing:1.8px;
+    text-transform:uppercase;
+    color:var(--secondary);
+    margin-bottom:6px;
+  }
+  .title{
+    font-size:34px;
+    line-height:1.02;
+    font-weight:800;
+    color:var(--ink);
+    max-width:840px;
+  }
+  .slide-no{
+    font-size:18px;
+    font-weight:700;
+    color:var(--secondary);
+    padding-top:6px;
+  }
+  .hero-row{
+    display:grid;
+    grid-template-columns: 1.1fr 1fr 1fr;
+    column-gap:32px;
+    align-items:end;
+    margin:2px 0 10px 0;
+  }
+  .hero-block .label{
+    font-size:15px;
+    text-transform:uppercase;
+    letter-spacing:1.4px;
+    color:var(--secondary);
+    font-weight:700;
+    margin-bottom:6px;
+  }
+  .hero-number{
+    font-size:68px;
+    line-height:0.88;
+    font-weight:800;
+    color:var(--primary);
+  }
+  .hero-number.accent{ color:var(--accent); }
+  .hero-sub{
+    margin-top:4px;
+    font-size:14px;
+    line-height:1.15;
+    color:var(--ink);
+    max-width:320px;
+  }
+
+  .section-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    margin-top:4px;
+    margin-bottom:8px;
+    padding-top:8px;
+    border-top:3px solid var(--primary);
+  }
+  .section-title{
+    font-size:22px;
+    font-weight:800;
+    color:var(--ink);
+    letter-spacing:0.2px;
+  }
+  .section-note{
+    font-size:15px;
+    color:var(--secondary);
+    max-width:440px;
+    text-align:right;
+    line-height:1.3;
+  }
+
+  /* DEFECT: table wrapper 90px too short for content, causing lower rows to be visibly clipped */
+  .table-wrap{
+    height:351px;
+    overflow:hidden;
+  }
+
+  table{
+    width:100%;
+    border-collapse:collapse;
+    table-layout:fixed;
+    font-size:16px;
+  }
+  thead th{
+    text-align:left;
+    font-size:14px;
+    text-transform:uppercase;
+    letter-spacing:1.1px;
+    color:var(--secondary);
+    font-weight:800;
+    padding:8px 8px 9px 8px;
+    border-bottom:2px solid rgba(53,95,107,0.28);
+    vertical-align:bottom;
+  }
+  tbody td{
+    padding:6px 8px 5px 8px;
+    border-bottom:1px solid rgba(40,59,66,0.14);
+    vertical-align:top;
+    line-height:1.2;
+  }
+  tbody tr:last-child td{
+    border-bottom:none;
+  }
+  .model{
+    font-weight:800;
+    color:var(--ink);
+  }
+  .muted{
+    color:var(--secondary);
+  }
+  .num{
+    text-align:right;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+  }
+  .delta-up{
+    color:var(--primary);
+    font-weight:800;
+  }
+  .delta-down{
+    color:var(--accent);
+    font-weight:800;
+  }
+
+  /* DEFECT: notes column font-size and no wrapping force content to overflow into adjacent space */
+  .overflow-col{
+    white-space:normal;
+    overflow-wrap:anywhere;
+    font-size:14px;
+    font-weight:700;
+    color:var(--primary);
+  }
+
+  .footer{
+    position:absolute;
+    left:54px;
+    right:54px;
+    bottom:18px;
+    display:grid;
+    grid-template-columns: 1.2fr 1fr;
+    column-gap:44px;
+    align-items:start;
+  }
+  .foot-left{
+    font-size:14px;
+    line-height:1.25;
+    color:var(--ink);
+  }
+  .foot-left b{
+    color:var(--primary);
+  }
+  .foot-right{
+    text-align:right;
+    font-size:17px;
+    line-height:1.35;
+    color:var(--ink);
+  }
+  .rule{
+    display:none;
+  }
+</style>
+</head>
+<body>
+  <div class="slide">
+    <div class="topbar">
+      <div>
+        <div class="kicker">Medical AI Study / Quantitative Table</div>
+        <div class="title">Prospective evaluation of chest CT triage models across five hospital systems</div>
+      </div>
+      <div class="slide-no">13</div>
+    </div>
+
+    <div class="hero-row">
+      <div class="hero-block">
+        <div class="label">Best AUROC</div>
+        <div class="hero-number">0.94</div>
+        <div class="hero-sub">Vision-language ensemble reached the highest discrimination on urgent pulmonary findings.</div>
+      </div>
+      <div class="hero-block">
+        <div class="label">False negatives</div>
+        <div class="hero-number accent">3.1%</div>
+        <div class="hero-sub">At operating point fixed to 92% sensitivity across external validation cohorts.</div>
+      </div>
+      <div class="hero-block">
+        <div class="label">Review time saved</div>
+        <div class="hero-number" style="color:var(--support);">27%</div>
+        <div class="hero-sub">Median reduction in radiologist queue time during overnight emergency reads.</div>
+      </div>
+    </div>
+
+    <div class="section-head">
+      <div class="section-title">External validation by model family and deployment setting</div>
+      <div class="section-note">Outcome: urgent thoracic abnormality requiring same-shift escalation. N = 18,420 studies, prevalence 11.6%.</div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <colgroup>
+          <col style="width:23%">
+          <col style="width:11%">
+          <col style="width:11%">
+          <col style="width:11%">
+          <col style="width:12%">
+          <col style="width:32%">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th class="num">AUROC</th>
+            <th class="num">AUPRC</th>
+            <th class="num">Sensitivity</th>
+            <th class="num">Median latency</th>
+            <th>Deployment notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="model">DenseNet baseline</td>
+            <td class="num">0.87</td>
+            <td class="num">0.52</td>
+            <td class="num">89.4%</td>
+            <td class="num">420 ms</td>
+            <td class="overflow-col">Stable on community sites but drift under portable scanner mix and contrast-heavy trauma intake</td>
+          </tr>
+          <tr>
+            <td class="model">Swin-T radiology pretrain</td>
+            <td class="num">0.91</td>
+            <td class="num">0.61</td>
+            <td class="num">91.8%</td>
+            <td class="num">610 ms</td>
+            <td class="overflow-col">Best single-image model for pleural effusion and edema flags in cross-network deployment</td>
+          </tr>
+          <tr>
+            <td class="model">Vision-language ensemble</td>
+            <td class="num delta-up">0.94</td>
+            <td class="num delta-up">0.68</td>
+            <td class="num delta-up">93.2%</td>
+            <td class="num">980 ms</td>
+            <td class="overflow-col">Integrated report priors improved rare finding recall but created longer inference bursts at peak hours</td>
+          </tr>
+          <tr>
+            <td class="model">Temporal triage model</td>
+            <td class="num">0.90</td>
+            <td class="num">0.58</td>
+            <td class="num">92.0%</td>
+            <td class="num">1.4 s</td>
+            <td class="overflow-col">Used prior exams and EHR context to reduce repeat-alert fatigue in chronic cardiopulmonary cases</td>
+          </tr>
+          <tr>
+            <td class="model">Lightweight edge model</td>
+            <td class="num delta-down">0.83</td>
+            <td class="num">0.44</td>
+            <td class="num">86.7%</td>
+            <td class="num delta-up">180 ms</td>
+            <td class="overflow-col">Fast enough for scanner-side prefetch routing but underperformed on subtle interstitial opacities</td>
+          </tr>
+          <tr>
+            <td class="model">Human + AI arbitration</td>
+            <td class="num">0.93</td>
+            <td class="num">0.66</td>
+            <td class="num">94.1%</td>
+            <td class="num">—</td>
+            <td class="overflow-col">Escalation policy reduced misses in overnight reads while preserving attending override authority</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="rule"></div>
+
+    <div class="footer">
+      <div class="foot-left">
+        <b>Finding:</b> performance gains were largest at tertiary centers with richer historical report context, while low-latency edge deployment remained attractive for scanner-side workflow routing despite lower recall.
+      </div>
+      <div class="foot-right">
+        Prospective study period: Jan–Apr 2026 &nbsp; | &nbsp; Five-site federation &nbsp; | &nbsp; Thresholds calibrated per site prevalence
+      </div>
+    </div>
+  </div>
+</body>
+</html>

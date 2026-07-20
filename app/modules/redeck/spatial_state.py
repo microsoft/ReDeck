@@ -55,6 +55,10 @@ class ContentBlock:
     # overflow:hidden clipping detection
     is_clipped: bool = False       # content clipped by overflow:hidden
     clipped_bottom_px: int = 0
+    # Clip parent info: the ancestor container causing the clip
+    clip_parent_tag: str = ""          # e.g. "div"
+    clip_parent_class: str = ""        # e.g. "card"
+    clip_parent_height_px: int = 0     # current height of clipping container
     # Image loading status
     img_broken: bool = False       # True if <img> failed to load
     img_src: str = ""              # src attribute
@@ -70,9 +74,29 @@ class ContentBlock:
     # Blind-spot detection fields
     is_ellipsized: bool = False        # text-overflow:ellipsis truncation
     has_clip_path: bool = False        # CSS clip-path active
+    is_svg_text: bool = False          # SVG <text>/<tspan> element (no threshold tolerance)
+    is_in_svg: bool = False            # element is inside an <svg> (for filter tuning)
     effective_font_size_px: float = 0.0  # font-size * transform scale factor
     img_crop_pct: float = 0.0         # % of image content cropped by object-fit:cover
     dom_path: str = ""                # DOM path for parent-child relationship detection
+    # Cross-card paint-over: True for synthetic blocks recovered by the paint-over
+    # scan (an empty filled box — e.g. a chart bar — that escaped its own card and
+    # paints over another card's text). paint_over_text holds the covered text.
+    is_paint_over: bool = False
+    paint_over_text: str = ""
+    # Slide-bottom truncation: True for a filled card whose content is sliced by
+    # the slide edge (recovered by the C3 scan).
+    is_bottom_truncated: bool = False
+    # Styled visual boundary: CSS declared height (before overflow:visible expansion).
+    # 0 = height:auto (no declared boundary). Used to detect "text spilling past the
+    # card's visual edge" even when overflow:visible lets it render.
+    styled_h_px: int = 0
+    # Whether the element has a visible fill (background-color ≠ transparent OR
+    # background-image ≠ none). Used to distinguish decorative shapes (chart bars,
+    # accent panels) from pure containers.
+    is_filled: bool = False
+    # CSS overflow property value (e.g. "visible", "hidden").
+    styled_overflow: str = ""
 
 
 @dataclass

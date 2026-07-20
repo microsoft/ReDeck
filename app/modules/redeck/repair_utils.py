@@ -30,7 +30,22 @@ def _extract_json(response: str) -> dict | None:
     except json.JSONDecodeError:
         pass
 
-    # Try extracting { ... } with brace matching
+    # Try line-by-line: handles multi-JSON-object responses where each
+    # line is a separate valid JSON object (plan + apply_edits + verify).
+    # This must come BEFORE brace matching because CSS content inside
+    # JSON string values contains { } that confuse naive depth counting.
+    for line in response.strip().split('\n'):
+        line = line.strip()
+        if line.startswith('{') and line.endswith('}'):
+            try:
+                data = json.loads(line)
+                if isinstance(data, dict) and "tool" in data:
+                    return data
+            except json.JSONDecodeError:
+                pass
+
+    # Try extracting { ... } with brace matching (fallback for responses
+    # with JSON embedded in prose text)
     depth = 0
     start = None
     for i, ch in enumerate(response):
@@ -55,6 +70,19 @@ def _has_extra_json(response: str) -> bool:
     Returns True if multiple JSON objects are detected, meaning the LLM
     tried to output multiple tool calls in a single message.
     """
+    # Fast path: line-by-line check (handles the common multi-line pattern)
+    json_count = 0
+    for line in response.strip().split('\n'):
+        line = line.strip()
+        if line.startswith('{') and line.endswith('}'):
+            try:
+                json.loads(line)
+                json_count += 1
+                if json_count >= 2:
+                    return True
+            except json.JSONDecodeError:
+                pass
+    # Fallback: brace matching for JSON embedded in prose
     count = 0
     depth = 0
     start = None
@@ -84,6 +112,19 @@ def _extract_all_json(response: str) -> list[dict]:
     Used for sequential execution of multi-JSON tool calls.
     """
     results = []
+    # Fast path: line-by-line extraction (common multi-line pattern)
+    for line in response.strip().split('\n'):
+        line = line.strip()
+        if line.startswith('{') and line.endswith('}'):
+            try:
+                data = json.loads(line)
+                if isinstance(data, dict) and "tool" in data:
+                    results.append(data)
+            except json.JSONDecodeError:
+                pass
+    if results:
+        return results
+    # Fallback: brace matching for JSON embedded in prose
     depth = 0
     start = None
     for i, ch in enumerate(response):

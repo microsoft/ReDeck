@@ -37,7 +37,16 @@ class LLMError(Exception):
 
 
 class LLMClient:
-    """Wrapper around an OpenAI-compatible chat completions API."""
+    """Wrapper around an OpenAI-compatible chat completions API.
+
+    Supports two backends (auto-detected from environment variables):
+
+    1. **OpenAI** (default): Set ``OPENAI_API_KEY``.  Optionally set
+       ``OPENAI_BASE_URL`` for compatible proxies (vLLM, Ollama, etc.).
+    2. **Azure OpenAI**: Set ``AZURE_OPENAI_ENDPOINT`` **and**
+       ``AZURE_OPENAI_API_KEY``.  When both are present the client
+       switches to the Azure backend automatically.
+    """
 
     def __init__(
         self,
@@ -49,32 +58,35 @@ class LLMClient:
         self.default_model = default_model or os.environ.get("OPENAI_MODEL", "gpt-4o")
         self.log_path = Path(log_path) if log_path else None
 
-        resolved_api_key = api_key or os.environ.get("OPENAI_API_KEY")
-        if not resolved_api_key:
-            raise ValueError("Set OPENAI_API_KEY before using LLMClient.")
+        azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+        azure_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
 
-        resolved_base_url = base_url or os.environ.get("OPENAI_BASE_URL")
-        client_kwargs: dict[str, Any] = {
-            "api_key": resolved_api_key,
-            "timeout": httpx.Timeout(300.0, connect=30.0),
-            "max_retries": 0,
-            "http_client": httpx.Client(
-                limits=httpx.Limits(
-                    max_connections=20,
-                    max_keepalive_connections=10,
-                    keepalive_expiry=30,
-                ),
+        if azure_endpoint and azure_key:
+            # Azure OpenAI path
+            from openai import AzureOpenAI
+            self.client = AzureOpenAI(
+                azure_endpoint=azure_endpoint,
+                api_key=azure_key,
+                api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
+                max_retries=5,
                 timeout=httpx.Timeout(300.0, connect=30.0),
-            ),
-        }
-        if resolved_base_url:
-            client_kwargs["base_url"] = resolved_base_url
-
-        self.client = OpenAI(**client_kwargs)
-        logger.info(
-            "Using OpenAI-compatible backend: %s",
-            resolved_base_url or "OpenAI default endpoint",
-        )
+            )
+            logger.info("Using Azure OpenAI endpoint: %s", azure_endpoint.split("//")[-1].split(".")[0])
+        else:
+            # Standard OpenAI / compatible proxy path
+            resolved_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+            resolved_url = base_url or os.environ.get("OPENAI_BASE_URL") or None
+            if not resolved_key:
+                raise ValueError(
+                    "No API key found. Set OPENAI_API_KEY (or AZURE_OPENAI_ENDPOINT + AZURE_OPENAI_API_KEY for Azure)."
+                )
+            self.client = OpenAI(
+                api_key=resolved_key,
+                base_url=resolved_url,
+                max_retries=5,
+                timeout=httpx.Timeout(300.0, connect=30.0),
+            )
+            logger.info("Using OpenAI API%s", f" via {resolved_url}" if resolved_url else "")
 
     def _log_call(self, log: ModuleCallLog) -> None:
         """Persist a module call log entry."""

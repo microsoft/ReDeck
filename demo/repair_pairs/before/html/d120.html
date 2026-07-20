@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1280, initial-scale=1.0" />
+<title>Bar Chart Analysis - Renewable Energy Comparison</title>
+<style>
+  :root{
+    --canvas:#F6FAFB;
+    --ink:#2B3E4B;
+    --primary:#4387A0;
+    --secondary:#91C9CE;
+    --accent:#F19A78;
+    --support:#F4D39F;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    width:1280px;
+    height:720px;
+    overflow:hidden;
+    background:var(--canvas);
+    font-family:'Liberation Sans','Segoe UI',Arial,sans-serif;
+    color:var(--ink);
+  }
+  .slide{
+    position:relative;
+    width:1280px;
+    height:720px;
+    padding:42px 48px 30px 48px;
+    background:
+      linear-gradient(180deg, rgba(145,201,206,0.08), rgba(145,201,206,0) 180px),
+      var(--canvas);
+  }
+  .topline{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    margin-bottom:10px;
+  }
+  .eyebrow{
+    font-size:16px;
+    font-weight:700;
+    letter-spacing:1.4px;
+    text-transform:uppercase;
+    color:var(--primary);
+    margin-bottom:8px;
+  }
+  h1{
+    margin:0;
+    font-size:40px;
+    line-height:1.02;
+    font-weight:800;
+    letter-spacing:-0.8px;
+    max-width:720px;
+  }
+  .subtitle{
+    margin-top:10px;
+    font-size:18px;
+    line-height:1.35;
+    color:rgba(43,62,75,0.86);
+    max-width:760px;
+  }
+
+  .hero{
+    width:270px;
+    text-align:right;
+    position:relative;
+    margin-top:4px;
+    height:96px;
+    overflow:hidden;
+    border-top:3px solid var(--accent);
+    padding-top:10px;
+  }
+  /* DEFECT: metric box overflow */
+  .hero .big{
+    font-size:104px;
+    line-height:0.88;
+    font-weight:800;
+    color:var(--primary);
+    letter-spacing:-4px;
+    white-space:nowrap;
+  }
+  .hero .label{
+    font-size:15px;
+    font-weight:700;
+    color:rgba(43,62,75,0.78);
+    margin-top:4px;
+  }
+
+  .content{
+    display:grid;
+    grid-template-columns: 760px 1fr;
+    column-gap:34px;
+    margin-top:22px;
+    align-items:start;
+  }
+
+  .chart-panel{
+    position:relative;
+    padding-top:10px;
+  }
+  .section-title{
+    font-size:22px;
+    font-weight:800;
+    letter-spacing:-0.2px;
+    margin-bottom:18px;
+  }
+  .chart-wrap{
+    display:grid;
+    grid-template-columns: 170px 1fr 70px;
+    row-gap:20px;
+    align-items:center;
+    width:100%;
+  }
+  .y-label{
+    font-size:21px;
+    font-weight:700;
+    color:var(--ink);
+  }
+  .bar-area{
+    position:relative;
+    height:34px;
+    border-bottom:1px solid rgba(67,135,160,0.18);
+  }
+  .bar{
+    height:24px;
+    margin-top:5px;
+    border-radius:0 14px 14px 0;
+  }
+  .v1{width:88%; background:var(--primary);}
+  .v2{width:74%; background:var(--secondary);}
+  .v3{width:61%; background:var(--support);}
+  .v4{width:49%; background:var(--accent);}
+  .v5{width:43%; background:rgba(67,135,160,0.55);}
+  .value{
+    text-align:right;
+    font-size:20px;
+    font-weight:800;
+  }
+  .axis{
+    margin-top:16px;
+    margin-left:170px;
+    width:calc(100% - 170px);
+    display:flex;
+    justify-content:space-between;
+    font-size:14px;
+    color:rgba(43,62,75,0.7);
+    font-weight:700;
+  }
+
+  .insight{
+    margin-top:24px;
+    display:grid;
+    grid-template-columns: 1.1fr 0.9fr;
+    column-gap:26px;
+    align-items:start;
+  }
+  .insight h3,
+  .notes h3{
+    margin:0 0 10px 0;
+    font-size:20px;
+    font-weight:800;
+  }
+  .insight p,
+  .notes p{
+    margin:0;
+    font-size:18px;
+    line-height:1.42;
+    color:rgba(43,62,75,0.88);
+  }
+
+  .side{
+    position:relative;
+    padding-top:10px;
+  }
+  .mini-head{
+    font-size:22px;
+    font-weight:800;
+    margin-bottom:14px;
+  }
+  table{
+    width:100%;
+    border-collapse:collapse;
+    table-layout:fixed;
+  }
+  thead th{
+    text-align:left;
+    font-size:14px;
+    text-transform:uppercase;
+    letter-spacing:1px;
+    color:var(--primary);
+    padding:0 0 10px 0;
+    border-bottom:2px solid rgba(67,135,160,0.35);
+  }
+  tbody td{
+    font-size:18px;
+    padding:12px 0;
+    border-bottom:1px solid rgba(67,135,160,0.18);
+    vertical-align:top;
+  }
+  tbody td:last-child{
+    text-align:right;
+    font-weight:800;
+  }
+
+  .callout{
+    margin-top:20px;
+    padding-top:14px;
+    border-top:3px solid var(--support);
+    width:100%;
+    height:78px;
+    overflow:hidden;
+  }
+  /* DEFECT: text overflow in box */
+  .callout .callout-text{
+    font-size:24px;
+    line-height:1.2;
+    font-weight:700;
+    max-width:100%;
+  }
+
+  .foot{
+    position:absolute;
+    left:48px;
+    right:48px;
+    bottom:18px;
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    font-size:14px;
+    color:rgba(43,62,75,0.64);
+  }
+
+  .floating-note{
+    position:absolute;
+    right:58px;
+    top:372px;
+    width:290px;
+    padding-top:12px;
+    border-top:3px solid var(--accent);
+    background:transparent;
+  }
+  /* DEFECT: card overlap */
+  .floating-note{
+    margin-left:-120px;
+  }
+  .floating-note .kpi{
+    font-size:72px;
+    line-height:0.92;
+    font-weight:800;
+    color:var(--accent);
+    letter-spacing:-2px;
+  }
+  .floating-note .desc{
+    margin-top:8px;
+    font-size:18px;
+    line-height:1.28;
+    font-weight:700;
+    color:var(--ink);
+  }
+</style>
+</head>
+<body>
+  <div class="slide">
+    <div class="topline">
+      <div>
+        <div class="eyebrow">Slide 120 · Renewable Energy Comparison</div>
+        <h1>Grid-scale solar leads 2026 levelized cost outlook, while offshore wind retains the highest capex burden</h1>
+        <div class="subtitle">
+          Analysis compares unsubsidized LCOE across five utility-scale generation pathways in North America,
+          incorporating financing costs, fuel assumptions, and average capacity factors from 42 recent project filings.
+        </div>
+      </div>
+      <div class="hero">
+        <div class="big">31%</div>
+        <div class="label">median cost gap: solar vs. offshore wind</div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="chart-panel">
+        <div class="section-title">Unsubsidized LCOE by generation technology ($/MWh)</div>
+
+        <div class="chart-wrap">
+          <div class="y-label">Utility solar</div>
+          <div class="bar-area"><div class="bar v5"></div></div>
+          <div class="value">43</div>
+
+          <div class="y-label">Onshore wind</div>
+          <div class="bar-area"><div class="bar v4"></div></div>
+          <div class="value">49</div>
+
+          <div class="y-label">CCGT + CCS</div>
+          <div class="bar-area"><div class="bar v3"></div></div>
+          <div class="value">61</div>
+
+          <div class="y-label">Advanced nuclear</div>
+          <div class="bar-area"><div class="bar v2"></div></div>
+          <div class="value">74</div>
+
+          <div class="y-label">Offshore wind</div>
+          <div class="bar-area"><div class="bar v1"></div></div>
+          <div class="value">88</div>
+        </div>
+
+        <div class="axis">
+          <span>0</span>
+          <span>20</span>
+          <span>40</span>
+          <span>60</span>
+          <span>80</span>
+          <span>100</span>
+        </div>
+
+        <div class="insight">
+          <div>
+            <h3>Interpretation</h3>
+            <p>
+              The bar chart shows a widening spread between mature renewables and capital-intensive baseload pathways.
+              Utility solar remains the lowest-cost option in high-irradiance regions, while onshore wind preserves a
+              favorable position where transmission access is already built. Advanced nuclear and offshore wind both
+              improve system resilience, but their economics remain sensitive to financing rates and construction risk.
+            </p>
+          </div>
+          <div class="notes">
+            <h3>What moved this quarter</h3>
+            <p>
+              Turbine pricing stabilized, battery-coupled solar interconnection queues shortened modestly, and steel-heavy
+              projects saw less relief than expected. The result is a flatter cost curve for wind and a clearer lead for
+              solar in merchant procurement discussions.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="side">
+        <div class="mini-head">Drivers behind the spread</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Factor</th>
+              <th style="text-align:right;">Directional impact</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Interest rates above 6%</td>
+              <td>High</td>
+            </tr>
+            <tr>
+              <td>Transmission upgrade requirements</td>
+              <td>Medium</td>
+            </tr>
+            <tr>
+              <td>Commodity input normalization</td>
+              <td>Low</td>
+            </tr>
+            <tr>
+              <td>Capacity factor uncertainty offshore</td>
+              <td>High</td>
+            </tr>
+            <tr>
+              <td>Permitting duration variability</td>
+              <td>Medium</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <div class="callout-text">
+            Procurement teams are increasingly pairing low-cost solar with flexible gas or storage rather than selecting a single generation technology, especially in regions with volatile evening peak demand and constrained reserve margins.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="floating-note">
+      <div class="kpi">12.4</div>
+      <div class="desc">years median payback period for offshore wind under current merchant pricing assumptions</div>
+    </div>
+
+    <div class="foot">
+      <div>Source: project finance disclosures, utility IRPs, 2025 analyst consensus</div>
+      <div>Bar chart analysis</div>
+    </div>
+  </div>
+</body>
+</html>

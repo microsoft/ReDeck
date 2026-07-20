@@ -1,4 +1,4 @@
-"""Agent-based slide repair with tool-calling layout feedback.
+"""Agent-Based Slide Repair — Tool-Calling Loop with Layout Feedback.
 
 Architecture:
   The LLM acts as an autonomous agent with access to tools:
@@ -12,10 +12,9 @@ Architecture:
   - submit:         finalize repair
 
   The agent decides what to edit, when to verify, and when to rollback,
-  based on fine-grained spatial feedback.
-
-The model receives layout feedback during editing, so it can see
-overlaps/overflow caused by its edits and adjust accordingly.
+  based on fine-grained spatial feedback. The model gets layout feedback
+  DURING editing, not just at the end, allowing it to see overlaps/overflow
+  caused by its edits and adjust accordingly.
 """
 
 import json
@@ -88,6 +87,78 @@ def _count_html_words(html: str) -> int:
     return len(t.split())
 
 
+def _visible_text_tokens(html: str) -> list:
+    """Visible-text tokens (keeps %, ., ×, - inside a token so '94.75%' and
+    'Set-to-set' stay whole)."""
+    t = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL)
+    t = re.sub(r'<script[^>]*>.*?</script>', '', t, flags=re.DOTALL)
+    t = re.sub(r'<[^>]+>', ' ', t)
+    t = re.sub(r'&[a-zA-Z]+;', ' ', t)
+    return re.findall(r"[A-Za-z0-9][A-Za-z0-9.%×+\-/]*", t)
+
+
+def _dropped_high_value_tokens(original: str, current: str, limit: int = 12) -> list:
+    """High-value tokens (numbers/metrics, model/method/dataset names) present in
+    the ORIGINAL but now TRULY ABSENT from current (not merely reduced in count).
+    Used to name, in verify feedback, exactly which value-bearing content a
+    deletion removed — so the agent can apply rule 8a ("never delete numbers or
+    method names to save space") to specific items, not a vague word-count delta.
+    Substring-checked against the current HTML so reworded/relocated tokens that
+    still appear anywhere are NOT falsely reported as lost."""
+    _STOP = frozenset("""the a an of to in on for and or but with from by as at is are
+        was were be this that these those it its their our your we you they i he she""".split())
+    # Deck chrome / section labels the prompt (rule re: structural labels) tells the
+    # agent to DELETE — never report these as "high-value content lost", or the
+    # feedback would push the agent to restore chrome it correctly pruned (a
+    # content-preservation proxy that opposes the repair objective).
+    _CHROME = frozenset("""one-slide refs ref fig fig. tbl table sec section slide
+        paper overview agenda outline contents appendix summary takeaway takeaways
+        motivation background intro introduction conclusion conclusions results
+        result method methods approach evaluation experiment experiments discussion
+        related abstract architecture scaling stability problem design main core
+        benefits aspect example overview""".split())
+    num_re = re.compile(r"\d")
+    camel_re = re.compile(r"[a-z][A-Z]|[A-Z]{2,}")  # DINOv2, COLMAP, FID
+    seen, out = set(), []
+    cur_lower = current.lower()
+    for tok in _visible_text_tokens(original):
+        low = tok.lower().strip(".%×+-/")
+        if not low or low in _STOP or low in _CHROME or low in seen:
+            continue
+        # high-value ONLY when number/metric, CamelCase/ACRONYM, or a hyphenated
+        # method term. A bare Capitalised common word is NOT counted: it is almost
+        # always a section label or sentence-initial word, and flagging it would
+        # tell the agent to restore chrome (opposing repair). Precision > recall
+        # here — losing the occasional single-word proper noun is the right trade.
+        hv = (num_re.search(tok) or camel_re.search(tok)
+              or ("-" in tok and len(tok) > 4))
+        if not hv:
+            continue
+        seen.add(low)
+        # Truly absent only if the token does not appear anywhere in current.
+        if tok.lower() in cur_lower:
+            continue
+        # Compound rewording guard: a slash/hyphen compound (e.g. "image/video/3D",
+        # "Canny-to-image") is frequently REWORDED rather than dropped — the slide
+        # now says "image, video, and 3D tasks". Don't flag the compound as lost
+        # when MOST of its meaningful pieces still appear on the slide; that would
+        # tell the agent to restore content that is already there (just phrased
+        # differently). Numbers are never softened this way — a missing metric is
+        # always reported. Genuine partial loss (e.g. "multi-stage" → only "multi"
+        # survives, "stage" gone) still trips because <half the pieces remain.
+        if not num_re.search(tok) and re.search(r"[/-]", tok):
+            pieces = [p for p in re.split(r"[/-]", low) if len(p) > 2]
+            if pieces:
+                present = sum(1 for p in pieces if p in cur_lower)
+                if present * 2 >= len(pieces):  # majority of pieces still on slide
+                    continue
+        out.append(tok)
+        if len(out) >= limit:
+            break
+    return out
+
+
+
 @dataclass
 class PlanStep:
     """A single step in the agent's repair plan."""
@@ -126,6 +197,12 @@ class AgentState:
     # ── Loop exit tracking ──
     submitted: bool = False                        # True if agent successfully submitted
     last_verified_code: str | None = None          # last code that passed verify_layout without regression
+    # ── Best-verified-state tracking (attacks "trajectory luck": the agent could
+    #    reach a low-issue state then drift to a worse one before submitting). We
+    #    remember the verified code with the FEWEST filtered (SSOT) issues and fall
+    #    back to it on submit / loop-timeout instead of the last non-regressing one. ──
+    best_verified_code: str | None = None
+    best_verified_issues: int | None = None
     # ── Regen budget ──
     regen_attempts: int = 0                          # how many times regen_slide was called this session
     # ── Repair summary (generated by agent at end of repair) ──
@@ -142,9 +219,9 @@ class AgentRepair:
     conversation.
     """
 
-    MAX_TOOL_CALLS_PER_ISSUE = 8   # budget per issue
-    MAX_TOOL_CALLS_CAP = 30        # hard cap
-    MAX_NO_PROGRESS = 4   # abort if N turns without code change
+    MAX_TOOL_CALLS_PER_ISSUE = 8   # budget per issue (was 20; turns 3+ have <5% fix rate)
+    MAX_TOOL_CALLS_CAP = 30        # hard cap (was 100)
+    MAX_NO_PROGRESS = 8   # abort if N turns without code change (raised from 4 to give more retry on parse errors)
     MAX_SEARCH_CALLS = 10  # max search_source/lookup_table calls per repair
 
     def __init__(self, llm: LLMClient, model: str = "gpt-4o",
@@ -155,7 +232,7 @@ class AgentRepair:
         self._last_retention = 0.0
         self._current_issues: list[Issue] = []
 
-        # Configurable repair features.
+        # Configurable features (for ablation study)
         cfg = repair_config or {}
         self.LAYOUT_REPR_MODE = cfg.get(
             "layout_repr_mode", "elements_json",
@@ -170,7 +247,10 @@ class AgentRepair:
             "enable_layout_preplan", False,
         )
         self._enable_render_preview = cfg.get(
-            "enable_render_preview", False,
+            "enable_render_preview", False,  # disabled: vision calls unstable on Azure
+        )
+        self._disable_step_render = cfg.get(
+            "disable_step_render", False,  # ablation: disable verify_layout per-step feedback
         )
         self._enable_spatial_text_feedback = cfg.get(
             "enable_spatial_text_feedback", True,
@@ -196,6 +276,7 @@ class AgentRepair:
         run_dir: str | None = None,
         turn_index: int = 0,
         source_store=None,
+        attempt: int = 0,
     ) -> str | None:
         """Run agent loop to repair a slide. Returns repaired code or None."""
 
@@ -249,22 +330,47 @@ class AgentRepair:
             )
         all_issues = filtered_issues
 
-        # B*-only filter: only repair layout/visual issues (B*).
-        # Content (C*, D*, E*) and narrative (A*) issues cause regressions
-        # when repaired via HTML rewrite — the LLM changes correct content
-        # while attempting to fix these issues.
-        pre_b_count = len(all_issues)
+        # Filter: allow B* (layout/visual) + critical content issues.
+        # Previously all C/D/E issues were dropped; now we allow
+        # CRITICAL_CONTENT_TYPES through because fabricated/incorrect
+        # content should be repaired (text-only edits, no layout changes).
+        # A-family (narrative) and non-critical C issues still excluded.
+        pre_filter_count = len(all_issues)
         all_issues = [
             i for i in all_issues
             if i.rubric_id.startswith("B")
+            or i.issue_type in CRITICAL_CONTENT_TYPES
         ]
-        if len(all_issues) < pre_b_count:
+        if len(all_issues) < pre_filter_count:
             logger.info(
-                "Slide %d: B*-only filter: %d → %d issues "
-                "(removed %d non-layout issues)",
-                slide_id, pre_b_count, len(all_issues),
-                pre_b_count - len(all_issues),
+                "Slide %d: B+content filter: %d → %d issues "
+                "(removed %d non-actionable issues)",
+                slide_id, pre_filter_count, len(all_issues),
+                pre_filter_count - len(all_issues),
             )
+
+        # Suppress B16 (text_wall) when B4 (text_overflow) is already present.
+        # Both issues target content density, but their fixes conflict:
+        # B4 says "shrink CSS to fit", B16 says "delete content to reduce words".
+        # When both exist, B4 is the actionable one (CSS-first). B16's word-count
+        # pressure causes the agent to delete rows/bullets, creating empty space.
+        has_overflow = any(
+            i.issue_type in ("text_overflow", "content_overflow")
+            for i in all_issues
+        )
+        if has_overflow:
+            pre_suppress = len(all_issues)
+            all_issues = [
+                i for i in all_issues
+                if i.issue_type != "text_wall"
+            ]
+            n_suppressed = pre_suppress - len(all_issues)
+            if n_suppressed:
+                logger.info(
+                    "Slide %d: suppressed %d text_wall issues "
+                    "(overflow already present, CSS-first strategy)",
+                    slide_id, n_suppressed,
+                )
 
         logger.info(
             "Slide %d: final issue count after filtering: %d",
@@ -445,7 +551,7 @@ class AgentRepair:
                 evidence=evidence,
                 bp_slide=bp_slide,
             ),
-            attempt=0,
+            attempt=attempt,
             prev_failures_ctx=prev_failures_ctx,
             run_dir=run_dir,
             turn_index=turn_index,
@@ -490,10 +596,40 @@ class AgentRepair:
 
         max_tool_calls = min(
             self.MAX_TOOL_CALLS_CAP,
-            len(all_issues) * self.MAX_TOOL_CALLS_PER_ISSUE,
+            max(12, len(all_issues) * self.MAX_TOOL_CALLS_PER_ISSUE),
         )
 
         system_prompt = self._system_prompt
+
+        # When blueprint is not available (spatial-only repair mode),
+        # tell agent to skip regen_slide and use apply_edits directly
+        if not state_template.get("bp_slide"):
+            system_prompt += (
+                "\n\n**IMPORTANT — EXTERNAL HTML REPAIR MODE:**\n"
+                "- `regen_slide` is NOT available. Do NOT attempt it.\n"
+                "- You have full freedom to restructure the DOM, not just CSS tweaks.\n\n"
+                "**OVERLAP REPAIR STRATEGY (use in order):**\n"
+                "1. **Try CSS position/size first** — move or shrink overlapping elements.\n"
+                "2. **If CSS fails after 2 attempts → RESTRUCTURE the overlapping region.** "
+                "This means: DELETE the cluster of overlapping elements entirely, then INSERT "
+                "a replacement block with fewer, properly-sized elements that convey the same "
+                "information. For example, if 5 small `.feature` divs overlap each other, "
+                "delete all 5 and replace with 2-3 larger, non-overlapping divs.\n"
+                "3. **Atomic restructure pattern:**\n"
+                "   - Use apply_edits to search for the FIRST overlapping element's opening tag "
+                "through the LAST overlapping element's closing tag\n"
+                "   - Replace that entire block with new HTML that has:\n"
+                "     a) Fewer elements (combine related items)\n"
+                "     b) Explicit absolute positions with sufficient spacing\n"
+                "     c) Smaller font sizes if needed to fit\n"
+                "   - Then verify_layout to confirm no new issues\n"
+                "4. **Do NOT keep retrying the same CSS nudges** — if moving element A "
+                "causes it to overlap element C, the layout is too dense for CSS-only fixes. "
+                "Restructure instead.\n"
+                "5. **Content preservation during restructure:** keep all KEY text (titles, "
+                "labels, numbers) but you may merge verbose descriptions or remove decorative "
+                "sub-elements (icons, accent borders).\n"
+            )
 
         # Inject previous repair failures context if available
         user_content = initial_msg
@@ -530,14 +666,54 @@ class AgentRepair:
                         messages=messages,
                         model=self.model,
                         module_name="agent_repair",
-                        prompt_version="agent.v1",
+                        prompt_version="agent.v10",
                         max_tokens=4096,
                         temperature=temp,
                     )
                 except Exception as e:
+                    # A single LLM error used to abort the whole repair, dumping
+                    # the agent at whatever (possibly unconverged) state it was in
+                    # — exactly how GPHash gpt54 shipped 5 issues: an Azure content
+                    # filter false-positive fired at turn 12 while the agent was
+                    # actively working the last paint-over, and the loop broke.
+                    # Most of these (content-filter 400, rate-limit 429, transient
+                    # 5xx/timeouts) clear on a retry. Retry a bounded number of
+                    # times before giving up; only break after the budget is spent.
+                    emsg = str(e)
+                    is_transient = any(s in emsg.lower() for s in (
+                        "content management policy", "content_filter", "filtered",
+                        "rate limit", "429", "timeout", "timed out",
+                        "temporarily", "503", "502", "500", "overloaded",
+                    ))
+                    n_llm_retries = getattr(state, "_llm_retry_count", 0)
+                    MAX_LLM_RETRIES = 3
+                    if is_transient and n_llm_retries < MAX_LLM_RETRIES:
+                        state._llm_retry_count = n_llm_retries + 1
+                        logger.warning(
+                            "Agent repair slide %d turn %d: transient LLM error "
+                            "(%s), retry %d/%d",
+                            slide_id, tool_calls, emsg[:120],
+                            n_llm_retries + 1, MAX_LLM_RETRIES,
+                        )
+                        # A content filter often trips on the LAST tool result we
+                        # appended (e.g. a verify dump with flagged text). Nudge the
+                        # model with a short neutral reminder rather than resending
+                        # the identical context that just got filtered.
+                        if "content" in emsg.lower() or "filter" in emsg.lower():
+                            messages.append({
+                                "role": "user",
+                                "content": (
+                                    "(Continue the repair. Respond with your next "
+                                    "tool call as normal JSON — keep reasoning brief "
+                                    "and focused on the CSS/layout fix.)"
+                                ),
+                            })
+                        tool_calls += 1
+                        continue
                     logger.warning(
-                        "Agent repair slide %d LLM error at turn %d: %s",
-                        slide_id, tool_calls, str(e)[:200],
+                        "Agent repair slide %d LLM error at turn %d (giving up "
+                        "after %d retries): %s",
+                        slide_id, tool_calls, n_llm_retries, emsg[:200],
                     )
                     break
 
@@ -570,10 +746,15 @@ class AgentRepair:
                         continue
                     messages.append({"role": "user", "content":
                         "Error: could not parse your action. "
-                        "Return a JSON object with a \"tool\" field."
+                        "Return a JSON object with a \"tool\" field. "
+                        "Example: {\"tool\": \"apply_edits\", \"reason\": \"...\", \"edits\": [{\"search\": \"old\", \"replace\": \"new\"}]}. "
+                        "Do NOT wrap in markdown fences. Just the raw JSON object."
                     })
                     tool_calls += 1
-                    no_progress += 1
+                    # Only count every other malformed response as no-progress
+                    # to give the model more chances to recover
+                    if tool_calls % 2 == 0:
+                        no_progress += 1
                     if no_progress >= self.MAX_NO_PROGRESS:
                         logger.info(
                             "Agent repair slide %d: no progress for %d turns, aborting",
@@ -712,6 +893,55 @@ class AgentRepair:
                         )
                         continue
 
+                # Word-retention hard floor: fires INDEPENDENTLY of the
+                # spatial bounce counter. A slide that lost >30% of its
+                # visible text is almost certainly over-deleted. The agent
+                # may correctly remove a low-value support channel, but
+                # deleting entire cards with method names / benchmarks /
+                # metrics to solve overlap is the WRONG fix.
+                # Bounce ONCE with strong restoration guidance; after that
+                # let it ship (the agent may genuinely need the deletion).
+                _wc_bounce_attr = '_wc_floor_bounced'
+                if (not getattr(state, _wc_bounce_attr, False)
+                        and state.current_code != code):
+                    t0_wc = _count_html_words(state.original_code)
+                    t1_wc = _count_html_words(state.current_code)
+                    if t0_wc > 20:
+                        wc_pct = round(100 * t1_wc / t0_wc)
+                        if wc_pct < 70:
+                            setattr(state, _wc_bounce_attr, True)
+                            messages.append({
+                                "role": "user",
+                                "content": (
+                                    f"🚨 SUBMIT BLOCKED — word retention "
+                                    f"is only {wc_pct}% ({t0_wc}→{t1_wc} "
+                                    f"words). You deleted too much content "
+                                    f"while fixing spatial issues.\n\n"
+                                    f"RESTORE the deleted content. The "
+                                    f"correct fix for overlap/overflow is "
+                                    f"to MOVE or RESIZE elements, not to "
+                                    f"delete entire cards/sections. If a "
+                                    f"region is too crowded:\n"
+                                    f"  1. Shrink font sizes (min 12px)\n"
+                                    f"  2. Reduce padding/margins\n"
+                                    f"  3. Adjust container dimensions\n"
+                                    f"  4. Condense TEXT (shorter phrasing)\n"
+                                    f"  5. Remove ONLY decorative accents\n"
+                                    f"NEVER delete a card/section that "
+                                    f"contains method names, metrics, "
+                                    f"benchmark results, or key claims.\n"
+                                    f"Rollback to restore, then try "
+                                    f"CSS-only fixes. Call submit again."
+                                ),
+                            })
+                            tool_calls += 1
+                            logger.info(
+                                "Agent slide %d: submit bounced "
+                                "(word retention %d%%, floor=70%%)",
+                                slide_id, wc_pct,
+                            )
+                            continue
+
                 # Pre-submit spatial check: overflow, OOB, AND overlaps.
                 # This catches cases where the agent made edits without
                 # calling verify_layout afterwards — the #1 source of
@@ -731,30 +961,37 @@ class AgentRepair:
 
                         if is_html:
                             # HTML mode: use Playwright DOM check (same as verify_layout)
-                            from .html_spatial_state import extract_html_slide_state
+                            from .html_spatial_state import (
+                                extract_html_slide_state,
+                                count_significant_issues,
+                            )
                             t1_html_st = extract_html_slide_state(slide_id, state.current_code)
                             if not hasattr(state, '_t0_html_gate_state'):
                                 state._t0_html_gate_state = extract_html_slide_state(slide_id, state.original_code)
                             t0_html_st = state._t0_html_gate_state
 
-                            # Compare overlap/overflow/oob counts
-                            # Filter out tiny overflows (≤5px) — sub-pixel math glyphs
-                            def _significant_overflows(st):
-                                count = 0
-                                for bid in st.overflow_blocks:
-                                    blk = next((b for b in st.blocks if b.block_id == bid), None)
-                                    if blk and max(blk.overflow_bottom_px, blk.overflow_right_px) > 5:
-                                        count += 1
-                                return count
-                            spatial_types_map = {
-                                "overlap": (len(t1_html_st.overlap_pairs), len(t0_html_st.overlap_pairs)),
-                                "text_overflow": (_significant_overflows(t1_html_st), _significant_overflows(t0_html_st)),
-                                "out_of_bounds": (len(t1_html_st.oob_blocks), len(t0_html_st.oob_blocks)),
-                            }
+                            # Count per-category significant issues via the SINGLE
+                            # SOURCE OF TRUTH (count_significant_issues) so the
+                            # agent's notion of "clean" matches the external scorer
+                            # exactly. The previous inline helpers
+                            # (_significant_overflows/_count_real_overlaps/
+                            # _significant_oob) diverged from count_issues AND were
+                            # blind to clipped_blocks — a slide whose only residual
+                            # was clipped text passed this gate while the harness
+                            # still flagged it. The SSOT covers all six categories
+                            # incl. clipped + canvas_truncation.
+                            t1_cats = count_significant_issues(t1_html_st)
+                            t0_cats = count_significant_issues(t0_html_st)
+                            t1_counts = {k: len(v) for k, v in t1_cats.items()}
+                            t0_counts = {k: len(v) for k, v in t0_cats.items()}
+                            residual_total = sum(t1_counts.values())
+
+                            # (1) Regression bounce — never submit a slide that is
+                            # WORSE than the original in any category.
                             new_issues = {}
-                            for stype, (t1_c, t0_c) in spatial_types_map.items():
-                                if t1_c > t0_c:
-                                    new_issues[stype] = t1_c - t0_c
+                            for stype in t1_counts:
+                                if t1_counts[stype] > t0_counts.get(stype, 0):
+                                    new_issues[stype] = t1_counts[stype] - t0_counts[stype]
 
                             # Build detailed rejection message
                             if new_issues:
@@ -770,6 +1007,8 @@ class AgentRepair:
                                     warn_parts.append(f"🚨 SUBMIT BLOCKED — {new_issues['text_overflow']} new text overflow(s) introduced.")
                                 if new_issues.get("out_of_bounds"):
                                     warn_parts.append(f"🚨 SUBMIT BLOCKED — {new_issues['out_of_bounds']} new out-of-bounds element(s) introduced.")
+                                if new_issues.get("clipped"):
+                                    warn_parts.append(f"🚨 SUBMIT BLOCKED — {new_issues['clipped']} new clipped element(s) introduced.")
                                 warn_parts.append(
                                     "\nFix these issues before submitting. "
                                     "Use verify_layout for details. "
@@ -790,40 +1029,131 @@ class AgentRepair:
                                 )
                                 continue
 
-                            # Coverage drop gate — block submit if too much
-                            # content was deleted (coverage dropped ≥30pp)
-                            if submit_bounced_spatial < 2:
-                                t1_cov_gate = self._compute_coverage_pct(t1_html_st)
-                                t0_cov_gate = self._compute_coverage_pct(t0_html_st)
-                                cov_drop_gate = t0_cov_gate - t1_cov_gate
-                                # Gate 1: large coverage drop (≥25pp)
-                                if cov_drop_gate >= 25:
-                                    submit_bounced_spatial += 1
-                                    messages.append({
-                                        "role": "user",
-                                        "content": (
-                                            f"🚨 SUBMIT BLOCKED — coverage dropped "
-                                            f"{t0_cov_gate:.0f}% → {t1_cov_gate:.0f}% "
-                                            f"(Δ{-cov_drop_gate:.0f}%). Too much content "
-                                            f"was removed. Restore deleted elements and "
-                                            f"fix overlaps by repositioning/resizing "
-                                            f"instead of deleting. Then call submit again."
-                                        ),
-                                    })
-                                    tool_calls += 1
-                                    logger.info(
-                                        "Agent slide %d: submit bounced "
-                                        "(coverage drop %d%% → %d%%, "
-                                        "content=%d spatial=%d)",
-                                        slide_id, t0_cov_gate, t1_cov_gate,
-                                        submit_bounced_content,
-                                        submit_bounced_spatial,
+                            # (2) Residual backstop — BOUNDED, PROGRESS-AWARE,
+                            # ESCAPABLE. The regression bounce above only blocks
+                            # "worse than original"; it lets a slide submit with
+                            # residual fixable issues that are simply fewer than
+                            # baseline (e.g. 4→3). That is how Olympus shipped 3
+                            # clipped-text issues.
+                            #
+                            # A STRICT single-fire bounce proved too weak: on a
+                            # hard multi-clip slide (Implicit gpt54) the agent
+                            # burned its one bounce early, then later edits made
+                            # clips WORSE (rewrote captions longer: 19px→40px) and
+                            # it submitted at 18 issues — believing it was "clean
+                            # on targeted defects" — after using only 6 of 30 tool
+                            # calls. Five identical-input runs ranged {0,0,4,6,18}:
+                            # the slide IS fully fixable; the tail is the agent
+                            # QUITTING EARLY on a still-dirty slide it misread.
+                            #
+                            # So we re-bounce when ALL of these hold (still not a
+                            # hard "issues==0" gate — a clean OR genuinely-justified
+                            # trajectory always escapes):
+                            #   • substantial residuals remain (> RESIDUAL_FLOOR),
+                            #   • the agent has ample budget left (so we never loop
+                            #     near the cap — bounded by construction),
+                            #   • it has NOT justified them in its summary, and
+                            #   • we are under a hard re-bounce ceiling.
+                            # The agent always keeps full authority to delete or
+                            # restructure; we only stop it SHIPPING residuals by
+                            # inattention while it still has budget to address them.
+                            RESIDUAL_FLOOR = 2          # ≤2 residuals → let it ship (don't nag tiny tails)
+                            RESIDUAL_BOUNCE_CEIL = 3    # hard ceiling on re-bounces
+                            budget_left = max_tool_calls - tool_calls
+                            n_res_bounces = getattr(state, '_residual_bounce_count', 0)
+                            justified = self._summary_justifies_residuals(state)
+                            # Always fire at least once on any residual (preserves
+                            # the prior thin backstop); re-fire only when the slide
+                            # is materially dirty, budget is healthy, unjustified.
+                            first_fire = (residual_total > 0 and n_res_bounces == 0)
+                            refire = (
+                                residual_total > RESIDUAL_FLOOR
+                                and n_res_bounces < RESIDUAL_BOUNCE_CEIL
+                                and budget_left >= 6
+                                and not justified
+                            )
+                            if first_fire or refire:
+                                setattr(state, '_residual_bounced', True)
+                                state._residual_bounce_count = n_res_bounces + 1
+                                # Enumerate the residuals with element ids + px so
+                                # the agent knows exactly what is still open.
+                                res_lines = []
+                                for bid in (t1_cats.get("clipped", []) + t1_cats.get("canvas_truncation", [])):
+                                    blk = next((b for b in t1_html_st.blocks if b.block_id == bid), None)
+                                    if blk is not None:
+                                        px = int(getattr(blk, 'clipped_bottom_px', 0) or 0)
+                                        prev = " ".join(blk.text_lines)[:40] if blk.text_lines else bid
+                                        res_lines.append(f"  • CLIPPED {bid}: \"{prev}\" ({px}px hidden)")
+                                for bid in t1_cats.get("text_overflow", []):
+                                    res_lines.append(f"  • OVERFLOW {bid}")
+                                for a, b in t1_cats.get("overlap", []):
+                                    res_lines.append(f"  • OVERLAP {a} ↔ {b}")
+                                for bid in t1_cats.get("out_of_bounds", []):
+                                    res_lines.append(f"  • OUT-OF-BOUNDS {bid}")
+                                for a, b in t1_cats.get("occlusion", []):
+                                    res_lines.append(f"  • OCCLUDED {b} behind {a}")
+                                detail = "\n".join(res_lines) if res_lines else f"  {residual_total} residual issue(s)"
+                                # On a re-fire, the message is sharper: the agent
+                                # has tried to submit a still-dirty slide more than
+                                # once while holding budget — remind it clipped text
+                                # is a COUNTED defect (not ignorable chrome) and that
+                                # it has tool calls left to spend.
+                                if first_fire:
+                                    body = (
+                                        f"⚠ {residual_total} spatial issue(s) still open on this "
+                                        f"slide:\n{detail}\n\n"
+                                        f"These are usually fixable with small adjustments — increase "
+                                        f"a container's height, add a few px of bottom margin/padding, "
+                                        f"move a row up, or shave a font size. Clipped text means a box "
+                                        f"is too short for its content.\n"
+                                        f"Fix what you can, then submit again. If a specific residual is "
+                                        f"genuinely unfixable (true structural overflow with no room), "
+                                        f"say which one and why in submit_repair_summary and submit again "
+                                        f"— this check won't block you a second time."
                                     )
-                                    continue
+                                else:
+                                    body = (
+                                        f"⚠ Still {residual_total} spatial issue(s) open — and you "
+                                        f"have ~{budget_left} tool calls left to spend:\n{detail}\n\n"
+                                        f"Clipped text is a COUNTED defect, not optional chrome: the "
+                                        f"viewer literally cannot read the hidden part. These boxes are "
+                                        f"fixable — most are short containers; grow the box height (or "
+                                        f"its parent's), trim a word, or drop the font 1px. Do NOT "
+                                        f"lengthen the clipped text (that makes it worse).\n"
+                                        f"Spend a few more edits to clear them. If one is TRULY "
+                                        f"structural with zero room left, name that specific element and "
+                                        f"why in submit_repair_summary — then submit will pass."
+                                    )
+                                messages.append({
+                                    "role": "user",
+                                    "content": body,
+                                })
+                                tool_calls += 1
+                                logger.info(
+                                    "Agent slide %d: submit bounced "
+                                    "(residual significant issues: %s, "
+                                    "bounce #%d, budget_left=%d, first=%s)",
+                                    slide_id, t1_counts,
+                                    state._residual_bounce_count, budget_left,
+                                    first_fire,
+                                )
+                                continue
 
-                                # Gate 2: low absolute coverage after repair
+                            # Coverage gate — guard the RENDERED OUTCOME
+                            # (a sparse-looking slide), not the act of deleting.
+                            # We deliberately do NOT bounce on "coverage dropped
+                            # ≥Npp" — a large drop can be the correct fix (a
+                            # section genuinely had to go), and telling the agent
+                            # to "restore deleted elements" re-creates the very
+                            # overflow it just resolved. What actually matters is
+                            # whether the FINAL slide looks under-filled, which
+                            # the absolute-coverage check below captures directly.
+                            if submit_bounced_spatial < 2:
+                                # Gate: low absolute coverage after repair
                                 # (catches slides where agent shrank content
-                                # without shrinking containers)
+                                # without shrinking containers, leaving the
+                                # slide looking sparse/unfinished)
+                                t1_cov_gate = self._compute_coverage_pct(t1_html_st)
                                 _cov_bounce_attr = '_cov_low_bounced'
                                 if (t1_cov_gate < 50
                                         and not getattr(state, _cov_bounce_attr, False)):
@@ -851,42 +1181,13 @@ class AgentRepair:
                                     )
                                     continue
 
-                                # Gate 3: word count preservation
-                                # Reject if too much visible text was deleted
-                                _wc_bounce_attr = '_wc_bounced'
-                                if not getattr(state, _wc_bounce_attr, False):
-                                    t0_words = _count_html_words(state.original_code)
-                                    t1_words = _count_html_words(state.current_code)
-                                    if t0_words > 20 and t1_words / t0_words < 0.70:
-                                        setattr(state, _wc_bounce_attr, True)
-                                        wc_pct = round(100 * t1_words / t0_words)
-                                        submit_bounced_spatial += 1
-                                        messages.append({
-                                            "role": "user",
-                                            "content": (
-                                                f"🚨 SUBMIT BLOCKED — word count dropped "
-                                                f"{t0_words} → {t1_words} ({wc_pct}% retained). "
-                                                f"Too much content was deleted. Fix spatial issues "
-                                                f"by repositioning and resizing elements, not by "
-                                                f"removing content. Rollback and try a different "
-                                                f"strategy. Then call submit again."
-                                            ),
-                                        })
-                                        tool_calls += 1
-                                        logger.info(
-                                            "Agent slide %d: submit bounced "
-                                            "(word count %d → %d = %d%%, "
-                                            "content=%d spatial=%d)",
-                                            slide_id, t0_words, t1_words, wc_pct,
-                                            submit_bounced_content,
-                                            submit_bounced_spatial,
-                                        )
-                                        continue
-
                                 # Gate 4: font size floor
                                 # Reject if body text was shrunk below readable size
+                                # Skip for external HTML repair (bp_slide=None) where
+                                # small fonts are often intentional (chart labels, etc.)
                                 _font_bounce_attr = '_font_bounced'
-                                if not getattr(state, _font_bounce_attr, False):
+                                if (state.bp_slide is not None
+                                        and not getattr(state, _font_bounce_attr, False)):
                                     small_text = [
                                         b for b in t1_html_st.blocks
                                         if b.font_size_px > 0
@@ -941,10 +1242,27 @@ class AgentRepair:
                                 (min(a, b), max(a, b))
                                 for a, b, _ in baseline_st.overlap_pairs
                             }
+                            # Container/SVG tags whose overlaps are structural, not defects
+                            _CONTAINER_TAGS = frozenset({
+                                "svg", "g", "path", "rect", "text", "line",
+                                "circle", "ellipse", "polygon", "polyline",
+                                "tspan", "use", "col", "colgroup",
+                            })
+                            def _is_container_blk(bid):
+                                blk = next((b for b in current_st.blocks if b.block_id == bid), None)
+                                if not blk:
+                                    return False
+                                sel = (blk.css_selector or "").lower()
+                                tag = sel.split(".")[-1].split("[")[0].split(":")[0].strip()
+                                return tag in _CONTAINER_TAGS or "svg" in bid.lower()
+
                             new_overlaps = []
                             for a, b, area in current_st.overlap_pairs:
                                 key = (min(a, b), max(a, b))
                                 if key not in t0_overlap_set:
+                                    # Skip container/SVG element overlaps
+                                    if _is_container_blk(a) or _is_container_blk(b):
+                                        continue
                                     new_overlaps.append((a, b, area))
                             # Near-overflow detection: blocks that are
                             # overflowing per Playwright, regardless of
@@ -1049,30 +1367,46 @@ class AgentRepair:
                                         "clipping."
                                     )
                                 if has_hard_issues:
-                                    # Hard issues (overflow, OOB, overlap) block submit
-                                    warn_parts.append(
-                                        "\nFix these issues before submitting. "
-                                        "Either shorten text, expand boxes, or "
-                                        "move elements back within slide bounds. "
-                                        "Then call submit again."
-                                    )
-                                    submit_bounced_spatial += 1
-                                    messages.append({
-                                        "role": "user",
-                                        "content": "\n".join(warn_parts),
-                                    })
-                                    tool_calls += 1
-                                    logger.info(
-                                        "Agent slide %d: submit bounced "
-                                        "(spatial check, content=%d spatial=%d): "
-                                        "%d new overflow, %d new OOB, "
-                                        "%d new overlaps, %d near-overflow",
-                                        slide_id, submit_bounced_content,
-                                        submit_bounced_spatial,
-                                        len(new_of), len(new_ob),
-                                        len(new_overlaps), len(near_overflow),
-                                    )
-                                    continue
+                                    # Check net improvement: if total issues decreased,
+                                    # allow submit even with some new issues
+                                    total_before = len(t0_of) + len(t0_ob) + len(t0_overlap_set)
+                                    total_after = len(t1_of) + len(t1_ob) + len(current_st.overlap_pairs)
+                                    net_improved = total_after < total_before
+                                    if net_improved:
+                                        # Net improvement — warn but allow submit
+                                        logger.info(
+                                            "Agent slide %d: submit allowed with net improvement "
+                                            "(issues %d -> %d, %d new but %d fixed)",
+                                            slide_id, total_before, total_after,
+                                            len(new_of) + len(new_ob) + len(new_overlaps),
+                                            total_before - total_after + len(new_of) + len(new_ob) + len(new_overlaps),
+                                        )
+                                        # Fall through to submit
+                                    else:
+                                        # No net improvement — block submit
+                                        warn_parts.append(
+                                            "\nFix these issues before submitting. "
+                                            "Either shorten text, expand boxes, or "
+                                            "move elements back within slide bounds. "
+                                            "Then call submit again."
+                                        )
+                                        submit_bounced_spatial += 1
+                                        messages.append({
+                                            "role": "user",
+                                            "content": "\n".join(warn_parts),
+                                        })
+                                        tool_calls += 1
+                                        logger.info(
+                                            "Agent slide %d: submit bounced "
+                                            "(spatial check, content=%d spatial=%d): "
+                                            "%d new overflow, %d new OOB, "
+                                            "%d new overlaps, %d near-overflow",
+                                            slide_id, submit_bounced_content,
+                                            submit_bounced_spatial,
+                                            len(new_of), len(new_ob),
+                                            len(new_overlaps), len(near_overflow),
+                                        )
+                                        continue
                                 else:
                                     # Near-overflow only: warn but allow submit
                                     logger.info(
@@ -1296,7 +1630,14 @@ class AgentRepair:
                 snap_path.write_text(state.current_code, encoding="utf-8")
                 logger.debug("Snapshot saved: %s", snap_path)
             # regen_slide is high-cost: count as 5 tool calls
-            tool_calls += 5 if tool_name == "regen_slide" else 1
+            # plan/update_plan/submit_repair_summary are admin — don't count toward budget
+            admin_tools = {"plan", "update_plan", "submit_repair_summary"}
+            if tool_name in admin_tools:
+                pass  # don't increment tool_calls for admin actions
+            elif tool_name == "regen_slide":
+                tool_calls += 5
+            else:
+                tool_calls += 1
 
             # ── Structured verify response ──
             # After verify_layout, track defect trajectory for escalation.
@@ -1307,11 +1648,15 @@ class AgentRepair:
                 verify_defect_count = 0
                 if hasattr(state, '_last_html_state') and state._last_html_state:
                     hs = state._last_html_state
-                    verify_defect_count = (
-                        len(getattr(hs, 'overlap_pairs', []))
-                        + len(getattr(hs, 'oob_blocks', []))
-                        + len(getattr(hs, 'overflow_blocks', []))
-                    )
+                    # Use the FILTERED single-source-of-truth count, not raw len().
+                    # Two reasons: (1) it includes clipped_blocks + canvas
+                    # truncation, so a clip-only residual can still trigger
+                    # escalation (previously invisible — the Olympus failure mode);
+                    # (2) raw len() counted sub-threshold noise the scorer ignores,
+                    # which could keep the trajectory "hot" and fire the
+                    # destructive condensation escalation on non-issues.
+                    from .html_spatial_state import count_significant_issue_total
+                    verify_defect_count = count_significant_issue_total(hs)
                 if not hasattr(state, '_verify_defect_history'):
                     state._verify_defect_history = []
                 state._verify_defect_history.append(verify_defect_count)
@@ -1335,8 +1680,12 @@ class AgentRepair:
                         f"current length while preserving key claims.\n"
                         f"2. **Structural simplification**: Reduce the number of containers "
                         f"(merge cards, remove decorative elements, flatten hierarchy).\n"
-                        f"3. **Rollback + regen**: Call rollback to original, then regen_slide "
-                        f"for a fresh layout with the same content.\n\n"
+                        f"3. **Rollback + structural rewrite**: Call rollback, then use "
+                        f"apply_edits to replace the crowded region with fewer elements "
+                        f"while preserving the original visible claims and numbers. Use "
+                        f"regen_slide only as a last resort, and only if you can preserve "
+                        f"the original text/numbers or verify every changed claim with "
+                        f"search_source.\n\n"
                         f"Do NOT make another small CSS adjustment — it will not fix this."
                     )
                     # Append to the last tool result message
@@ -1385,19 +1734,28 @@ class AgentRepair:
         )
 
         # Loop-timeout rollback: if the agent never successfully submitted,
-        # roll back to the last code state that passed verify_layout
-        # without regression. This prevents unverified edits from leaking
-        # into the next evaluation turn.
+        # roll back to the best verified state (fewest filtered issues), falling
+        # back to the last non-regressing verified state, then to original.
+        # Using best_verified_code (not just last_verified_code) prevents shipping
+        # a late drift to a worse layout — the core of the "trajectory luck" bug.
         if not state.submitted and state.current_code != state.original_code:
-            if state.last_verified_code is not None and state.last_verified_code != state.current_code:
+            rollback_target = None
+            target_label = None
+            if state.best_verified_code is not None and state.best_verified_code != state.current_code:
+                rollback_target = state.best_verified_code
+                target_label = f"best verified ({state.best_verified_issues} issues)"
+            elif state.last_verified_code is not None and state.last_verified_code != state.current_code:
+                rollback_target = state.last_verified_code
+                target_label = "last non-regressing verified"
+            if rollback_target is not None:
                 logger.info(
-                    "Agent slide %d: loop timeout — rolling back to last "
-                    "verified checkpoint (discarding %d chars of unverified edits)",
-                    slide_id,
-                    abs(len(state.current_code) - len(state.last_verified_code)),
+                    "Agent slide %d: loop timeout — rolling back to %s "
+                    "(discarding %d chars of unverified edits)",
+                    slide_id, target_label,
+                    abs(len(state.current_code) - len(rollback_target)),
                 )
-                state.current_code = state.last_verified_code
-            elif state.last_verified_code is None:
+                state.current_code = rollback_target
+            elif state.last_verified_code is None and state.best_verified_code is None:
                 logger.info(
                     "Agent slide %d: loop timeout, no verified checkpoint "
                     "— rolling back to original code",
@@ -1405,8 +1763,36 @@ class AgentRepair:
                 )
                 state.current_code = state.original_code
 
-        # Save optional local trace log.
-        # Priority: run_dir, then REPAIR_LOG_DIR env var
+        # Best-state preference on SUBMIT: if the agent submitted a state that is
+        # strictly worse than a verified state it had already achieved, ship the
+        # better one. The agent's judgment about WHAT to keep is respected; we only
+        # protect it from a final-edit regression it didn't intend. One extra count
+        # here (on the shipped artifact) is cheap vs. the whole LLM loop.
+        if (state.submitted
+                and state.best_verified_code is not None
+                and state.best_verified_code != state.current_code):
+            try:
+                from .html_spatial_state import extract_html_slide_state, count_significant_issue_total
+                if self._is_html_code(state.current_code):
+                    cur_issues = count_significant_issue_total(
+                        extract_html_slide_state(slide_id, state.current_code)
+                    )
+                    if (state.best_verified_issues is not None
+                            and state.best_verified_issues < cur_issues):
+                        logger.info(
+                            "Agent slide %d: submitted state has %d issues but a "
+                            "verified state had %d — shipping the better one.",
+                            slide_id, cur_issues, state.best_verified_issues,
+                        )
+                        state.current_code = state.best_verified_code
+            except Exception as e:
+                logger.warning(
+                    "Agent slide %d: best-state submit check failed: %s",
+                    slide_id, str(e)[:120],
+                )
+
+        # Save conversation log for debugging
+        # Priority: run_dir (always save), then REPAIR_LOG_DIR env var
         log_dir = None
         if run_dir:
             log_dir = str(Path(run_dir) / f"turn_{turn_index:02d}" / "repair_logs")
@@ -1440,7 +1826,7 @@ class AgentRepair:
             except Exception as e:
                 logger.warning("Agent slide %d: failed to save log: %s", slide_id, str(e)[:100])
 
-        # Render snapshots to PNG for visual inspection.
+        # Render snapshots to PNG for visual debugging
         if run_dir:
             snap_dir = Path(run_dir) / f"turn_{turn_index:02d}" / "snapshots" / f"slide_{slide_id:02d}"
             if snap_dir.exists():
@@ -1480,9 +1866,15 @@ class AgentRepair:
         # 7. Aesthetic quality check — reject on severe regressions
         #    (color contrast violations, massive content loss), but allow
         #    through if issues are minor (single overflow, small gap).
-        aes_ok, aes_reason = self._aesthetic_quality_check(
-            code, state.current_code, slide_id,
-        )
+        #    Skip for external HTML repair (bp_slide=None) — the aesthetic
+        #    check uses PPTX coordinate system which gives false positives
+        #    on HTML slides (wrong unit: inches vs pixels).
+        if state.bp_slide is not None:
+            aes_ok, aes_reason = self._aesthetic_quality_check(
+                code, state.current_code, slide_id,
+            )
+        else:
+            aes_ok, aes_reason = True, ""
         if not aes_ok:
             # Count severity: color contrast is a hard reject,
             # other issues are soft warnings
@@ -1802,6 +2194,33 @@ class AgentRepair:
         detail_str = "\n".join(details) if details else ""
         warn_str = "\n".join(overflow_warnings) if overflow_warnings else ""
 
+        # IMMEDIATE high-value-deletion warning — fire IN THE EDIT RESULT, not
+        # only at the next verify_layout. Root cause (Implicit gpt55 trace): when
+        # the agent can't REPOSITION an overlapping card, it deletes the whole
+        # card — and the card it deletes sometimes holds the only benchmark
+        # numbers ("KEY RESULT 0.799 AV2 mAP vs MP3 0.774"). The verify-based
+        # warning fired too late (the agent had already committed to deleting and
+        # moved to submit). Surfacing it on the deleting edit itself lets the
+        # agent choose to RELOCATE/SHRINK instead of delete — before it commits.
+        # Non-blocking (the deletion may be correct); we only make the trade
+        # explicit. Compares this edit's before (checkpoints[-1]) vs after.
+        hv_delete_warning = ""
+        if state.checkpoints:
+            just_dropped = _dropped_high_value_tokens(
+                state.checkpoints[-1], new_code, limit=10)
+            if just_dropped:
+                shown = ", ".join(f'"{d}"' for d in just_dropped)
+                hv_delete_warning = (
+                    f"\n\n⚠ This edit removed value-bearing content from the slide: "
+                    f"{shown}. These are numbers/metrics or model/method/dataset "
+                    f"names (rule 8a: never delete these just to clear a layout "
+                    f"issue). If you deleted a card/box only to resolve an overlap, "
+                    f"prefer RELOCATING or SHRINKING it instead — move it to empty "
+                    f"space, reduce its size/font, or fold the figures into a nearby "
+                    f"box. If the content is genuinely redundant, fine; otherwise "
+                    f"reinstate these specific values."
+                )
+
         # Detect layout property changes and force verify reminder
         edit_diff = ""
         for e in action.get("edits", []):
@@ -1820,7 +2239,8 @@ class AgentRepair:
         result_msg = (
             f"Applied {len(edits)} edit(s) successfully. Code compiles OK.\n"
             f"{detail_str}\n"
-            f"{warn_str}\n"
+            f"{warn_str}"
+            f"{hv_delete_warning}\n"
             f"If you changed positions/sizes, call verify_layout next."
             f"{layout_verify_warning}"
         )
@@ -1832,6 +2252,12 @@ class AgentRepair:
         Returns compact spatial state with violation counts vs baseline.
         Single source of truth — no EMU/GeomChecks indirection.
         """
+        # Ablation: disable step-level render feedback
+        if self._disable_step_render:
+            return ("verify_layout is disabled in this configuration. "
+                    "Spatial feedback is only available after submission. "
+                    "Proceed with your planned edits based on the issue description."), False
+
         from .html_spatial_state import extract_html_slide_state, format_html_compact_state
 
         def _extract_state(code: str, slide_id: int):
@@ -1864,20 +2290,146 @@ class AgentRepair:
         compact = format_html_compact_state(t1_state)
         compact_issues = compact.count("❌ ")
 
+        # Authoritative residual count via the single source of truth — this is
+        # what the external scorer AND the submit gate use, so the agent should
+        # be told about the SAME issues (the compact "❌" tally diverges slightly
+        # on thresholds and historically under-counted clipped text).
+        from .html_spatial_state import count_significant_issues
+        t1_sig = count_significant_issues(t1_state)
+        sig_total = sum(len(v) for v in t1_sig.values())
+
         lines = [compact]
 
-        # Delta vs baseline
+        # Delta vs baseline — with specific fixed/new issue details
         t0_count = getattr(state, '_t0_compact_issues', 0)
         compact_delta = compact_issues - t0_count
         if compact_delta < 0:
-            lines.append(f"\nImproved: {compact_delta:+d} hard defects vs baseline.")
+            lines.append(f"\n✅ Improved: {compact_delta:+d} hard defects vs baseline ({t0_count}→{compact_issues}).")
         elif compact_delta > 0:
-            lines.append(f"\n⚠ Regression: {compact_delta:+d} new hard defects vs baseline.")
+            lines.append(f"\n⚠ Regression: {compact_delta:+d} new hard defects vs baseline ({t0_count}→{compact_issues}).")
         elif compact_issues == 0:
-            lines.append(f"\nNo hard defects (overlap/overflow/OOB). "
+            lines.append(f"\n✅ No hard defects (overlap/overflow/OOB). "
                          "Review the space map for density and balance issues before submitting.")
         else:
             lines.append(f"\nUnchanged: {compact_issues} hard defect(s) from baseline.")
+
+        # Residual significant-issue feedback (non-blocking, every verify call).
+        # The gap that let Olympus ship 3 clipped-text issues was NOT visibility
+        # (the agent saw "❌ CLIPPED" lines) but the absence of any push to ACT on
+        # residuals that are merely fewer-than-baseline. So on every verify where
+        # significant issues remain, we name them and ask the agent to fix or
+        # justify — informing its judgment, never blocking it.
+        if sig_total > 0:
+            res_lines = []
+            for bid in (t1_sig.get("clipped", []) + t1_sig.get("canvas_truncation", [])):
+                blk = next((b for b in t1_state.blocks if b.block_id == bid), None)
+                if blk is not None:
+                    px = int(getattr(blk, 'clipped_bottom_px', 0) or 0)
+                    prev = " ".join(blk.text_lines)[:36] if blk.text_lines else bid
+                    res_lines.append(f"  • CLIPPED {bid}: \"{prev}\"" + (f" ({px}px hidden)" if px else ""))
+            for bid in t1_sig.get("text_overflow", []):
+                res_lines.append(f"  • OVERFLOW {bid}")
+            for a, b in t1_sig.get("overlap", []):
+                res_lines.append(f"  • OVERLAP {a} ↔ {b}")
+            for bid in t1_sig.get("out_of_bounds", []):
+                res_lines.append(f"  • OUT-OF-BOUNDS {bid}")
+            for a, b in t1_sig.get("occlusion", []):
+                res_lines.append(f"  • OCCLUDED {b} behind {a}")
+            if res_lines:
+                lines.append(
+                    f"\n⏳ {sig_total} spatial issue(s) still open (these are what the "
+                    f"scorer counts — clear them before submitting):\n"
+                    + "\n".join(res_lines)
+                    + "\n  ↳ Usually small fixes: grow a container's height, add bottom "
+                    "margin/padding, move a row up, or shave a font size. If one is a true "
+                    "structural overflow with no room left, note which and why in "
+                    "submit_repair_summary."
+                )
+
+        # ── Quadrant fill data (spatial, non-blocking) ──
+        # Present raw fill ratios so the agent can judge whitespace balance.
+        _CONTAINER_TAGS = {"tr", "thead", "tbody", "table", "tfoot"}
+        _ws_blocks = [
+            b for b in t1_state.blocks
+            if b.bbox_px[2] > 20 and b.bbox_px[3] > 10  # min size in px
+            and not (b.bbox_px[2] / 1280 > 0.95 and b.bbox_px[3] / 720 > 0.90)  # exclude full-canvas wrappers
+            and not (b.var_name in _CONTAINER_TAGS and b.bbox_px[2] / 1280 > 0.80)  # exclude wide row containers
+        ]
+        if _ws_blocks:
+            _canvas_w, _canvas_h = 1280, 720
+            _grid_c, _grid_r = 24, 14
+            _cw, _ch = _canvas_w / _grid_c, _canvas_h / _grid_r
+            _grid = [[False] * _grid_c for _ in range(_grid_r)]
+            for _blk in _ws_blocks:
+                _bx, _by, _bw, _bh = _blk.bbox_px
+                for _r in range(_grid_r):
+                    _ry = _r * _ch
+                    if _by + _bh <= _ry or _by >= _ry + _ch:
+                        continue
+                    for _c in range(_grid_c):
+                        _cx = _c * _cw
+                        if _bx + _bw <= _cx or _bx >= _cx + _cw:
+                            continue
+                        _grid[_r][_c] = True
+            _mid_r, _mid_c = _grid_r // 2, _grid_c // 2
+            _qf = {}
+            for _qn, _rr, _cr in [
+                ("TL", range(0, _mid_r), range(0, _mid_c)),
+                ("TR", range(0, _mid_r), range(_mid_c, _grid_c)),
+                ("BL", range(_mid_r, _grid_r), range(0, _mid_c)),
+                ("BR", range(_mid_r, _grid_r), range(_mid_c, _grid_c)),
+            ]:
+                _cells = sum(1 for r in _rr for c in _cr if _grid[r][c])
+                _total = len(list(_rr)) * len(list(_cr))
+                _qf[_qn] = round(100 * _cells / max(1, _total))
+            _max_q = max(_qf.values())
+            _min_q = min(_qf.values())
+            _sparse = [k for k, v in _qf.items() if v < 40]
+            _dense = [k for k, v in _qf.items() if v >= 55]
+
+            qf_line = "\nQuadrant fill: " + " | ".join(f"{k}={v}%" for k, v in _qf.items())
+            if _max_q >= 55 and _min_q < 40 and _sparse and _dense:
+                qf_line += (
+                    f"\n  ⚠ UNDERSIZED ELEMENTS: {', '.join(_sparse)} region(s) "
+                    f"only {', '.join(f'{_qf[q]}%' for q in _sparse)} filled. "
+                    f"Stretch images/tables/text blocks in these areas via CSS "
+                    f"(increase width/height). Do NOT add decorative filler."
+                )
+            lines.append(qf_line)
+
+        # Detailed diff: which issues were fixed, which are new
+        t0_state = getattr(state, '_t0_html_state', None)
+        if t0_state and t1_state:
+            t0_ovlp = {(min(a,b),max(a,b)) for a,b,_ in t0_state.overlap_pairs}
+            t1_ovlp = {(min(a,b),max(a,b)) for a,b,_ in t1_state.overlap_pairs}
+            t0_oob = set(t0_state.oob_blocks)
+            t1_oob = set(t1_state.oob_blocks)
+            t0_clip = set(t0_state.clipped_blocks)
+            t1_clip = set(t1_state.clipped_blocks)
+            fixed_ovlp = t0_ovlp - t1_ovlp
+            new_ovlp = t1_ovlp - t0_ovlp
+            fixed_oob = t0_oob - t1_oob
+            new_oob = t1_oob - t0_oob
+            fixed_clip = t0_clip - t1_clip
+            new_clip = t1_clip - t0_clip
+            # Image crop diff
+            t0_img_crop = {b.block_id for b in t0_state.blocks
+                           if getattr(b, 'shape_type', '') == 'picture' and getattr(b, 'img_crop_pct', 0) > 0.25}
+            t1_img_crop = {b.block_id for b in t1_state.blocks
+                           if getattr(b, 'shape_type', '') == 'picture' and getattr(b, 'img_crop_pct', 0) > 0.25}
+            fixed_img_crop = t0_img_crop - t1_img_crop
+            new_img_crop = t1_img_crop - t0_img_crop
+            diff_parts = []
+            if fixed_ovlp: diff_parts.append(f"FIXED {len(fixed_ovlp)} overlaps")
+            if fixed_oob: diff_parts.append(f"FIXED {len(fixed_oob)} OOB")
+            if fixed_clip: diff_parts.append(f"FIXED {len(fixed_clip)} clipped")
+            if fixed_img_crop: diff_parts.append(f"FIXED {len(fixed_img_crop)} image crops")
+            if new_ovlp: diff_parts.append(f"NEW {len(new_ovlp)} overlaps: {list(new_ovlp)[:3]}")
+            if new_oob: diff_parts.append(f"NEW {len(new_oob)} OOB: {list(new_oob)[:3]}")
+            if new_clip: diff_parts.append(f"NEW {len(new_clip)} clipped: {list(new_clip)[:3]}")
+            if new_img_crop: diff_parts.append(f"NEW {len(new_img_crop)} image crops: {list(new_img_crop)[:3]}")
+            if diff_parts:
+                lines.append("\nDiff vs baseline: " + " | ".join(diff_parts))
 
         # Coverage delta vs T0
         t0_cov = getattr(state, '_t0_space_coverage', None)
@@ -1971,23 +2523,44 @@ class AgentRepair:
                             f"to make room."
                         )
 
-            # Word retention
+            # Word retention — surfaced as a SEMANTIC prompt, not a verdict.
+            # A large drop is not automatically wrong (a section may have
+            # genuinely needed to go); a small drop can still be wrong (a
+            # dropped figure legend, an orphaned header). So we show the
+            # delta and ask the agent to JUDGE what was removed, rather than
+            # asserting "you deleted too much."
             t0_wc = _count_html_words(state.original_code)
             t1_wc = _count_html_words(state.current_code)
             if t0_wc > 10:
                 wc_pct = round(100 * t1_wc / t0_wc)
-                if wc_pct < 70:
+                if wc_pct < 85:
                     lines.append(
-                        f"\n🚨 CONTENT LOSS: word count {t0_wc} → {t1_wc} "
-                        f"({wc_pct}% retained). You deleted too much — "
-                        f"fix spatial issues by repositioning/resizing, "
-                        f"not by removing content. Consider rollback."
+                        f"\nℹ Word count: {t0_wc} → {t1_wc} ({wc_pct}% retained). "
+                        f"This is a signal, not a verdict — judge what was removed:\n"
+                        f"  • If you dropped a whole low-value support channel "
+                        f"(decorative bullets, a redundant callout, an accent "
+                        f"ribbon) to make crowded content fit — that's correct, keep it.\n"
+                        f"  • If you deleted a paragraph but left its heading, "
+                        f"emptied a card/pill, removed a figure's legend/caption, "
+                        f"or dropped numbers/method names — that's a regression. "
+                        f"Restore that specific content (shrink/relayout to fit it) "
+                        f"or delete the now-orphaned wrapper too. Don't leave it half-removed."
                     )
-                elif wc_pct < 85:
+                # Name the SPECIFIC high-value tokens that disappeared, so the
+                # agent can apply rule 8a to concrete items rather than a vague
+                # delta. Fires even at ≥85% retention, because a single dropped
+                # model name / metric is a regression regardless of total words.
+                dropped = _dropped_high_value_tokens(
+                    state.original_code, state.current_code)
+                if dropped:
+                    shown = ", ".join(f'"{d}"' for d in dropped)
                     lines.append(
-                        f"\n⚠ Word count: {t0_wc} → {t1_wc} ({wc_pct}% "
-                        f"retained). Check that no important content was "
-                        f"removed."
+                        f"\n⚠ High-value content no longer on the slide: {shown}. "
+                        f"These are numbers/metrics or model/method/dataset names — "
+                        f"rule 8a says never drop these to save space. If one went "
+                        f"out with a genuinely redundant lane, fine; otherwise restore "
+                        f"it (shrink or relayout other things to make room). Do NOT "
+                        f"invent values — only restore what was there."
                     )
 
         # Text diff summary: show what text changed vs original
@@ -2051,6 +2624,15 @@ class AgentRepair:
         # Track last verified clean checkpoint for loop-timeout rollback
         if compact_delta <= 0:
             state.last_verified_code = state.current_code
+
+        # Track BEST verified state by fewest FILTERED (SSOT) issues. This is what
+        # submit and the loop-timeout rollback fall back to, so a late drift to a
+        # worse state can't ship — directly countering the "trajectory luck" where
+        # the same input reached 4→0 one run and 4→3 another. Reuses sig_total
+        # computed above (no extra render).
+        if state.best_verified_issues is None or sig_total < state.best_verified_issues:
+            state.best_verified_issues = sig_total
+            state.best_verified_code = state.current_code
 
         return "\n".join(lines), False
 
@@ -2224,7 +2806,7 @@ class AgentRepair:
     @staticmethod
     def _is_html_code(code: str) -> bool:
         """Check if code is HTML (vs python-pptx)."""
-        return "<!DOCTYPE" in code or ("<html" in code and "<body" in code)
+        return "<!DOCTYPE" in code or "<html" in code or ("<head" in code and "<style" in code)
 
     def _verify_pptx_layout(self, code: str, slide_id: int, state: AgentState) -> dict:
         """Verify layout for python-pptx code."""
@@ -2367,10 +2949,24 @@ class AgentRepair:
             ), False
 
         state.checkpoints.append(state.current_code)
+        prev_code = state.current_code
         state.current_code = new_code
+        # Immediate high-value-deletion warning (same rationale as apply_edits):
+        # deleting a shape to clear an overlap can take benchmark numbers / model
+        # names with it. Name them now so the agent can reconsider relocating.
+        hv_warn = ""
+        just_dropped = _dropped_high_value_tokens(prev_code, new_code, limit=10)
+        if just_dropped:
+            shown = ", ".join(f'"{d}"' for d in just_dropped)
+            hv_warn = (
+                f"\n⚠ Deleting '{var_name}' removed value-bearing content: {shown} "
+                f"(numbers/metrics/method names — rule 8a). If you removed this only "
+                f"to clear a layout issue, prefer relocating/shrinking it instead, or "
+                f"reinstate these values elsewhere on the slide."
+            )
         return (
             f"Deleted shape '{var_name}' and its code block. "
-            f"Call verify_layout to check spatial state."
+            f"Call verify_layout to check spatial state.{hv_warn}"
         ), True
 
     def _tool_reflow_layout(
@@ -2986,6 +3582,8 @@ class AgentRepair:
                 f"- Body text ≤{word_budget} words (current code has {current_words} words)\n"
                 f"- ≤6 bullet points, ≤10 <li> elements total\n"
                 f"- No overlapping elements\n"
+                f"- Preserve the existing visible claims and numeric values unless a listed content issue explicitly requires correction\n"
+                f"- Do not introduce new numbers, result values, or named claims without using search_source first\n"
                 f"- Source attribution at bottom-right\n"
             )
 
@@ -3086,6 +3684,50 @@ class AgentRepair:
         if not has_density_issue and new_words > old_words + 50:
             return False, f"word count increased too much ({old_words}→{new_words})"
 
+        # Gate 2b: layout-only regeneration must not rewrite the slide's
+        # claims. In rich63 traces, regen fixed spatial geometry but introduced
+        # unverified numbers/phrasing, which then regressed fidelity. For pure
+        # B-family/layout repairs, require the visible text and numeric claims
+        # to stay close to the original; content corrections should use
+        # search_source + targeted edits instead.
+        has_content_issue = any(
+            i.issue_type in CONTENT_ACCURACY_ISSUE_TYPES
+            for i in self._current_issues
+            if hasattr(i, "status") and i.status.value == "open"
+        )
+        if not has_content_issue:
+            old_text = self._extract_visible_text(old_code)
+            new_text = self._extract_visible_text(new_code)
+
+            def _meaningful_tokens(text: str) -> set[str]:
+                return {
+                    token.lower()
+                    for token in re.findall(r"\b[A-Za-z][A-Za-z0-9\-]{3,}\b", text)
+                    if token.lower() not in {
+                        "source", "page", "figure", "slide", "with", "from",
+                        "that", "this", "into", "than", "then", "only",
+                    }
+                }
+
+            old_tokens = _meaningful_tokens(old_text)
+            new_tokens = _meaningful_tokens(new_text)
+            if len(old_tokens) >= 6:
+                retention = len(old_tokens & new_tokens) / max(1, len(old_tokens))
+                if retention < 0.60:
+                    return False, f"layout-only regen rewrote too much text (token retention {retention:.0%})"
+
+            number_re = r"(?<![\w.])\d+(?:\.\d+)?(?:[%×xX]|e[-+]?\d+)?"
+            old_numbers = set(re.findall(number_re, old_text))
+            new_numbers = set(re.findall(number_re, new_text))
+            missing_numbers = old_numbers - new_numbers
+            extra_numbers = new_numbers - old_numbers
+            if missing_numbers:
+                sample = ", ".join(sorted(missing_numbers)[:4])
+                return False, f"layout-only regen dropped existing numeric claims: {sample}"
+            if extra_numbers:
+                sample = ", ".join(sorted(extra_numbers)[:4])
+                return False, f"layout-only regen introduced unverified numeric claims: {sample}"
+
         # Gate 3: for layout_inappropriate, verify structural change via CSS fingerprint
         if has_layout_issue:
             def _layout_fingerprint(code: str) -> frozenset:
@@ -3162,6 +3804,38 @@ class AgentRepair:
             f"{i+1:4d}: {line}" for i, line in enumerate(lines)
         )
         return f"```python\n{numbered}\n```", False
+
+    def _summary_justifies_residuals(self, state: AgentState) -> bool:
+        """True if the agent's repair summary genuinely flags a residual as
+        structural / unfixable — the escape hatch for the residual re-bounce.
+
+        We do NOT want the bounded re-bounce to trap a slide whose remaining
+        clips really have no room (the agent made the right call to stop). A
+        genuine justification looks like: a non-empty ``unresolved_concerns``
+        list, OR a self-assessment that explicitly names a residual as
+        structural / unavoidable / no-room. A bare "looks clean" assessment
+        (the V26 failure: "Final verification is clean on all targeted hard
+        defects" while 18 issues remained) does NOT count — that is exactly the
+        inattention we want to bounce.
+        """
+        summary = getattr(state, "repair_summary", None)
+        if not summary:
+            return False
+        concerns = summary.get("unresolved_concerns") or []
+        if isinstance(concerns, list) and any(str(c).strip() for c in concerns):
+            return True
+        text = " ".join([
+            str(summary.get("self_assessment", "")),
+            " ".join(str(x) for x in (summary.get("actions_taken") or [])),
+        ]).lower()
+        # Phrases that indicate the agent consciously judged a residual
+        # unfixable — not a generic "all clean" claim.
+        STRUCTURAL_MARKERS = (
+            "structural", "no room", "cannot fit", "can't fit", "unavoidable",
+            "unfixable", "cannot be fixed", "can't be fixed", "no space left",
+            "fixed canvas", "inherent overflow", "irreducible", "must clip",
+        )
+        return any(m in text for m in STRUCTURAL_MARKERS)
 
     def _tool_submit_repair_summary(
         self, action: dict, state: AgentState, slide_id: int,
@@ -3251,7 +3925,7 @@ class AgentRepair:
                 or case_path / "images"
             )
 
-            from ...backends.html_codegen import code_executor
+            from ...backends.python_pptx import code_executor
             success, error = code_executor.execute_code(
                 code, prs, slide, image_dir,
             )
@@ -3695,9 +4369,11 @@ class AgentRepair:
             return True, ""  # Can't check — allow
 
         # 1a. Text overflow regression — new overflow blocks
-        t0_overflow = set(baseline.overflow_blocks)
-        t1_overflow = set(current.overflow_blocks)
-        new_overflows = t1_overflow - t0_overflow
+        # Use count_significant_issues to filter noise (≤8px, containers).
+        from .html_spatial_state import count_significant_issues as _csi
+        t0_sig_overflow = set(_csi(baseline).get("text_overflow", []))
+        t1_sig_overflow = set(_csi(current).get("text_overflow", []))
+        new_overflows = t1_sig_overflow - t0_sig_overflow
         if new_overflows:
             for bid in new_overflows:
                 for b in current.blocks:
@@ -3709,26 +4385,40 @@ class AgentRepair:
                         )
 
         # 1b-2. Overlap regression — new element overlaps
-        t0_overlap_set = {
-            (min(a, b), max(a, b))
-            for a, b, _ in baseline.overlap_pairs
-        }
-        new_overlap_pairs = []
-        for a, b, area in current.overlap_pairs:
-            key = (min(a, b), max(a, b))
-            if key not in t0_overlap_set:
-                new_overlap_pairs.append((a, b, area))
-        if new_overlap_pairs:
-            for a, b, area in new_overlap_pairs:
+        # Use count_significant_issues to filter out container/SVG element
+        # overlaps that are not real defects (same filter the submit gate
+        # and verify_layout use). Without this, the aesthetic gate rejects
+        # repairs where the agent correctly resolved a text↔text overlap
+        # but a new rect↔label pair appeared from layout restructuring.
+        from .html_spatial_state import count_significant_issues as _csi
+        t0_sig_overlaps = set(_csi(baseline).get("overlap", []))
+        t1_sig_overlaps = set(_csi(current).get("overlap", []))
+        new_sig_overlaps = t1_sig_overlaps - t0_sig_overlaps
+        if new_sig_overlaps:
+            # Look up readable names from the block list
+            def _blk_name(bid):
+                for b in current.blocks:
+                    if b.block_id == bid or b.var_name == bid:
+                        return bid
+                return bid
+            for a, b in new_sig_overlaps:
+                # Find area from overlap_pairs
+                area = 0.0
+                for oa, ob, oarea in current.overlap_pairs:
+                    if (min(oa,ob), max(oa,ob)) == (min(a,b), max(a,b)):
+                        area = oarea
+                        break
                 issues.append(
-                    f"NEW OVERLAP: {a} ↔ {b} "
+                    f"NEW OVERLAP: {_blk_name(a)} ↔ {_blk_name(b)} "
                     f"(area={area:.2f} sq in)"
                 )
 
         # 1c. Out-of-bounds regression — elements pushed past slide edge
-        t0_oob = set(baseline.oob_blocks)
-        t1_oob = set(current.oob_blocks)
-        new_oob = t1_oob - t0_oob
+        # Use count_significant_issues (same SSOT as overlap check above)
+        # to filter out ≤5px OOB that are noise, not real defects.
+        t0_sig_oob = set(_csi(baseline).get("out_of_bounds", []))
+        t1_sig_oob = set(_csi(current).get("out_of_bounds", []))
+        new_oob = t1_sig_oob - t0_sig_oob
         if new_oob:
             for bid in new_oob:
                 for b in current.blocks:
@@ -3986,12 +4676,39 @@ class AgentRepair:
             )
             fix = issue.planned_fix or ""
 
-            # For content accuracy issues, emphasize verbatim fix usage
+            # For content accuracy issues, format as explicit edit command
             if issue.issue_type in CONTENT_ACCURACY_ISSUE_TYPES and fix:
-                fix_label = (
-                    "   ✅ VERIFIED FIX (judge extracted this from source — "
-                    "use directly without re-verification): "
-                )
+                fd = issue.fix_detail
+                correct_content = fd.correct_content if fd and fd.correct_content else ""
+
+                # Distinguish between INSERT (missing_*) and REPLACE (incorrect/fabricated)
+                is_missing = issue.issue_type.startswith("missing")
+
+                if correct_content and is_missing:
+                    # C-family missing issues: INSERT only, never replace existing text
+                    fix_label = (
+                        "   🎯 MANDATORY INSERT — Add this text using apply_edits with insert_after:\n"
+                        f"   Text to INSERT: \"{correct_content[:300]}\"\n"
+                        "   ⚠️ CRITICAL: Do NOT replace or remove ANY existing text on this slide.\n"
+                        "   Find the most relevant existing element (a <ul>, <p>, or <div>) and\n"
+                        "   insert_after it. If adding to a list, insert a new <li>.\n"
+                        "   Every word currently on the slide MUST remain unchanged.\n"
+                        "   Original judge instruction: "
+                    )
+                elif correct_content:
+                    # D/E-family: precise replacement of the WRONG phrase only
+                    fix_label = (
+                        "   🎯 MANDATORY REPLACE — Find the WRONG phrase and swap it:\n"
+                        f"   Replace with: \"{correct_content[:300]}\"\n"
+                        "   ⚠️ Change ONLY the specific wrong phrase described above.\n"
+                        "   Do NOT touch any surrounding text. One surgical edit.\n"
+                        "   Original judge instruction: "
+                    )
+                else:
+                    fix_label = (
+                        "   ✅ VERIFIED FIX (judge extracted this from source — "
+                        "use directly without re-verification): "
+                    )
             elif issue.issue_type in ("title_content_mismatch", "weak_closing") and fix:
                 fix_label = (
                     "   💡 SUGGESTED FIX (adapt wording as appropriate, "
@@ -4028,8 +4745,86 @@ class AgentRepair:
                         "   Suggested fix (LAYOUT ONLY — change Inches/Pt/"
                         "RGBColor values, do NOT rewrite text strings): "
                     )
+            elif issue.issue_type in CRITICAL_CONTENT_TYPES:
+                fix_label = (
+                    "   Suggested fix (TEXT CONTENT ONLY — rewrite the "
+                    "flagged text to match source evidence; do NOT change "
+                    "CSS layout/position/size): "
+                )
+            elif issue.issue_type == "typography_error":
+                # Typography errors may be truncation (CSS fix) or corruption
+                # (text rewrite). Allow both approaches.
+                fix_label = (
+                    "   Suggested fix (may need CSS resize OR text rewrite "
+                    "— if text is truncated/corrupted, you MAY rewrite the "
+                    "text string to restore its full content): "
+                )
             else:
                 fix_label = "   Suggested fix: "
+
+            # For spatial/layout issues (B-family), strip content-deletion
+            # prescriptions from planned_fix. The judge often prescribes "remove
+            # rows X and Y" which causes visual regression (empty space). We keep
+            # only the spatial target (e.g., "fit within container") and let the
+            # repair agent decide HOW (CSS-first per prompt rules).
+            if issue.rubric_id.startswith("B") and issue.issue_type in (
+                "text_overflow", "overlap", "density_imbalance",
+                "text_wall", "content_overflow",
+            ):
+                import re as _re
+                # Remove sentences that prescribe content deletion
+                fix = _re.sub(
+                    r'(?i)(remove|delete|drop|cut|reduce)\s+(the\s+)?\d[\w\s,/-]*rows?',
+                    '[CSS-first: shrink font/padding instead]', fix,
+                )
+                fix = _re.sub(
+                    r'(?i)keep only[^.;]*[.;]',
+                    '', fix,
+                )
+                fix = _re.sub(
+                    r'(?i)shorten the (paragraph|takeaway|text|sentence)[^.;]*[.;]',
+                    '', fix,
+                )
+
+            # For alignment_inconsistency, prepend large-move guidance.
+            # Micro-nudges (20-40px) never fix alignment visually.
+            if issue.issue_type == "alignment_inconsistency":
+                fix = (
+                    "[LARGE MOVES REQUIRED: alignment fixes need ≥80px "
+                    "adjustments. Snap columns to shared x-coordinates, "
+                    "equalize widths, or close gaps by ≥100px. Small "
+                    "nudges (20-40px) will not resolve this issue.] " + fix
+                )
+
+            # For low_contrast issues, override any "dark fills + white text"
+            # prescription — force "darken text" direction only.
+            if issue.issue_type == "low_contrast":
+                import re as _re
+                # Replace "white text on dark fills" suggestions
+                fix = _re.sub(
+                    r'(?i)white text on (sufficiently )?dark fills?',
+                    'dark text (#2d2d2d) on the existing light background',
+                    fix,
+                )
+                fix = _re.sub(
+                    r'(?i)(use|set|add)\s+(a\s+)?dark(er)?\s+(fill|background)[^.;]*[.;]?',
+                    'darken the TEXT color instead (never darken backgrounds). ',
+                    fix,
+                )
+                # Remove "or white" as an alternative — forces dark text only.
+                # Catches: "darker neutral or white", "dark text or white text"
+                fix = _re.sub(
+                    r'(?i)\s+or\s+white\b[^.;]*',
+                    '',
+                    fix,
+                )
+                # If fix still suggests white/light text, override entirely.
+                # Catches: "to white with sufficient contrast", "set color to #fff"
+                if _re.search(r'(?i)\b(to|use|set)\s+(#[Ff]{3,6}|white)\b', fix):
+                    fix = (
+                        'Darken the text color to #2d2d2d (dark neutral). '
+                        'NEVER use white text on a light/tinted background.'
+                    )
 
             issue_block = (
                 f"{i}. [{issue.severity.value}] {issue.rubric_id} "
@@ -4050,10 +4845,14 @@ class AgentRepair:
                 )
 
             # Surface judge-provided fix_detail for C/D issues
+            # For B-family (layout) issues, suppress correct_content since it
+            # often contains content-deletion prescriptions ("keep only X rows")
+            # that cause visual regression. Layout issues should be fixed via CSS.
             if (
                 hasattr(issue, "fix_detail")
                 and issue.fix_detail
                 and issue.fix_detail.correct_content
+                and not issue.rubric_id.startswith("B")
             ):
                 fd = issue.fix_detail
                 content_text = fd.correct_content[:400]
@@ -4154,34 +4953,52 @@ class AgentRepair:
 
                 # Route density_imbalance by sub_type for correct repair direction
                 if issue.issue_type == "density_imbalance":
-                    sub_type = ""
-                    for field in [issue.planned_fix or "", (issue.evidence.description if issue.evidence else "") or ""]:
-                        if "content_overflow" in field:
-                            sub_type = "content_overflow"
-                            break
-                        elif "underutilized_space" in field:
-                            sub_type = "underutilized_space"
-                            break
-                        elif "uneven_distribution" in field:
-                            sub_type = "uneven_distribution"
-                            break
+                    sub_type = getattr(issue, "sub_type", "") or ""
+                    if not sub_type:
+                        # Fallback: infer from text
+                        for field in [issue.planned_fix or "", (issue.evidence.description if issue.evidence else "") or ""]:
+                            if "cramped" in field or "content_overflow" in field:
+                                sub_type = "cramped_content"
+                                break
+                            elif "sparse" in field or "underutilized" in field:
+                                sub_type = "sparse_content"
+                                break
+                            elif "undersized" in field or "element" in field.lower():
+                                sub_type = "element_undersized"
+                                break
+                            elif "column" in field.lower() and "mismatch" in field.lower():
+                                sub_type = "column_height_mismatch"
+                                break
+                            elif "uneven" in field:
+                                sub_type = "element_undersized"
+                                break
 
-                    if sub_type == "content_overflow":
+                    if sub_type == "cramped_content":
                         issue_block += (
                             "\n   🔧 FIX OVERFLOW — first try CSS: reduce font-size "
                             "(e.g. 20px→16px, min 14px), reduce padding/margin, "
                             "increase container height. Only condense text as "
                             "last resort — keep all distinct information points."
                         )
-                    elif sub_type == "underutilized_space":
+                    elif sub_type == "sparse_content":
                         issue_block += (
-                            "\n   📐 EXPAND CONTENT — increase font sizes, add spacing, "
-                            "scale up images. If too little content, use regen_slide."
+                            "\n   📐 ADD CONTENT — use search_source to find more material, "
+                            "then add bullets/descriptions. If too little content, use regen_slide."
                         )
-                    elif sub_type == "uneven_distribution":
+                    elif sub_type == "element_undersized":
                         issue_block += (
-                            "\n   📐 REDISTRIBUTE — use CSS flex/grid to spread content "
-                            "across the full slide area. Do NOT use fixed margin offsets."
+                            "\n   📐 STRETCH ELEMENTS — increase width/height of images, "
+                            "tables, charts, and visual containers via CSS. "
+                            "Do NOT spread text/bullet lists with space-between or "
+                            "space-evenly — that creates ugly gaps. Text stays grouped."
+                        )
+                    elif sub_type == "column_height_mismatch":
+                        issue_block += (
+                            "\n   📐 ALIGN COLUMNS — if the shorter column has images/tables, "
+                            "increase their CSS height. If it has only text/bullets, do NOT "
+                            "spread them with space-between/space-evenly — keep items grouped "
+                            "with flex-start. A compact text cluster looks better than "
+                            "scattered items with huge gaps."
                         )
 
                     # NOTE: We intentionally do NOT show a quantified coverage
@@ -5532,7 +6349,7 @@ Output ONLY the JSON object, no other text."""
                 return None
 
             logger.info(
-                "Layout pre-plan v2: %d targets computed (elements: %s)",
+                "Layout pre-plan: %d targets computed (elements: %s)",
                 len(plan),
                 ", ".join(f"{k}→({v.get('left','?')},{v.get('top','?')})" for k,v in plan.items()),
             )
@@ -7109,7 +7926,7 @@ Output ONLY the JSON object, no other text."""
         """Test-compile code to check for errors."""
         # HTML mode: just validate basic structure
         if self._is_html_code(code):
-            return bool(code.strip()) and "</html>" in code
+            return bool(code.strip())
 
         try:
             from pptx import Presentation
@@ -7126,7 +7943,7 @@ Output ONLY the JSON object, no other text."""
                 or case_path / "images"
             )
 
-            from ...backends.html_codegen import code_executor
+            from ...backends.python_pptx import code_executor
             success, error = code_executor.execute_code(
                 code, test_prs, test_slide, test_image_dir,
             )

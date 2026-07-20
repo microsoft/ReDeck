@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RAGTruth for RAG Hallucinations</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #FFF8F5;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  .slide {
+    position: relative;
+    width: 1280px;
+    height: 720px;
+    overflow: hidden;
+    background: #FFF8F5;
+    color: #29434C;
+  }
+
+  .topbar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1280px;
+    height: 78px;
+    background: #D95F68;
+  }
+  .header-icon {
+    position: absolute;
+    left: 36px;
+    top: 23px;
+    width: 31px;
+    height: 36px;
+  }
+  .header-text {
+    position: absolute;
+    left: 87px;
+    top: 26px;
+    font-size: 29px;
+    line-height: 1;
+    font-weight: 700;
+    color: #FFF8F5;
+    letter-spacing: -0.5px;
+  }
+  .research-tab {
+    position: absolute;
+    right: 38px;
+    top: 78px;
+    width: 138px;
+    height: 35px;
+    background: #D95F68;
+    border-radius: 0 0 9px 9px;
+    color: #FFF8F5;
+    font-weight: 800;
+    font-size: 16px;
+    letter-spacing: 1px;
+    text-align: center;
+    line-height: 25px;
+    padding-top: 3px;
+  }
+  .research-tab:before {
+    content: "";
+    position: absolute;
+    left: -10px;
+    top: 0;
+    width: 20px;
+    height: 35px;
+    background: #D95F68;
+    transform: skewX(10deg);
+    border-bottom-left-radius: 7px;
+    z-index: -1;
+  }
+
+  .title {
+    position: absolute;
+    left: 52px;
+    top: 131px;
+    width: 625px;
+    font-size: 82px;
+    line-height: 0.99;
+    letter-spacing: -4px;
+    font-weight: 800;
+    color: #29434C;
+  }
+  .underline {
+    position: absolute;
+    left: 55px;
+    top: 308px;
+    width: 199px;
+    height: 4px;
+    background: #D95F68;
+  }
+
+  .main-icon-circle {
+    position: absolute;
+    left: 51px;
+    top: 341px;
+    width: 107px;
+    height: 107px;
+    border-radius: 50%;
+    background: #D95F68;
+  }
+  .main-copy {
+    position: absolute;
+    left: 184px;
+    top: 344px;
+    width: 492px;
+    font-size: 31px;
+    line-height: 1.25;
+    font-weight: 700;
+    letter-spacing: -1.1px;
+    color: #29434C;
+  }
+  .main-copy .accent-red {
+    color: #D95F68;
+  }
+
+  .diagram-card {
+    position: absolute;
+    left: 720px;
+    top: 165px;
+    width: 523px;
+    height: 311px;
+    border: 2px solid #4C9EAD;
+    border-radius: 11px;
+    background: transparent;
+  }
+
+  .stats-card {
+    position: absolute;
+    left: 52px;
+    top: 530px;
+    width: 979px;
+    height: 135px;
+    background: rgba(185,216,197,0.36);
+    border: 2px solid rgba(185,216,197,0.65);
+    border-radius: 13px;
+    box-shadow: inset 0 0 18px rgba(185,216,197,0.16);
+  }
+  .stat-icon {
+    position: absolute;
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    background: #D95F68;
+  }
+  .stat-1 { left: 88px; top: 556px; }
+  .stat-2 { left: 409px; top: 556px; }
+  .stat-3 { left: 746px; top: 556px; }
+
+  .stat-num {
+    position: absolute;
+    left: 187px;
+    top: 562px;
+    font-size: 42px;
+    font-weight: 800;
+    color: #D95F68;
+    letter-spacing: -1px;
+  }
+  .stat-label-small {
+    position: absolute;
+    left: 190px;
+    top: 610px;
+    font-size: 20px;
+    color: #29434C;
+  }
+  .divider {
+    position: absolute;
+    top: 559px;
+    width: 2px;
+    height: 76px;
+    background: rgba(76,158,173,0.42);
+  }
+  .div-1 { left: 363px; }
+  .div-2 { left: 709px; }
+
+  .stat-title-2 {
+    position: absolute;
+    left: 506px;
+    top: 567px;
+    font-size: 31px;
+    font-weight: 800;
+    color: #D95F68;
+    letter-spacing: -0.8px;
+  }
+  .stat-sub-2 {
+    position: absolute;
+    left: 507px;
+    top: 608px;
+    font-size: 20px;
+    line-height: 1.15;
+    color: #29434C;
+  }
+  .stat-sub-3 {
+    position: absolute;
+    left: 833px;
+    top: 566px;
+    width: 175px;
+    font-size: 20px;
+    line-height: 1.34;
+    color: #29434C;
+  }
+
+  .badge {
+    position: absolute;
+    left: 1084px;
+    top: 501px;
+    width: 154px;
+    height: 168px;
+  }
+  .badge .seal {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 154px;
+    height: 168px;
+  }
+  .badge-text {
+    position: absolute;
+    left: 27px;
+    top: 63px;
+    width: 102px;
+    font-size: 24px;
+    line-height: 1.12;
+    font-weight: 800;
+    text-align: center;
+    color: #29434C;
+  }
+  .star {
+    position: absolute;
+    left: 63px;
+    top: 26px;
+    width: 28px;
+    height: 28px;
+  }
+
+  svg text {
+    font-family: Arial, Helvetica, sans-serif;
+  }
+</style>
+</head>
+<body>
+<div class="slide">
+
+  <div class="topbar"></div>
+
+  <svg class="header-icon" viewBox="0 0 34 40" aria-hidden="true">
+    <path d="M7 2.5h14.5L31 12v25.5H7z" fill="none" stroke="#FFF8F5" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M21.5 3v10H31" fill="none" stroke="#FFF8F5" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M12 18h13M12 25h13M12 32h9" stroke="#FFF8F5" stroke-width="3" stroke-linecap="round"/>
+  </svg>
+  <div class="header-text">ACL / Findings 2024</div>
+  <div class="research-tab">RESEARCH</div>
+
+  <div class="title">RAGTruth for<br>RAG Hallucinations</div>
+  <div class="underline"></div>
+
+  <div class="main-icon-circle">
+    <svg viewBox="0 0 110 110" width="107" height="107" aria-hidden="true">
+      <g fill="none" stroke="#FFF8F5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 23h38l14 14v42H22z" stroke-width="4"/>
+        <path d="M60 23v15h15" stroke-width="4"/>
+        <path d="M33 43h21M33 55h14M33 67h14" stroke-width="4"/>
+        <circle cx="60" cy="61" r="16" stroke-width="4"/>
+        <path d="M52 60l6 7 11-14" stroke-width="4"/>
+        <path d="M72 74l15 15" stroke-width="6"/>
+      </g>
+    </svg>
+  </div>
+
+  <div class="main-copy">
+    RAGTruth is a <span class="accent-red">17,790-response</span> corpus<br>
+    with word-level hallucination spans<br>
+    for RAG-style QA, data-to-text writing,<br>
+    and summarization.
+  </div>
+
+  <div class="diagram-card">
+    <svg viewBox="0 0 523 311" width="523" height="311" aria-hidden="true">
+      <text x="45" y="50" font-size="16" font-weight="700" fill="#4C9EAD">Retrieval</text>
+      <text x="203" y="50" font-size="16" font-weight="700" fill="#4C9EAD">LLM Generation</text>
+      <text x="407" y="50" font-size="16" font-weight="700" fill="#4C9EAD">Answer</text>
+
+      <!-- retrieval stacked pages -->
+      <rect x="27" y="79" width="105" height="103" rx="4" fill="#FFF8F5" stroke="#4C9EAD" stroke-width="1.5"/>
+      <rect x="38" y="90" width="105" height="103" rx="4" fill="#FFF8F5" stroke="#4C9EAD" stroke-width="1.5"/>
+      <rect x="50" y="105" width="25" height="31" rx="2" fill="#4C9EAD" opacity="0.58"/>
+      <line x1="87" y1="108" x2="128" y2="108" stroke="#4C9EAD" stroke-width="4" stroke-linecap="round" opacity="0.65"/>
+      <line x1="87" y1="120" x2="128" y2="120" stroke="#4C9EAD" stroke-width="4" stroke-linecap="round" opacity="0.65"/>
+      <line x1="87" y1="132" x2="128" y2="132" stroke="#4C9EAD" stroke-width="4" stroke-linecap="round" opacity="0.65"/>
+      <line x1="50" y1="149" x2="128" y2="149" stroke="#4C9EAD" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
+      <line x1="50" y1="160" x2="128" y2="160" stroke="#4C9EAD" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
+      <line x1="50" y1="171" x2="109" y2="171" stroke="#4C9EAD" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
+
+      <!-- dotted arrow to LLM -->
+      <path d="M155 135 C168 135 178 135 190 135" fill="none" stroke="#4C9EAD" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 8"/>
+      <path d="M190 135 l-11 -9 M190 135 l-11 9" fill="none" stroke="#4C9EAD" stroke-width="3" stroke-linecap="round"/>
+
+      <!-- LLM circle -->
+      <circle cx="259" cy="137" r="56" fill="none" stroke="#4C9EAD" stroke-width="3"/>
+      <rect x="232" y="126" width="54" height="35" rx="7" fill="#FFF8F5" stroke="#29434C" stroke-width="4"/>
+      <circle cx="248" cy="141" r="6" fill="#29434C"/>
+      <circle cx="270" cy="141" r="6" fill="#29434C"/>
+      <path d="M259 126v-18" stroke="#29434C" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="259" cy="103" r="6" fill="#4C9EAD"/>
+      <rect x="224" y="134" width="10" height="17" rx="4" fill="#4C9EAD"/>
+      <rect x="284" y="134" width="10" height="17" rx="4" fill="#4C9EAD"/>
+      <path d="M245 119h28" stroke="#29434C" stroke-width="4" stroke-linecap="round"/>
+
+      <!-- dotted arrow to answer -->
+      <path d="M322 135 C336 135 347 135 362 135" fill="none" stroke="#4C9EAD" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 8"/>
+      <path d="M362 135 l-11 -9 M362 135 l-11 9" fill="none" stroke="#4C9EAD" stroke-width="3" stroke-linecap="round"/>
+
+      <!-- answer document -->
+      <rect x="372" y="73" width="128" height="134" rx="4" fill="#FFF8F5" stroke="#4C9EAD" stroke-width="1.5"/>
+      <line x1="390" y1="96" x2="481" y2="96" stroke="#B9D8C5" stroke-width="5" stroke-linecap="round" opacity="0.75"/>
+      <line x1="390" y1="112" x2="454" y2="112" stroke="#B9D8C5" stroke-width="5" stroke-linecap="round" opacity="0.75"/>
+      <line x1="390" y1="129" x2="407" y2="129" stroke="#B9D8C5" stroke-width="5" stroke-linecap="round" opacity="0.75"/>
+      <line x1="417" y1="129" x2="481" y2="129" stroke="#D95F68" stroke-width="6" stroke-linecap="round"/>
+      <line x1="390" y1="147" x2="458" y2="147" stroke="#D95F68" stroke-width="6" stroke-linecap="round"/>
+      <line x1="470" y1="147" x2="481" y2="147" stroke="#B9D8C5" stroke-width="5" stroke-linecap="round" opacity="0.75"/>
+      <line x1="390" y1="165" x2="462" y2="165" stroke="#D95F68" stroke-width="6" stroke-linecap="round"/>
+      <line x1="471" y1="165" x2="481" y2="165" stroke="#B9D8C5" stroke-width="5" stroke-linecap="round" opacity="0.75"/>
+      <line x1="390" y1="184" x2="481" y2="184" stroke="#B9D8C5" stroke-width="5" stroke-linecap="round" opacity="0.75"/>
+
+      <!-- legend -->
+      <rect x="45" y="244" width="31" height="16" fill="#D95F68"/>
+      <text x="86" y="257" font-size="13.5" fill="#29434C">Hallucinated span (word-level)</text>
+      <rect x="303" y="244" width="31" height="16" fill="#B9D8C5"/>
+      <text x="344" y="257" font-size="13.5" fill="#29434C">Supported span</text>
+    </svg>
+  </div>
+
+  <div class="stats-card"></div>
+
+  <div class="stat-icon stat-1">
+    <svg viewBox="0 0 70 70" width="70" height="70" aria-hidden="true">
+      <g fill="none" stroke="#FFF8F5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <ellipse cx="35" cy="20" rx="15" ry="7"/>
+        <path d="M20 20v10c0 4 7 8 15 8s15-4 15-8V20"/>
+        <path d="M20 30v10c0 4 7 8 15 8s15-4 15-8V30"/>
+        <path d="M20 40v10c0 4 7 8 15 8s15-4 15-8V40"/>
+        <ellipse cx="35" cy="30" rx="15" ry="7"/>
+        <ellipse cx="35" cy="40" rx="15" ry="7"/>
+      </g>
+    </svg>
+  </div>
+  <div class="stat-icon stat-2">
+    <svg viewBox="0 0 70 70" width="70" height="70" aria-hidden="true">
+      <g fill="none" stroke="#FFF8F5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="35" cy="35" r="16"/>
+        <circle cx="35" cy="35" r="5"/>
+        <path d="M35 12v9M35 49v9M12 35h9M49 35h9"/>
+        <path d="M24 18l3 6M46 18l-3 6M24 52l3-6M46 52l-3-6"/>
+      </g>
+    </svg>
+  </div>
+  <div class="stat-icon stat-3">
+    <svg viewBox="0 0 70 70" width="70" height="70" aria-hidden="true">
+      <g fill="none" stroke="#FFF8F5" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M23 16h19l8 8v31H23z"/>
+        <path d="M42 16v9h8"/>
+        <path d="M29 34h14M29 43h14"/>
+      </g>
+    </svg>
+  </div>
+
+  <div class="divider div-1"></div>
+  <div class="divider div-2"></div>
+  <div class="stat-num">17,790</div>
+  <div class="stat-label-small">responses</div>
+  <div class="stat-title-2">Word-level</div>
+  <div class="stat-sub-2">hallucination spans</div>
+  <div class="stat-sub-3">RAG-style QA,<br>data-to-text writing,<br>and summarization.</div>
+
+  <div class="badge">
+    <svg class="seal" viewBox="0 0 154 168" aria-hidden="true">
+      <path d="M77 4
+        C86 4 93 12 101 14
+        C110 16 121 14 127 21
+        C134 28 133 39 138 47
+        C143 55 151 61 151 70
+        C151 79 144 86 143 95
+        C142 104 147 114 142 122
+        C137 130 126 132 120 139
+        C114 146 111 156 102 159
+        C93 162 84 157 77 163
+        C70 157 61 162 52 159
+        C43 156 40 146 34 139
+        C28 132 17 130 12 122
+        C7 114 12 104 11 95
+        C10 86 3 79 3 70
+        C3 61 11 55 16 47
+        C21 39 20 28 27 21
+        C33 14 44 16 53 14
+        C61 12 68 4 77 4Z"
+        fill="#F2AD72" stroke="#F2AD72" stroke-width="3"/>
+      <path d="M77 11
+        C85 11 91 18 99 20
+        C107 22 117 20 122 26
+        C128 32 127 42 132 49
+        C137 56 144 62 144 70
+        C144 78 137 84 136 92
+        C135 101 140 110 135 117
+        C130 124 120 126 114 133
+        C109 140 106 149 98 152
+        C90 155 83 151 77 156
+        C71 151 63 155 55 152
+        C47 149 44 140 39 133
+        C33 126 23 124 18 117
+        C13 110 18 101 17 92
+        C16 84 10 78 10 70
+        C10 62 17 56 22 49
+        C27 42 26 32 32 26
+        C37 20 47 22 55 20
+        C63 18 69 11 77 11Z"
+        fill="none" stroke="#FFF8F5" stroke-width="4"/>
+    </svg>
+    <svg class="star" viewBox="0 0 30 30" aria-hidden="true">
+      <path d="M15 2l3.6 8.5 9.2.8-7 6 2.1 9-7.9-4.7-7.9 4.7 2.1-9-7-6 9.2-.8z" fill="#FFF8F5"/>
+    </svg>
+    <div class="badge-text">ACL /<br>Findings<br>2024</div>
+  </div>
+
+</div>
+</body>
+</html>

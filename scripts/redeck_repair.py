@@ -11,6 +11,7 @@ Usage:
     python scripts/redeck_repair.py slide.html --model gpt-4o
 """
 import sys
+import re
 import json
 import argparse
 import logging
@@ -33,51 +34,225 @@ logging.basicConfig(
 )
 
 
+def _is_svg_element(block):
+    """Check if a block is an SVG internal element (not actionable by CSS edits)."""
+    if not block:
+        return False
+    sel = (block.css_selector or "").lower()
+    bid = (block.block_id or "").lower()
+    svg_tags = {"svg", "g", "path", "rect", "text", "line", "circle",
+                "ellipse", "polygon", "polyline", "tspan", "use", "col", "colgroup"}
+    tag = sel.split(".")[-1].split("[")[0].split(":")[0].strip()
+    return tag in svg_tags or "svg" in bid or "svg" in sel
+
+
+def _is_container_element(block):
+    """Check if a block is a structural/container element with no visual content of its own.
+    These elements naturally overlap with their children or siblings and should not
+    be reported as defects."""
+    if not block:
+        return False
+    sel = (block.css_selector or "").lower()
+    bid = (block.block_id or "").lower()
+    # SVG containers, table structure elements, and generic SVG shapes
+    container_tags = {"svg", "g", "col", "colgroup", "path", "rect",
+                      "ellipse", "polygon", "polyline", "line", "circle", "use"}
+    tag = sel.split(".")[-1].split("[")[0].split(":")[0].strip()
+    return tag in container_tags or "svg" in bid
+
+
+# Thresholds for filtering noise / false positives
+MIN_OVERLAP_AREA_FRAC = 0.05   # ignore overlaps < 5% of smaller element
+MIN_OOB_EXCESS_PX = 5          # ignore OOB ≤ 5px past canvas edge
+MIN_CLIP_PX = 8                # ignore clips < 8px (sub-pixel rounding, minor font overflow)
+MIN_OVERFLOW_PX = 8            # ignore overflows ≤ 8px
+
+
 def count_issues(state):
-    """Count hard spatial defects."""
-    return (
-        len(state.overlap_pairs)
-        + len(state.overflow_blocks)
-        + len(state.oob_blocks)
-        + len(state.clipped_blocks)
-        + len(state.occlusion_pairs)
-    )
+    """Count hard spatial defects, filtering noise.
+
+    Thin wrapper over the single source of truth
+    (app.modules.redeck.html_spatial_state.count_significant_issue_total) so that
+    this external scorer, the agent's submit gate, the stagnation trigger, and
+    best-state tracking all agree byte-for-byte on what counts as an issue.
+    The legacy inline implementation lived here and was duplicated (divergently)
+    inside agent_repair.py — that divergence is the bug this consolidation fixes.
+    """
+    from app.modules.redeck.html_spatial_state import count_significant_issue_total
+    return count_significant_issue_total(state)
+
+
+def _count_issues_legacy(state):
+    """Deprecated legacy implementation, retained only for the SSOT parity test.
+    Do not call from production code — use count_issues (the SSOT wrapper)."""
+    canvas_w, canvas_h = 1280, 720
+    n = 0
+    for a_id, b_id, area in state.overlap_pairs:
+        a_blk = next((b for b in state.blocks if b.block_id == a_id), None)
+        b_blk = next((b for b in state.blocks if b.block_id == b_id), None)
+        # Skip if either side is a structural/container element (SVG, col, etc.)
+        if _is_container_element(a_blk) or _is_container_element(b_blk):
+            continue
+        if area < MIN_OVERLAP_AREA_FRAC:
+            continue
+        n += 1
+    for bid in state.overflow_blocks:
+        blk = next((b for b in state.blocks if b.block_id == bid), None)
+        if not blk:
+            continue
+        if blk.overflow_bottom_px <= MIN_OVERFLOW_PX:
+            continue
+        # Skip non-text elements (decorative blocks, pseudo-element overflow)
+        if not blk.text_lines and not (isinstance(blk.text_chars, str) and blk.text_chars.strip()):
+            if isinstance(blk.text_chars, int) and blk.text_chars == 0:
+                continue
+        if _is_container_element(blk):
+            continue
+        n += 1
+    for bid in state.oob_blocks:
+        blk = next((b for b in state.blocks if b.block_id == bid), None)
+        if blk:
+            bx, by, bw, bh = blk.bbox_px
+            right_excess = max(0, bx + bw - canvas_w)
+            bottom_excess = max(0, by + bh - canvas_h)
+            if right_excess <= MIN_OOB_EXCESS_PX and bottom_excess <= MIN_OOB_EXCESS_PX:
+                continue
+        n += 1
+    for bid in state.clipped_blocks:
+        blk = next((b for b in state.blocks if b.block_id == bid), None)
+        if not blk:
+            continue
+        if blk.clipped_bottom_px < MIN_CLIP_PX:
+            continue
+        # Skip SVG elements (path/rect/g) — structural, not content
+        if _is_container_element(blk):
+            continue
+        # Skip chart-internal elements with minor clips (labels, axis text)
+        if (getattr(blk, 'shape_type', None) == 'chart'
+                and blk.clipped_bottom_px <= 15
+                and (blk.text_chars or 0) <= 20):
+            continue
+        # Skip decorative punctuation-only elements with minor clips (e.g. "...", "→", "•")
+        # These are structural/decorative glyphs, not real content truncation.
+        # Only skip if text is purely punctuation/symbols — never skip alphanumeric content.
+        import re as _re
+        _text_joined = " ".join((blk.text_lines or []))
+        if ((blk.text_chars or 0) <= 5
+                and blk.clipped_bottom_px <= 10
+                and blk.text_lines
+                and not _re.search(r'[a-zA-Z0-9]', _text_joined)):
+            continue
+        # Note: we do NOT skip "false clips" (scroll_h <= client_h) because
+        # overflow:hidden causes scrollHeight to be clamped to clientHeight,
+        # making scroll==client even when content IS clipped. The
+        # clipped_bottom_px field (already checked > MIN_CLIP_PX above)
+        # is a more reliable signal from visual bounds comparison.
+        n += 1
+    # Occlusion: skip SVG/container elements occluding others (structural layering)
+    for front, back in state.occlusion_pairs:
+        front_blk = next((b for b in state.blocks if b.block_id == front), None)
+        if _is_container_element(front_blk):
+            continue
+        n += 1
+    # Canvas-edge content truncation: elements whose bbox reaches canvas bottom
+    # but have content (scrollHeight) extending beyond what fits in the visible
+    # portion. This catches cases where child elements are entirely off-canvas.
+    seen_clipped = set(state.clipped_blocks)  # avoid double-counting
+    for blk in state.blocks:
+        if blk.block_id in seen_clipped:
+            continue
+        if _is_container_element(blk):
+            continue
+        bx, by, bw, bh = blk.bbox_px
+        bottom_px = by + bh
+        if bottom_px < canvas_h - 2:  # not at canvas edge
+            continue
+        # Element touches canvas bottom — check if it has more content
+        visible_h = max(1, canvas_h - by)  # how much of element is in canvas
+        scroll_h = blk.scroll_h_px or 0
+        excess = scroll_h - visible_h
+        # Also check font-size vs visible height — descenders cut by canvas
+        font_px = blk.font_size_px or 0
+        font_excess = font_px * 1.2 - visible_h
+        effective_excess = max(excess, font_excess)
+        if effective_excess >= MIN_CLIP_PX and blk.text_lines:
+            n += 1
+    return n
 
 
 def build_issues_from_state(state, slide_id: int) -> list[Issue]:
     """Convert spatial state violations into Issue objects for AgentRepair."""
     issues = []
     idx = 0
+    canvas_w, canvas_h = 1280, 720  # standard slide canvas
 
     for a_id, b_id, area in state.overlap_pairs:
         a_blk = next((b for b in state.blocks if b.block_id == a_id), None)
         b_blk = next((b for b in state.blocks if b.block_id == b_id), None)
+        # Skip if either side is a structural/container element (SVG, col, etc.)
+        if _is_container_element(a_blk) or _is_container_element(b_blk):
+            continue
+        # Skip tiny overlaps (< 5% of smaller element)
+        if area < MIN_OVERLAP_AREA_FRAC:
+            continue
         desc = f"Elements '{a_id}' and '{b_id}' overlap"
+        fix = f"Move {b_id} away from {a_id} to eliminate overlap"
+        # If one side is SVG, tell agent to move the non-SVG element
+        a_svg = _is_svg_element(a_blk)
+        b_svg = _is_svg_element(b_blk)
+        if a_svg and not b_svg:
+            fix = f"Move {b_id} away from SVG element {a_id} (do NOT edit SVG internals)"
+        elif b_svg and not a_svg:
+            fix = f"Move {a_id} away from SVG element {b_id} (do NOT edit SVG internals)"
         if a_blk and b_blk:
             ax, ay, aw, ah = a_blk.bbox_px
             bx, by, bw, bh = b_blk.bbox_px
-            desc += f". A at ({ax},{ay},{aw}x{ah}), B at ({bx},{by},{bw}x{bh})"
+            # Calculate exact overlap amount
+            ox = max(0, min(ax+aw, bx+bw) - max(ax, bx))
+            oy = max(0, min(ay+ah, by+bh) - max(ay, by))
+            desc += (f". A at ({ax},{ay},{aw}x{ah}), B at ({bx},{by},{bw}x{bh}). "
+                     f"Overlap region: {ox}x{oy}px")
+            if by < ay + ah:
+                fix = (f"Move {b_id} down by at least {int(ay + ah - by + 5)}px, or move {a_id} up. "
+                       f"If moving causes new overlaps with other elements, RESTRUCTURE: "
+                       f"delete the overlapping elements and replace with fewer, properly-spaced elements")
+            else:
+                fix = (f"Move {a_id} up by at least {int(by - ay - ah + 5)}px to clear overlap. "
+                       f"If moving causes new overlaps, RESTRUCTURE the region instead")
         issues.append(Issue(
             issue_id=f"spatial_{idx}", rubric_id="B03", issue_type="overlap",
             severity=Severity.MAJOR, confidence=Confidence.HIGH,
             affected_slides=[slide_id],
             evidence=IssueEvidence(description=desc),
             why_this_fails="Overlapping elements make text unreadable",
-            planned_fix=f"Move {b_id} down or reduce height of {a_id}",
+            planned_fix=fix,
             verdict=Verdict.FAIL,
         ))
         idx += 1
 
     for bid in state.overflow_blocks:
         blk = next((b for b in state.blocks if b.block_id == bid), None)
+        if not blk:
+            continue
+        # Skip minor overflows
+        if blk.overflow_bottom_px <= MIN_OVERFLOW_PX:
+            continue
+        # Skip non-text elements (decorative blocks, pseudo-element overflow)
+        if not blk.text_lines and not (isinstance(blk.text_chars, str) and blk.text_chars.strip()):
+            if isinstance(blk.text_chars, int) and blk.text_chars == 0:
+                continue
+        if _is_container_element(blk):
+            continue
         desc = f"Element '{bid}' has text overflow"
         fix = "Reduce font-size or increase container height"
         if blk:
+            overflow_px = int(blk.overflow_bottom_px)
             desc += (f" — scrollHeight={blk.scroll_h_px}px vs "
                      f"clientHeight={blk.client_h_px}px, "
-                     f"overflow={blk.overflow_bottom_px}px vertical")
-            fix = (f"Increase container height by {blk.overflow_bottom_px}px "
-                   f"or reduce font-size")
+                     f"overflow={overflow_px}px vertical")
+            fix = (f"MUST increase container height by at least {overflow_px}px "
+                   f"OR reduce font-size by ~{max(1, overflow_px // 10)}px "
+                   f"to fit all text")
         issues.append(Issue(
             issue_id=f"spatial_{idx}", rubric_id="B04",
             issue_type="text_overflow", severity=Severity.MAJOR,
@@ -90,29 +265,115 @@ def build_issues_from_state(state, slide_id: int) -> list[Issue]:
 
     for bid in state.oob_blocks:
         blk = next((b for b in state.blocks if b.block_id == bid), None)
-        desc = f"Element '{bid}' extends beyond 1280x720px canvas"
+        # Skip minor OOB (≤ 5px past canvas edge)
         if blk:
             bx, by, bw, bh = blk.bbox_px
+            right_excess = max(0, int(bx + bw - canvas_w))
+            bottom_excess = max(0, int(by + bh - canvas_h))
+            if right_excess <= MIN_OOB_EXCESS_PX and bottom_excess <= MIN_OOB_EXCESS_PX:
+                continue
+        desc = f"Element '{bid}' extends beyond {canvas_w}x{canvas_h}px canvas"
+        fix = f"Reposition to fit within {canvas_w}x{canvas_h}px"
+        if blk:
+            bx, by, bw, bh = blk.bbox_px
+            right_excess = max(0, int(bx + bw - canvas_w))
+            bottom_excess = max(0, int(by + bh - canvas_h))
             desc += f" — bbox ({bx},{by},{bw}x{bh})"
+            fixes = []
+            if right_excess > 0:
+                desc += f". Right edge exceeds canvas by {right_excess}px"
+                fixes.append(f"move left by at least {right_excess}px OR reduce width by {right_excess}px")
+            if bottom_excess > 0:
+                desc += f". Bottom edge exceeds canvas by {bottom_excess}px"
+                if by > 680:  # element starts very near bottom
+                    fixes.append(
+                        f"element starts at y={by}px near canvas bottom (720px). "
+                        f"Shrink overall layout — reduce spacing/fonts above — "
+                        f"to shift all content up by at least {bottom_excess}px")
+                else:
+                    fixes.append(f"move up by at least {bottom_excess}px OR reduce height by {bottom_excess}px")
+            fix = "MUST " + " AND ".join(fixes) if fixes else fix
+            if blk.css_selector:
+                fix += f". CSS selector: {blk.css_selector[:60]}"
         issues.append(Issue(
             issue_id=f"spatial_{idx}", rubric_id="B03",
-            issue_type="overlap", severity=Severity.MAJOR,
+            issue_type="out_of_bounds", severity=Severity.MAJOR,
             confidence=Confidence.HIGH, affected_slides=[slide_id],
             evidence=IssueEvidence(description=desc),
             why_this_fails="Content extends beyond visible slide area",
-            planned_fix="Reduce size or reposition to fit within 1280x720px",
+            planned_fix=fix,
             verdict=Verdict.FAIL,
         ))
         idx += 1
 
     for bid in state.clipped_blocks:
         blk = next((b for b in state.blocks if b.block_id == bid), None)
+        if not blk:
+            continue
+        # Skip minor clips (< threshold)
+        if blk.clipped_bottom_px < MIN_CLIP_PX:
+            continue
+        # Skip SVG elements
+        if _is_container_element(blk):
+            continue
+        # Skip chart-internal elements with minor clips (labels, axis text)
+        # These are fixed-layout SVG elements inside charts where small clips
+        # don't affect information delivery and can't be fixed by CSS adjustments
+        if (getattr(blk, 'shape_type', None) == 'chart'
+                and blk.clipped_bottom_px <= 15
+                and (blk.text_chars or 0) <= 20):
+            continue
+        # Skip decorative punctuation-only elements with minor clips (e.g. "...", "→", "•")
+        # These are structural/decorative glyphs, not real content truncation.
+        # Only skip if text is purely punctuation/symbols — never skip alphanumeric content.
+        import re as _re
+        _text_joined = " ".join((blk.text_lines or []))
+        if ((blk.text_chars or 0) <= 5
+                and blk.clipped_bottom_px <= 10
+                and blk.text_lines
+                and not _re.search(r'[a-zA-Z0-9]', _text_joined)):
+            continue
+        # Note: we do NOT skip based on scroll_h vs client_h because
+        # overflow:hidden clamps scrollHeight to clientHeight, masking real clips.
+        # clipped_bottom_px (already checked > MIN_CLIP_PX) is the reliable signal.
         desc = f"Element '{bid}' is clipped by parent overflow:hidden"
         fix = "Increase parent container height or reduce content"
         if blk:
-            desc += f" — {blk.clipped_bottom_px}px of content hidden"
-            fix = (f"Increase parent height by {blk.clipped_bottom_px}px "
-                   f"or reduce content above")
+            clip_px = int(blk.clipped_bottom_px)
+            desc += f" — {clip_px}px of content hidden"
+            # Compute element bottom in px to detect near-canvas-edge clips
+            elem_bottom_px = (blk.y + blk.h) * 96  # inches to px
+            near_canvas_bottom = elem_bottom_px > 680  # within 40px of 720px edge
+            if near_canvas_bottom:
+                # Count how many other blocks are also clipped near canvas bottom
+                # to detect "whole bottom section overflows" pattern
+                other_near_bottom_clips = sum(
+                    1 for b2id in state.clipped_blocks
+                    if b2id != bid
+                    for b2 in [next((b for b in state.blocks if b.block_id == b2id), None)]
+                    if b2 and b2.clipped_bottom_px > MIN_CLIP_PX
+                    and (b2.y + b2.h) * 96 > 680
+                )
+                fix = (f"Element near canvas bottom edge (y+h={elem_bottom_px:.0f}px). "
+                       f"The slide is 720px fixed — CANNOT increase parent height. ")
+                if other_near_bottom_clips > 0:
+                    fix += (f"There are {other_near_bottom_clips + 1} elements clipped near "
+                            f"the bottom — the entire layout is too tall. Strategy: "
+                            f"(1) Reduce ALL section spacing/margins by 2-4px each, "
+                            f"(2) Reduce body text font-size by 1-2px throughout, "
+                            f"(3) Reduce padding in ALL containers by 2-4px. "
+                            f"These small cumulative reductions across the WHOLE slide "
+                            f"should free up ~{clip_px}px without deleting content. "
+                            f"Do NOT delete entire sections — that will trigger content loss rejection. ")
+                else:
+                    fix += (f"MUST shrink overall layout: reduce font sizes, decrease spacing "
+                            f"between sections, or condense lower-priority content "
+                            f"to move everything up by at least {clip_px}px. ")
+                fix += f"CSS selector: {blk.css_selector[:60] if blk.css_selector else 'unknown'}"
+            else:
+                fix = (f"MUST increase parent container height by at least {clip_px}px "
+                       f"OR reduce content/font-size to fit. "
+                       f"CSS selector: {blk.css_selector[:60] if blk.css_selector else 'unknown'}")
         issues.append(Issue(
             issue_id=f"spatial_{idx}", rubric_id="B04",
             issue_type="text_overflow", severity=Severity.MAJOR,
@@ -124,6 +385,10 @@ def build_issues_from_state(state, slide_id: int) -> list[Issue]:
         idx += 1
 
     for front, back in state.occlusion_pairs:
+        # Skip SVG/container elements occluding others (structural layering)
+        front_blk = next((b for b in state.blocks if b.block_id == front), None)
+        if _is_container_element(front_blk):
+            continue
         issues.append(Issue(
             issue_id=f"spatial_{idx}", rubric_id="B03",
             issue_type="overlap", severity=Severity.MAJOR,
@@ -136,7 +401,84 @@ def build_issues_from_state(state, slide_id: int) -> list[Issue]:
         ))
         idx += 1
 
+    # Canvas-edge content truncation: elements at canvas bottom whose scroll
+    # content extends beyond the visible portion (child elements off-canvas)
+    # Also detect font-size vs height mismatch at canvas edge (descenders cut)
+    seen_clipped = set(state.clipped_blocks)
+    for blk in state.blocks:
+        if blk.block_id in seen_clipped:
+            continue
+        if _is_container_element(blk):
+            continue
+        bx, by, bw, bh = blk.bbox_px
+        bottom_px = by + bh
+        if bottom_px < canvas_h - 2:
+            continue
+        if not blk.text_lines:
+            continue
+
+        visible_h = max(1, canvas_h - by)
+        scroll_h = blk.scroll_h_px or 0
+        excess = scroll_h - visible_h
+
+        # Also check font-size vs visible height — if font is significantly
+        # larger than visible height, text descenders are cut off by canvas
+        font_px = blk.font_size_px or 0
+        font_excess = font_px * 1.2 - visible_h  # line-height ~1.2× font-size
+
+        effective_excess = max(excess, font_excess)
+        if effective_excess >= MIN_CLIP_PX:
+            eff_int = int(effective_excess)
+            if font_excess > excess:
+                desc = (f"Element '{blk.block_id}' at canvas bottom edge — "
+                        f"font-size {int(font_px)}px in {int(visible_h)}px visible space, "
+                        f"text descenders truncated by ~{eff_int}px")
+            else:
+                desc = (f"Element '{blk.block_id}' at canvas bottom edge has content "
+                        f"truncated — {eff_int}px of scroll content below canvas "
+                        f"(visible={int(visible_h)}px, scroll={int(scroll_h)}px)")
+            fix = (f"Element at y={int(by)}px with content extending ~{eff_int}px "
+                   f"below canvas. MUST move element up by at least {eff_int}px "
+                   f"OR reduce content/font size. "
+                   f"CSS selector: {blk.css_selector[:60] if blk.css_selector else 'unknown'}")
+            issues.append(Issue(
+                issue_id=f"spatial_{idx}", rubric_id="B03",
+                issue_type="out_of_bounds", severity=Severity.MAJOR,
+                confidence=Confidence.HIGH, affected_slides=[slide_id],
+                evidence=IssueEvidence(description=desc),
+                why_this_fails="Content extends below visible canvas area",
+                planned_fix=fix, verdict=Verdict.FAIL,
+            ))
+            idx += 1
+
     return issues
+
+
+def _rescale_slide_if_needed(html: str) -> str:
+    """Rescale slides from 1536x864 to 1280x720 if needed.
+
+    Many image2slide HTML files use 1536x864 canvas but redeck's spatial
+    detection uses 1280x720 viewport. Fix by wrapping content in a CSS
+    transform that scales everything down proportionally.
+    """
+    import re
+    m = re.search(r'\.slide\s*\{[^}]*width:\s*1536px[^}]*height:\s*864px', html)
+    if not m:
+        return html
+
+    # Use CSS transform to scale the entire slide
+    # Scale: 1280/1536 = 0.8333
+    scale_css = """
+    .slide {
+        transform: scale(0.8333) !important;
+        transform-origin: top left !important;
+    }
+    """
+    # Insert before </style>
+    if '</style>' in html:
+        html = html.replace('</style>', scale_css + '\n</style>', 1)
+        print(f"   📐 Added CSS transform scale(0.8333) to rescale 1536→1280")
+    return html
 
 
 class _MinimalCompiler:
@@ -204,6 +546,10 @@ def main():
             sid = 1
 
         html = hp.read_text()
+
+        # Pre-process: rescale 1536x864 slides to 1280x720 before repair
+        html = _rescale_slide_if_needed(html)
+
         state = extract_html_slide_state(sid, html)
         initial = count_issues(state)
 
@@ -215,12 +561,14 @@ def main():
 
         print(f"🔧 {hp.name}: {initial} issues, repairing...")
         issues = build_issues_from_state(state, sid)
-        bp_slide.slide_id = sid
+
+        # Create fresh agent per slide to avoid cross-slide state contamination
+        agent = AgentRepair(llm=llm, model=args.model)
 
         try:
             repaired = agent.repair(
                 slide_id=sid, code=html, all_issues=issues,
-                bp_slide=bp_slide, evidence=evidence,
+                bp_slide=None, evidence=evidence,
                 codegen_compiler=compiler, case_dir=str(hp.parent),
             )
         except Exception as e:

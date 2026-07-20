@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1280, initial-scale=1.0" />
+<title>KPI Dashboard — Renewable Energy Comparison</title>
+<style>
+  :root{
+    --canvas:#F5FAF8;
+    --ink:#1E4049;
+    --primary:#377F8E;
+    --secondary:#79BDC4;
+    --accent:#ED9468;
+    --support:#D9C98D;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    width:1280px;
+    height:720px;
+    overflow:hidden;
+    background:var(--canvas);
+    font-family:'Liberation Sans','Segoe UI',Arial,sans-serif;
+    color:var(--ink);
+  }
+  .slide{
+    width:1280px;
+    height:720px;
+    padding:28px 30px 24px 30px;
+    background:
+      radial-gradient(circle at top right, rgba(121,189,196,.16), transparent 28%),
+      linear-gradient(180deg, rgba(55,127,142,.06), transparent 24%),
+      var(--canvas);
+  }
+  .header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    margin-bottom:18px;
+  }
+  .title-wrap h1{
+    margin:0;
+    font-size:34px;
+    line-height:1.05;
+    font-weight:700;
+    letter-spacing:-0.4px;
+    color:var(--ink);
+  }
+  .title-wrap .sub{
+    margin-top:8px;
+    font-size:16px;
+    color:rgba(30,64,73,.78);
+  }
+  .badge{
+    background:#ffffff;
+    border:2px solid rgba(55,127,142,.28);
+    color:var(--primary);
+    border-radius:18px;
+    padding:10px 16px;
+    font-size:14px;
+    font-weight:700;
+    box-shadow:0 8px 20px rgba(55,127,142,.08);
+  }
+
+  .grid{
+    display:grid;
+    grid-template-columns: 1.45fr 0.95fr;
+    grid-template-rows: 188px 1fr;
+    gap:18px;
+    height:620px;
+  }
+
+  .card{
+    background:#ffffff;
+    border:2px solid rgba(55,127,142,.18);
+    border-radius:24px;
+    box-shadow:0 14px 28px rgba(30,64,73,.08);
+    padding:18px 20px;
+    position:relative;
+    overflow:hidden;
+  }
+
+  .kpis{
+    display:grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap:14px;
+  }
+  .kpi{
+    background:linear-gradient(180deg, rgba(121,189,196,.12), rgba(121,189,196,.05));
+    border:1.5px solid rgba(55,127,142,.18);
+    border-radius:18px;
+    padding:16px 16px 14px 16px;
+    min-height:132px;
+  }
+  .kpi .label{
+    font-size:14px;
+    color:rgba(30,64,73,.72);
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:.5px;
+    margin-bottom:10px;
+  }
+  .kpi .value{
+    font-size:38px;
+    line-height:1;
+    font-weight:800;
+    color:var(--primary);
+    margin-bottom:8px;
+    letter-spacing:-1px;
+  }
+  .kpi .delta{
+    font-size:15px;
+    color:var(--accent);
+    font-weight:700;
+    margin-bottom:8px;
+  }
+  .kpi .note{
+    font-size:13px;
+    line-height:1.25;
+    color:rgba(30,64,73,.76);
+  }
+
+  .right-top{
+    display:flex;
+    flex-direction:column;
+    justify-content:space-between;
+  }
+  .mini-title{
+    font-size:14px;
+    font-weight:700;
+    color:rgba(30,64,73,.72);
+    text-transform:uppercase;
+    letter-spacing:.55px;
+    margin-bottom:10px;
+  }
+  .hero{
+    display:flex;
+    align-items:flex-end;
+    gap:12px;
+    margin-bottom:10px;
+  }
+  .hero .big{
+    font-size:72px;
+    line-height:.9;
+    font-weight:800;
+    color:var(--ink);
+    letter-spacing:-2px;
+  }
+  .hero .unit{
+    font-size:22px;
+    font-weight:700;
+    color:var(--primary);
+    padding-bottom:10px;
+  }
+  .sparkline{
+    display:flex;
+    align-items:flex-end;
+    gap:8px;
+    height:76px;
+    margin-top:6px;
+  }
+  .sparkline span{
+    width:28px;
+    border-radius:10px 10px 0 0;
+    background:linear-gradient(180deg, var(--secondary), var(--primary));
+    opacity:.95;
+  }
+  .sparkline span:nth-child(1){height:28px}
+  .sparkline span:nth-child(2){height:34px}
+  .sparkline span:nth-child(3){height:39px}
+  .sparkline span:nth-child(4){height:48px}
+  .sparkline span:nth-child(5){height:55px}
+  .sparkline span:nth-child(6){height:61px}
+  .sparkline span:nth-child(7){height:70px}
+  .foot{
+    margin-top:8px;
+    font-size:13px;
+    color:rgba(30,64,73,.72);
+  }
+
+  .table-card{
+    display:flex;
+    flex-direction:column;
+  }
+  .section-title{
+    font-size:20px;
+    font-weight:800;
+    color:var(--ink);
+    margin-bottom:12px;
+  }
+  .table-wrap{
+    border:1.5px solid rgba(55,127,142,.16);
+    border-radius:16px;
+    overflow:hidden;
+    background:linear-gradient(180deg, rgba(121,189,196,.08), rgba(255,255,255,.72));
+    /* DEFECT: table row clipping via container too short with overflow hidden */
+    height:255px;
+  }
+  table{
+    width:100%;
+    border-collapse:collapse;
+    table-layout:fixed;
+    font-size:15px;
+  }
+  th{
+    text-align:left;
+    padding:14px 14px;
+    background:rgba(55,127,142,.12);
+    color:var(--ink);
+    font-size:13px;
+    text-transform:uppercase;
+    letter-spacing:.55px;
+  }
+  td{
+    padding:15px 14px;
+    border-bottom:1px solid rgba(55,127,142,.12);
+    color:var(--ink);
+    vertical-align:middle;
+  }
+  tr:last-child td{border-bottom:none}
+  .rank{
+    width:54px;
+    text-align:center;
+    font-weight:800;
+    color:var(--primary);
+  }
+  .pill{
+    display:inline-block;
+    padding:4px 10px;
+    border-radius:999px;
+    font-size:12px;
+    font-weight:700;
+    background:rgba(217,201,141,.32);
+    color:#6d5b19;
+  }
+  .good{color:var(--primary);font-weight:700}
+  .warn{color:var(--accent);font-weight:700}
+
+  .notes{
+    display:grid;
+    grid-template-columns: 1.05fr 0.95fr;
+    gap:18px;
+  }
+  .insight{
+    background:linear-gradient(180deg, rgba(237,148,104,.12), rgba(237,148,104,.05));
+    border:1.5px solid rgba(237,148,104,.22);
+    border-radius:18px;
+    padding:18px 18px 16px 18px;
+  }
+  .insight h3,
+  .risk h3{
+    margin:0 0 10px 0;
+    font-size:18px;
+    font-weight:800;
+  }
+  .insight ul{
+    margin:0;
+    padding-left:20px;
+  }
+  .insight li{
+    margin:0 0 10px 0;
+    line-height:1.35;
+    font-size:15px;
+  }
+
+  .risk{
+    background:linear-gradient(180deg, rgba(217,201,141,.24), rgba(255,255,255,.7));
+    border:1.5px solid rgba(217,201,141,.55);
+    border-radius:18px;
+    padding:18px 18px 16px 18px;
+    position:relative;
+  }
+  .risk .big-text{
+    font-size:28px;
+    line-height:1.08;
+    font-weight:800;
+    color:var(--ink);
+    margin-bottom:10px;
+    /* DEFECT: text overflow in box caused by oversized text and constrained height */
+    height:56px;
+    overflow:hidden;
+  }
+  .risk p{
+    margin:0;
+    font-size:15px;
+    line-height:1.35;
+    color:rgba(30,64,73,.82);
+  }
+
+  .bottom-tag{
+    position:absolute;
+    right:18px;
+    bottom:16px;
+    background:var(--accent);
+    color:#fff;
+    font-size:12px;
+    font-weight:800;
+    border-radius:999px;
+    padding:6px 10px;
+    letter-spacing:.4px;
+  }
+</style>
+</head>
+<body>
+  <div class="slide">
+    <div class="header">
+      <div class="title-wrap">
+        <h1>Renewable Energy KPI Dashboard</h1>
+        <div class="sub">Q2 portfolio review across utility-scale projects in North America and Western Europe</div>
+      </div>
+      <div class="badge">Slide 89 · Executive Operations Review</div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="mini-title">Portfolio KPIs</div>
+        <div class="kpis">
+          <div class="kpi">
+            <div class="label">Installed Capacity</div>
+            <div class="value">4.8 GW</div>
+            <div class="delta">+11.4% YoY</div>
+            <div class="note">Driven by solar additions in Spain, Texas, and Alberta.</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Levelized Cost</div>
+            <div class="value">$46/MWh</div>
+            <div class="delta">-6.2% vs plan</div>
+            <div class="note">Procurement savings offset higher interconnection fees.</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Capacity Factor</div>
+            <div class="value">38.7%</div>
+            <div class="delta">+1.9 pts QoQ</div>
+            <div class="note">Wind fleet performance improved after blade retrofit cycle.</div>
+          </div>
+          <div class="kpi">
+            <div class="label">CO₂ Avoided</div>
+            <div class="value">2.1 Mt</div>
+            <div class="delta">+14.8% YoY</div>
+            <div class="note">Equivalent to removing ~460k passenger vehicles from annual road emissions.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card right-top">
+        <div>
+          <div class="mini-title">Battery Dispatch Efficiency</div>
+          <div class="hero">
+            <div class="big">91.6</div>
+            <div class="unit">% round-trip</div>
+          </div>
+          <div style="font-size:15px; color:rgba(30,64,73,.8); line-height:1.35;">
+            Fleet efficiency improved as inverter downtime fell below target for the third consecutive month.
+          </div>
+        </div>
+        <div>
+          <div class="mini-title">Monthly Generation Trend</div>
+          <div class="sparkline">
+            <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <div class="foot">Jan–Jul output index, normalized to weather-adjusted baseline.</div>
+        </div>
+      </div>
+
+      <div class="card table-card">
+        <div class="section-title">Asset Comparison by Technology</div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="rank">#</th>
+                <th>Technology</th>
+                <th>Avg. Capex</th>
+                <th>IRR</th>
+                <th>Availability</th>
+                <th>Pipeline Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="rank">1</td>
+                <td>Onshore Wind</td>
+                <td>$1.34M / MW</td>
+                <td class="good">12.8%</td>
+                <td>96.1%</td>
+                <td><span class="pill">Expanding</span></td>
+              </tr>
+              <tr>
+                <td class="rank">2</td>
+                <td>Utility Solar PV</td>
+                <td>$0.82M / MW</td>
+                <td class="good">11.9%</td>
+                <td>98.4%</td>
+                <td><span class="pill">Strong backlog</span></td>
+              </tr>
+              <tr>
+                <td class="rank">3</td>
+                <td>Battery Storage</td>
+                <td>$0.61M / MWh</td>
+                <td class="good">10.7%</td>
+                <td>94.8%</td>
+                <td><span class="pill">Merchant upside</span></td>
+              </tr>
+              <tr>
+                <td class="rank">4</td>
+                <td>Offshore Wind</td>
+                <td>$3.92M / MW</td>
+                <td class="warn">8.1%</td>
+                <td>92.5%</td>
+                <td><span class="pill">Permitting risk</span></td>
+              </tr>
+              <tr>
+                <td class="rank">5</td>
+                <td>Green Hydrogen</td>
+                <td>$5.10M / plant eq.</td>
+                <td class="warn">6.4%</td>
+                <td>89.2%</td>
+                <td><span class="pill">Pilot stage</span></td>
+              </tr>
+              <tr>
+                <td class="rank">6</td>
+                <td>Floating Solar</td>
+                <td>$1.28M / MW</td>
+                <td>9.6%</td>
+                <td>95.0%</td>
+                <td><span class="pill">Selective bids</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="notes">
+        <div class="card insight">
+          <h3>Executive Takeaways</h3>
+          <ul>
+            <li>Solar remains the lowest-cost growth engine, but interconnection queues are extending commissioning by 2–3 quarters in key U.S. markets.</li>
+            <li>Wind asset availability recovered after Q1 maintenance, lifting blended capacity factor and narrowing the gap to annual generation targets.</li>
+            <li>Battery economics strengthened as ancillary service prices stayed elevated during evening peak periods.</li>
+          </ul>
+        </div>
+
+        <div class="card risk">
+          <h3>Primary Watch Item</h3>
+          <div class="big-text">Transmission bottlenecks are compressing realized revenue in high-output corridors despite stron</div>
+          <p>
+            Management is prioritizing co-located storage and revised offtake structures to preserve project returns in 2025 vintages.
+          </p>
+          <div class="bottom-tag">Sizing bug visible</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
