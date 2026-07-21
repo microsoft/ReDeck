@@ -18,8 +18,6 @@ Most iterative slide agents follow a monolithic "one version, one feedback" loop
 
 **ReDeck changes the refinement loop to "one edit, one observation."** During a refinement turn, the agent edits the deck through atomic actions and receives Playwright-rendered observations after each step. This lets the agent fix local layout errors while their causes are still clear, while the turn-level critic tracks global issues such as narrative flow, completeness, correctness, and source fidelity.
 
-The deployed spatial detection engine covers **7 issue categories** across both HTML DOM and SVG internals, with calibrated thresholds as a single source of truth. Across 14 representative slides with 707 total spatial issues, ReDeck's 4-turn repair loop resolves all of them to zero.
-
 <p align="center">
   <img src="assets/redeck_pipeline.png" alt="ReDeck pipeline" width="780"/>
 </p>
