@@ -21,5 +21,5 @@ class CompileManifest(BaseModel):
     total_slides: int
     objects: list[CompiledObjectRecord] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
-    compile_backend: str = "html_codegen"
+    compile_backend: str = "python_pptx"
     timing_sec: float = 0.0

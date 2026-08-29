@@ -4,8 +4,8 @@ import json
 from .models import AtomicBlock, Asset, TableData, DocumentBlock, DocumentBlockPlan
 
 
-SYSTEM_PROMPT = """\
-You are a document analyst. Your task is to read a full document (with ID-anchored blocks) \
+SYSTEM_PROMPT_TEMPLATE = """\
+You are a document analyst. Your task is to read a full {source_description} (with ID-anchored blocks) \
 and produce a semantic chunking plan that groups related content into DocumentBlocks.
 
 Each DocumentBlock should:
@@ -17,8 +17,9 @@ Rules:
 1. Only reference IDs that appear in the input (Bxxx, Axxx, Txxx).
 2. Every atomic block should be assigned to at least one DocumentBlock. Minimize gaps.
 3. Each DocumentBlock should be self-contained enough to support slide content generation.
-4. Assign importance: "high" for core contributions/results, "medium" for methods/context, "low" for appendix/references.
+4. Assign importance from the source's actual purpose: "high" for central claims, decisions, contributions, or results; "medium" for supporting context or methods; "low" for appendix/references.
 5. slide_usage_hint: title_slide, concept_slide, evidence_slide, visual_slide, backup
+6. Do not invent academic roles such as method, experiment, or prior work when the source does not contain them. Business reports and existing presentations may instead organize around strategy, operations, financial evidence, outlook, and risk.
 
 Output valid JSON matching the schema. No markdown fences.
 """
@@ -37,7 +38,7 @@ USER_TEMPLATE = """\
 
 ```json
 {{
-  "document_profile": "paper",
+  "document_profile": "{profile_hint}",
   "blocks": [
     {{
       "doc_block_id": "DB001",
@@ -75,16 +76,24 @@ class LLMDocumentBlockPlanner:
         assets: list[Asset],
         tables: list[TableData],
         model: str | None = None,
+        source_kind: str = "paper",
     ) -> DocumentBlockPlan:
+        is_paper = source_kind == "paper"
+        source_description = "academic paper" if is_paper else "source document"
+        profile_hint = "paper" if is_paper else "business_report"
+        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+            source_description=source_description,
+        )
         user_content = USER_TEMPLATE.format(
             anchored_doc=anchored_doc,
             n_blocks=len(blocks),
             n_assets=len(assets),
             n_tables=len(tables),
+            profile_hint=profile_hint,
         )
 
         result = self.llm.call_json(
-            system_prompt=SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             user_content=user_content,
             response_model=DocumentBlockPlan,
             model=model,

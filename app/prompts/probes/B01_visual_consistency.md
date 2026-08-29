@@ -17,6 +17,7 @@ A cohesive deck looks like one designer made it; inconsistency signals carelessn
 2. Arbitrary color changes between slides with no logical basis
 3. Inconsistent recurring components (e.g., cards styled differently for no reason)
 4. Deck feels assembled from unrelated templates
+5. Full-width title bands or title rules alternate between Primary, Accent, Secondary, or Support hues across body slides; filled and light treatments may vary, but their structural hue must stay Primary
 
 ## Do not flag
 1. Deliberate section-divider variation

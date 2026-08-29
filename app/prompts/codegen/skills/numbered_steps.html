@@ -1,0 +1,162 @@
+<!--
+  SKILL: Numbered Steps / Procedure
+  Use when: describing sequential method steps, algorithms, or ordered processes
+
+  Creates a vertical timeline with numbered circles connected by a line,
+  each step having a short title and description.
+
+  KEY RULES:
+  - 3-6 steps maximum
+  - Each step: numbered circle + bold title + 1-line description
+  - Vertical connecting line between circles
+  - Optional: right-side annotation panel for one key step
+  - Clean white background, colored circles match PRIMARY_DARK
+-->
+
+<style>
+  .steps-container {
+    position: absolute;
+    left: 60px;
+    top: 100px;
+    width: 560px;
+  }
+
+  .step {
+    position: relative;
+    padding-left: 70px;
+    padding-bottom: 28px;
+    min-height: 70px;
+  }
+
+  /* Vertical connecting line */
+  .step:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    left: 22px;
+    top: 46px;
+    width: 2px;
+    height: calc(100% - 36px);
+    background: linear-gradient(to bottom, PRIMARY_LIGHT, #e0e6ec);
+  }
+
+  .step-num {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: PRIMARY_DARK;
+    color: #fff;
+    font-size: 20px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Highlight the "current" or key step */
+  .step.highlight .step-num {
+    background: ACCENT;
+    box-shadow: 0 0 0 5px rgba(ACCENT_RGB, 0.15);
+  }
+
+  .step-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: PRIMARY_DARK;
+    margin-bottom: 4px;
+    line-height: 1.2;
+  }
+
+  .step-desc {
+    font-size: 14px;
+    line-height: 1.4;
+    color: #3a4a5c;
+    max-width: 460px;
+  }
+
+  /* Right-side detail panel for a key step */
+  .detail-panel {
+    position: absolute;
+    right: 60px;
+    top: 120px;
+    width: 480px;
+    background: #f7f9fc;
+    border: 1px solid #e0e6ec;
+    border-radius: 14px;
+    padding: 22px 26px;
+  }
+  .detail-panel h4 {
+    font-size: 14px;
+    font-weight: 700;
+    color: PRIMARY_DARK;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 12px;
+  }
+  .detail-panel p, .detail-panel li {
+    font-size: 14px;
+    line-height: 1.45;
+    color: #2c3e50;
+  }
+  .detail-panel ul {
+    padding-left: 18px;
+    margin: 0;
+  }
+  .detail-panel li {
+    margin-bottom: 6px;
+  }
+</style>
+
+<!--
+  LAYOUT OPTION A — Steps left + Detail panel right:
+
+  <div class="steps-container">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-title">Data Collection</div>
+      <div class="step-desc">Record EEG signals from 19 channels at 256 Hz</div>
+    </div>
+    <div class="step highlight">
+      <div class="step-num">2</div>
+      <div class="step-title">Graph Construction</div>
+      <div class="step-desc">Build initial adjacency using Transformer edge predictor</div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-title">LLM Refinement</div>
+      <div class="step-desc">GPT judges each candidate edge with textual evidence</div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-title">Downstream Task</div>
+      <div class="step-desc">Feed refined graph to GraphS4mer for seizure detection</div>
+    </div>
+  </div>
+
+  <div class="detail-panel">
+    <h4>Step 2 Detail — Edge Prediction</h4>
+    <ul>
+      <li>Channels encoded as h_i = Transformer(x_i)</li>
+      <li>Pairwise concat [h_i; h_j] → MLP → probability</li>
+      <li>Threshold τ creates binary edges</li>
+    </ul>
+  </div>
+
+  LAYOUT OPTION B — Full-width steps (no detail panel):
+  Same as A but steps-container width: 1060px, no detail-panel.
+  Good when each step has a longer description.
+
+  DESIGN RULES:
+  - Use numbered circles ONLY (not letters or bullets)
+  - Highlight at most 1 step (the novel/key one) with .highlight
+  - Step descriptions: max 15 words each
+  - If more detail needed for one step, use the detail panel
+  - Connecting line creates visual flow from top to bottom
+
+  AVOID:
+  - More than 6 steps (condense or use pipeline skill instead)
+  - Long paragraphs inside steps (this is a quick procedure overview)
+  - Multiple highlighted steps (defeats the emphasis)
+-->

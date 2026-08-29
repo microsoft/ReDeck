@@ -1,4 +1,4 @@
-"""Run configuration schema for deck generation and repair."""
+"""ExperimentConfig schema - controls all module switches and ablation settings."""
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -17,9 +17,10 @@ class ModelConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    default: str = "gpt-4o"
+    default: str = "gpt-5.5"
     deck_planner: str | None = None
     slide_codegen: str | None = None
+    slide_repair: str | None = None
     narrative_judge: str | None = None
     visual_judge: str | None = None
     completeness_judge: str | None = None
@@ -31,6 +32,10 @@ class ModelConfig(BaseModel):
     def get_model(self, module_name: str) -> str:
         """Get model for a specific module, falling back to default."""
         return getattr(self, module_name, None) or self.default
+
+    def get_slide_repair_model(self) -> str:
+        """Resolve repair independently while preserving legacy inheritance."""
+        return self.slide_repair or self.get_model("slide_codegen")
 
 
 class EvalMode(BaseModel):
@@ -69,26 +74,34 @@ class EvalMode(BaseModel):
         default=4000,
         description="Max chars per evidence chunk in source bundle.",
     )
+    emit_deterministic_issues: bool = Field(
+        default=False,
+        description=(
+            "When True, deterministic DOM/geometry checks may create repair "
+            "issues. The default VLM-first path keeps these checks as "
+            "validation and regression evidence only."
+        ),
+    )
 
 
 class RenderMode(BaseModel):
     """Render backend configuration."""
 
     fast_backend: RenderBackendType = RenderBackendType.LINUX_LO_PDF
-    reference_backend: RenderBackendType = RenderBackendType.LINUX_LO_PDF
+    reference_backend: RenderBackendType = RenderBackendType.GRAPH_PDF
 
 
 class ExperimentConfig(BaseModel):
-    """Complete configuration for a run.
+    """Complete experiment configuration for a run.
 
-    Active fields:
+    Active fields (all others were removed as dead code):
     - run_id: unique identifier for this run
-    - ablation_tags: optional metadata tags for run grouping
+    - ablation_tags: metadata tags for experiment tracking (not used in logic)
     - models: per-module model overrides
     - eval_mode: evaluation pipeline switches
     - render_mode: rendering backend selection
     - max_turns: total turns (turn 0 = generate, turns 1+ = evaluate+repair)
-    - use_html_codegen: HTML/CSS codegen path
+    - use_html_codegen: HTML/CSS codegen vs python-pptx
     - repair_strategy: "redeck" (agentic) or "baseline" (naive)
     - layout_strategy: "template" | "constraint" | "freeform" | "none"
     - prebuilt_turn0_dir: skip generation, reuse existing T0 artifacts
@@ -117,8 +130,8 @@ class ExperimentConfig(BaseModel):
     use_html_codegen: bool = Field(
         default=True,
         description=(
-            "When True, use HTML/CSS code generation with Playwright rendering. "
-            "The legacy python-pptx generator is not included in this release."
+            "When True, use HTML/CSS code generation (Playwright rendering). "
+            "When False, use python-pptx codegen."
         ),
     )
     repair_strategy: str = Field(
@@ -126,6 +139,14 @@ class ExperimentConfig(BaseModel):
         description=(
             "Repair strategy: 'redeck' (agentic local patching with regression "
             "protection) or 'baseline' (naive full-rewrite)."
+        ),
+    )
+    repair_text_loss_budget: int = Field(
+        default=4,
+        ge=0,
+        description=(
+            "Maximum cumulative ordinary visible words a layout-only repair may remove. "
+            "Value-bearing tokens are protected independently."
         ),
     )
     layout_strategy: str = Field(
@@ -139,15 +160,39 @@ class ExperimentConfig(BaseModel):
         default=None,
         description="Custom codegen system prompt name (without .system.md extension).",
     )
+    theme_id: str | None = Field(
+        default=None,
+        description="Override theme by ID (e.g. 'ocean_breeze', 'coral_tide'). If None, auto-selected by paper title hash.",
+    )
+    style_pattern: str | None = Field(
+        default=None,
+        description="Design pattern for deck-level styling. 'auto' selects by paper domain; or specify pattern name/id.",
+    )
+    demo_palette: dict | None = Field(
+        default=None,
+        description=(
+            "Direct 6-role color override for demo generation. Keys: "
+            "canvas, ink, primary, secondary, accent, support. "
+            "When set, bypasses ThemeColors and injects these colors directly "
+            "with bright/clean usage instructions."
+        ),
+    )
     show_source_citations: bool = Field(
         default=True,
         description=(
             "When True, data-heavy slides include a visible 'Source: Page X' footer "
-            "citing the original document. Recommended for presentations where "
+            "citing the original document. Recommended for academic and financial "
             "presentations where traceability matters."
         ),
     )
     prebuilt_turn0_dir: str | None = Field(
         default=None,
         description="Reuse T0 artifacts from this directory instead of generating.",
+    )
+    prebuilt_blueprint_path: str | None = Field(
+        default=None,
+        description=(
+            "Reuse a deck_blueprint.json while regenerating T0 so codegen "
+            "model ablations hold planning constant."
+        ),
     )

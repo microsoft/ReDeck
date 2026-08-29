@@ -1,0 +1,8 @@
+{
+  "type": "synthetic_reference_voice",
+  "provider": "Microsoft Edge Neural TTS",
+  "voice": "en-US-AvaMultilingualNeural",
+  "rate": "-10%",
+  "text": "Clear narration at a steady pace.",
+  "disclosure": "AI-generated reference audio; no real person's voice is imitated."
+}

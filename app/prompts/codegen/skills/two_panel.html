@@ -1,0 +1,129 @@
+<!--
+  SKILL: Two-Panel Cards
+  Use when: presenting two parallel sections of equal weight
+  (Stage 1 / Stage 2, Takeaways / Future work, Setup / Results)
+
+  DIFFERENT FROM split_comparison:
+  - split_comparison is for contrasting (better/worse, before/after)
+  - two_panel is for PARALLEL content of equal weight
+
+  KEY RULES:
+  - Two white rounded cards side by side (50/50)
+  - Each card has its own header
+  - Cards have subtle border + shadow (no colored fill)
+  - Optional: small label badge above the header ("Stage 1")
+  - Content inside: bullets, text, or small table
+-->
+
+<style>
+  .two-panel {
+    display: flex;
+    gap: 24px;
+    margin: 16px 0;
+  }
+  .panel-card {
+    flex: 1;
+    background: #fff;
+    border: 1px solid #d7e0ea;
+    border-radius: 14px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.05);
+    padding: 22px 24px;
+  }
+  .panel-card .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: PRIMARY_DARK;
+    background: #eef2f7;
+    padding: 4px 12px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+  }
+  .panel-card h3 {
+    font-size: 20px;
+    font-weight: 700;
+    color: PRIMARY_DARK;
+    margin-bottom: 14px;
+    line-height: 1.3;
+  }
+  .panel-card ul {
+    padding-left: 20px;
+  }
+  .panel-card li {
+    font-size: 15px;
+    line-height: 1.45;
+    margin-bottom: 8px;
+    color: #2c3e50;
+  }
+  .panel-card li strong {
+    color: PRIMARY_DARK;
+  }
+</style>
+
+<!--
+  STAGE 1 / STAGE 2:
+
+  <div class="two-panel">
+    <div class="panel-card">
+      <div class="badge">Stage 1</div>
+      <h3>Initial graph generation</h3>
+      <ul>
+        <li>Each EEG channel is treated as a node</li>
+        <li>A <strong>Transformer-based edge predictor</strong> models pairwise interactions</li>
+        <li>An MLP maps to edge probability scores</li>
+        <li>A threshold creates the initial graph</li>
+      </ul>
+    </div>
+    <div class="panel-card">
+      <div class="badge">Stage 2</div>
+      <h3>LLM as edge-set refiner</h3>
+      <ul>
+        <li>The LLM makes keep/remove decisions for candidate edges</li>
+        <li>Judgment based on <strong>textual + statistical features</strong></li>
+        <li>Adds contextual reasoning absent from pure correlation</li>
+        <li>Refinement is explicit at the edge level</li>
+      </ul>
+    </div>
+  </div>
+
+  TAKEAWAYS / FUTURE WORK:
+
+  <div class="two-panel">
+    <div class="panel-card">
+      <h3>Main takeaways</h3>
+      <ul>
+        <li>Two-stage framework improves seizure detection on TUSZ</li>
+        <li>GPT-5 + Transformer G achieves best F1</li>
+        <li>Graph refinement yields cleaner representations</li>
+      </ul>
+    </div>
+    <div class="panel-card">
+      <h3>Limitations and future work</h3>
+      <ul>
+        <li>Inference cost of LLM-based refinement</li>
+        <li>Domain-specialized medical LLMs could improve</li>
+        <li>Extend to weighted or temporal graph updates</li>
+      </ul>
+    </div>
+  </div>
+
+  WHEN TO USE:
+  - method slides: Stage 1 / Stage 2, or Module A / Module B
+  - conclusion slides: Takeaways / Future work
+  - context slides: Problem / Our approach
+  - results slides: Setup / Findings
+
+  DESIGN RULES:
+  - Both cards same height (use min-height or let flex stretch)
+  - 4-6 bullets per card max
+  - Optional badge: use when cards represent named stages/phases
+  - No colored fill on cards (white + border + shadow only)
+  - Keep text symmetric: roughly same amount in each card
+
+  AVOID:
+  - One card much taller than the other (rebalance content)
+  - Colored card backgrounds (save dark fill for sidebar hero cards)
+  - More than 2 cards (use grid skill for 3+)
+-->

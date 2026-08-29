@@ -86,11 +86,19 @@ Pass only if all are true:
 3. summary wording does not exaggerate certainty or importance
 4. omitted qualifiers are non-essential to the source meaning
 
+**IMPORTANT tolerance rule**: Keyword-phrase summaries and abbreviated bullet points are EXPECTED and should NOT be flagged. A slide that says "Characters: weak (FF 0.11, GD 0.09)" is a valid compression of "The character-level results were weak with first-fixation of 0.11 and gaze duration of 0.09". Only flag E3 when the compression CHANGES THE MEANING or DIRECTION — not when it merely shortens the expression. Brevity is a feature of good slides, not a defect.
+
 Fail if any are true:
 1. paraphrase changes the meaning or certainty of the source
-2. compression drops a qualifier that materially changes interpretation
+2. compression drops a qualifier that materially changes interpretation (e.g., "significant" when source says "not significant")
 3. a rewritten claim sounds simpler but becomes substantively inaccurate
 4. important nuance is lost in a way that biases the audience takeaway
+
+Do NOT fail for:
+- Using shorter synonyms ("weak" for "not significant")  
+- Dropping hedging language that doesn't change the conclusion ("somewhat", "arguably")
+- Abbreviating method names or combining related points into one bullet
+- Omitting page/figure references from the source
 
 Evidence to cite:
 1. source wording

@@ -31,9 +31,15 @@ Return valid JSON only. No markdown, explanations, or prose outside JSON.
 
 **Rules:**
 - ONE issue PER slide. If slides 2, 4, 7 each have the same problem, output 3 separate issues.
+- `fix_detail.target_location` is REQUIRED for every issue. Identify the stable
+  semantic target using visible labels, object roles, or source/target labels;
+  do not identify it only as an array position such as "the first issue".
 - If no issues found, return: `{"probe_id": "<id>", "issues": []}`
+- If the probe rubric requires an additional top-level audit or decision-trace
+  field, include it alongside `probe_id` and `issues`; it does not replace the
+  standard issue array.
 - Only report issues matching THIS probe's rubric_id and issue_type.
-- `sub_type` field is REQUIRED for B09 density_imbalance: `"content_overflow"|"underutilized_space"|"uneven_distribution"`. Omit for other issue types.
+- `sub_type` field is REQUIRED for B09 density_imbalance: `"sparse_content"|"cramped_content"|"element_undersized"|"column_height_mismatch"`. Omit for other issue types. Use `column_height_mismatch` for peer visual-weight contract failures, not only literal bottom-edge mismatch.
 
 ## Differential Evaluation (repair turns)
 
@@ -47,7 +53,7 @@ Output format in differential mode:
 {
   "probe_id": "<id>",
   "previous_issue_verdicts": [
-    {"issue_id": "...", "verdict": "RESOLVED|PERSISTED|WORSENED", "confidence": "high|medium|low", "reasoning": "..."}
+    {"issue_id": "...", "verdict": "RESOLVED|PERSISTED|WORSENED", "confidence": "high|medium|low", "reasoning": "...", "updated_planned_fix": "required for PERSISTED/WORSENED", "updated_correct_content": "refresh exact correction text when the semantic correction changes; otherwise omit"}
   ],
   "new_issues": [...]
 }

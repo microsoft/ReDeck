@@ -1,0 +1,57 @@
+<!--
+  ROADMAP SLIDE — HTML Skill Pattern
+  Structure: Full-width grid of numbered stage cards (2x3 or 1x5-7)
+
+  KEY: Each card MUST have:
+  - Numbered circle (colored)
+  - Bold title
+  - 1-line description (max 8 words — noun phrase, NOT a sentence)
+  - Colored background (alternate between 2-3 palette colors)
+
+  Max 6 cards. Each card body max 15 words total.
+  Do NOT add category labels AND titles AND descriptions — pick TWO of three.
+-->
+
+<style>
+  /* body zone: 720 - header(78) - bottom_bar(72) = 560px (with safety margin) */
+  .body { padding:20px 36px; height:560px; display:flex; flex-direction:column; gap:16px; }
+
+  /* — Summary line below header — */
+  .roadmap-summary {
+    font-size:13px; color:BODY_TEXT; text-align:center; padding:8px 0;
+  }
+
+  /* — Card grid (2 rows x 3 cols for 6 items, or 1 row for ≤5) — */
+  .card-grid { display:flex; flex-wrap:wrap; gap:12px; flex:1; }
+  .road-card {
+    flex:1 1 calc(33% - 12px); min-width:200px;
+    border-radius:10px; padding:18px 16px; overflow:hidden;
+    display:flex; gap:12px; align-items:flex-start;
+  }
+  .road-card.dark { background:PRIMARY_DARK; color:#fff; }
+  .road-card.mid { background:PRIMARY_MID; color:#fff; }
+  .road-card.accent { background:ACCENT; color:#fff; }
+  .road-card.light { background:LIGHT_BG; color:BODY_TEXT; }
+
+  .road-card .num-circle {
+    width:32px; height:32px; min-width:32px; border-radius:50%;
+    background:rgba(255,255,255,0.2); color:#fff;
+    display:flex; align-items:center; justify-content:center;
+    font-size:15px; font-weight:800;
+  }
+  .road-card.light .num-circle { background:ACCENT; color:#fff; }
+
+  .road-card .content { flex:1; }
+  .road-card .category { font-size:9px; text-transform:uppercase; letter-spacing:0.8px; opacity:0.7; margin-bottom:3px; }
+  .road-card h5 { font-size:14px; font-weight:700; margin:0 0 6px; }
+  .road-card p { font-size:11px; line-height:1.4; margin:0; opacity:0.9; }
+</style>
+
+<!--
+  COLOR PATTERN for 6 cards:
+  Row 1: dark, mid, accent
+  Row 2: dark, mid, accent
+  (or alternate: dark, dark, dark / light, light, light for grouped visual)
+
+  For 3-4 items: use full-width single row, larger cards
+-->

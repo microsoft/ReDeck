@@ -1,0 +1,206 @@
+<!--
+  SKILL: Radar / Spider Chart
+  Use when: comparing 2-3 models/methods across 4-8 dimensions simultaneously
+
+  DIFFERENT FROM chart:
+  - chart: bar chart for single-metric ranking
+  - radar_chart: multi-axis polygon overlay showing strength profiles
+
+  DIFFERENT FROM grouped_bar:
+  - grouped_bar: side-by-side bars for exact numeric comparison
+  - radar_chart: shape-based comparison emphasizing relative strengths
+
+  KEY RULES:
+  - Pure SVG, no external library
+  - 4-8 axes arranged radially (fewer = use bar chart; more = unreadable)
+  - 2-3 overlapping polygons (more = visual noise)
+  - Semi-transparent fill to show overlap
+  - Labeled axes with scale indicators
+  - Legend for model identification
+-->
+
+<style>
+  .radar-container {
+    position: absolute;
+    left: 50px;
+    top: 100px;
+    width: 620px;
+    height: 500px;
+    text-align: center;
+  }
+  .radar-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: PRIMARY_MID;
+    margin-bottom: 10px;
+    text-align: left;
+  }
+
+  /* Legend */
+  .radar-legend {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-bottom: 10px;
+  }
+  .radar-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #555;
+  }
+  .radar-legend-swatch {
+    width: 20px;
+    height: 3px;
+    border-radius: 1px;
+  }
+
+  /* Interpretation panel */
+  .radar-interpret {
+    position: absolute;
+    right: 50px;
+    top: 110px;
+    width: 340px;
+  }
+  .radar-interpret-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: PRIMARY_MID;
+    margin-bottom: 12px;
+  }
+  .radar-interpret-text {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #3a4a5c;
+    margin-bottom: 14px;
+  }
+  .radar-interpret-callout {
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: rgba(ACCENT_RGB, 0.05);
+    border-left: 3px solid ACCENT;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #2c3e50;
+  }
+</style>
+
+<!--
+  USAGE (5-axis radar, 2 models):
+
+  The SVG uses a centered coordinate system. For a 5-axis radar with
+  radius 160, center at (220, 200):
+
+  Step 1: Compute axis endpoints at equal angles (starting from top):
+    Axis 0 (top):     (220, 40)
+    Axis 1 (72deg):   (372, 138)
+    Axis 2 (144deg):  (314, 330)
+    Axis 3 (216deg):  (126, 330)
+    Axis 4 (288deg):  (68, 138)
+
+  Step 2: For each model, compute polygon vertices based on scores (0-1).
+  E.g., score 0.8 on axis 0 means 80% of the way from center to axis 0 endpoint.
+
+  <div class="radar-container">
+    <div class="radar-title">Multi-dimensional comparison</div>
+    <div class="radar-legend">
+      <div class="radar-legend-item">
+        <div class="radar-legend-swatch" style="background:PRIMARY_DARK;"></div>Baseline
+      </div>
+      <div class="radar-legend-item">
+        <div class="radar-legend-swatch" style="background:ACCENT;"></div>Our Method
+      </div>
+    </div>
+
+    <svg width="440" height="400" viewBox="0 0 440 400">
+      <!-- Grid rings (20%, 40%, 60%, 80%, 100%) -->
+      <polygon points="220,168 250,186 242,212 198,212 190,186"
+               fill="none" stroke="#eee" stroke-width="0.5"/>
+      <polygon points="220,136 281,173 265,224 175,224 159,173"
+               fill="none" stroke="#eee" stroke-width="0.5"/>
+      <polygon points="220,104 311,159 287,236 153,236 129,159"
+               fill="none" stroke="#eee" stroke-width="0.5"/>
+      <polygon points="220,72 342,146 310,248 130,248 98,146"
+               fill="none" stroke="#eee" stroke-width="0.5"/>
+      <polygon points="220,40 372,132 332,260 108,260 68,132"
+               fill="none" stroke="#e0e0e0" stroke-width="1"/>
+
+      <!-- Axis lines from center to edge -->
+      <line x1="220" y1="200" x2="220" y2="40" stroke="#ddd" stroke-width="0.8"/>
+      <line x1="220" y1="200" x2="372" y2="132" stroke="#ddd" stroke-width="0.8"/>
+      <line x1="220" y1="200" x2="332" y2="260" stroke="#ddd" stroke-width="0.8"/>
+      <line x1="220" y1="200" x2="108" y2="260" stroke="#ddd" stroke-width="0.8"/>
+      <line x1="220" y1="200" x2="68" y2="132" stroke="#ddd" stroke-width="0.8"/>
+
+      <!-- Axis labels -->
+      <text x="220" y="26" text-anchor="middle" font-size="12" font-weight="600" fill="#333">Accuracy</text>
+      <text x="384" y="130" font-size="12" font-weight="600" fill="#333">Speed</text>
+      <text x="345" y="275" font-size="12" font-weight="600" fill="#333">Robustness</text>
+      <text x="95" y="275" text-anchor="end" font-size="12" font-weight="600" fill="#333">Efficiency</text>
+      <text x="56" y="130" text-anchor="end" font-size="12" font-weight="600" fill="#333">Fairness</text>
+
+      <!-- Model 1 polygon (Baseline) -->
+      <polygon points="220,88 311,159 287,240 153,230 129,159"
+               fill="PRIMARY_DARK" fill-opacity="0.1"
+               stroke="PRIMARY_DARK" stroke-width="2" stroke-opacity="0.6"/>
+
+      <!-- Model 2 polygon (Our Method) -->
+      <polygon points="220,56 350,142 300,252 140,245 98,146"
+               fill="ACCENT" fill-opacity="0.12"
+               stroke="ACCENT" stroke-width="2.5"/>
+
+      <!-- Data points -->
+      <circle cx="220" cy="56" r="4" fill="ACCENT"/>
+      <circle cx="350" cy="142" r="4" fill="ACCENT"/>
+      <circle cx="300" cy="252" r="4" fill="ACCENT"/>
+      <circle cx="140" cy="245" r="4" fill="ACCENT"/>
+      <circle cx="98" cy="146" r="4" fill="ACCENT"/>
+    </svg>
+  </div>
+
+  <div class="radar-interpret">
+    <div class="radar-interpret-title">Profile comparison</div>
+    <div class="radar-interpret-text">
+      Our method (colored area) covers more of the radar surface than
+      the baseline across all five evaluation dimensions.
+    </div>
+    <div class="radar-interpret-callout">
+      The largest gains are on Accuracy (+12pp) and Robustness (+9pp),
+      while Speed and Efficiency remain competitive.
+    </div>
+  </div>
+
+  CONSTRUCTION GUIDE:
+  For N axes with center (cx, cy) and radius R:
+  - Axis k endpoint: (cx + R*sin(2πk/N), cy - R*cos(2πk/N))
+  - Score s (0-1) on axis k: (cx + s*R*sin(2πk/N), cy - s*R*cos(2πk/N))
+  - Grid ring at fraction f: same formula with f*R
+  - Connect polygon vertices in axis order
+
+  DESIGN RULES:
+  - 4-8 axes (5 or 6 is ideal)
+  - 2-3 models max (transparency makes more unreadable)
+  - Baseline: PRIMARY_DARK with 10% fill opacity
+  - Our method: ACCENT with 12% fill opacity
+  - Grid: 4-5 concentric rings, light gray
+  - Axis labels: 12px, bold, positioned outside the outermost ring
+  - Data points: 3-4px circles at polygon vertices
+  - Chart width: ~440px, leaving room for interpretation panel
+
+  WHEN TO USE:
+  - Multi-dimensional model comparison (5+ metrics)
+  - Showing strength/weakness profiles
+  - Trade-off visualization
+  - Any comparison where shape/area matters
+
+  AVOID:
+  - More than 3 overlapping polygons (visual noise)
+  - Fewer than 4 axes (use bar chart instead)
+  - Very different scales across axes (normalize first)
+  - Precise numeric comparisons (use table or grouped_bar instead)
+-->

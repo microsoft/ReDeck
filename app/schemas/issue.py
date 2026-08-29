@@ -41,6 +41,7 @@ class Issue(BaseModel):
     issue_id: str
     rubric_id: str = Field(description="e.g. A1, B3, C2, D1, E2")
     issue_type: str = Field(description="e.g. overlap, missing_content, incorrect_claim, density")
+    sub_type: str = Field(default="", description="e.g. sparse_content, cramped_content, element_undersized, column_height_mismatch")
     severity: Severity
     confidence: Confidence = Confidence.HIGH
     affected_slides: list[int] = Field(default_factory=list)
@@ -59,7 +60,7 @@ class Issue(BaseModel):
         description="Concrete fix specification with exact content from source (primarily for C/D issues)"
     )
     recommended_action: RepairAction = Field(
-        default=RepairAction.REGEN,
+        default=RepairAction.PATCH,
         description="Judge-recommended repair action: KEEP (skip), PATCH (text-only edit), REGEN (structural code change)"
     )
     action_rationale: str = Field(
@@ -79,7 +80,12 @@ class Issue(BaseModel):
     persisted_turns: int = Field(
         default=0,
         description="Number of consecutive turns this issue has been carried forward as "
-                    "PERSISTED after a repair attempt. After N consecutive persistences, "
-                    "the issue is auto-marked WONT_FIX to free repair budget for tractable "
-                    "issues."
+                    "PERSISTED after a repair attempt. This is diagnostic history only; "
+                    "repair escalation must use actual repair-attempt outcomes."
+    )
+    last_triaged_turn: int | None = Field(
+        default=None,
+        description="Most recent repair turn in which a current-render probe triaged "
+                    "this issue. Prevents duplicate same-turn probe calls from mutating "
+                    "lifecycle counters more than once."
     )

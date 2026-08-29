@@ -7,6 +7,21 @@ from pathlib import Path
 from PIL import Image
 
 
+def _pil_to_base64(img: Image.Image, max_size: int, fmt: str = "PNG") -> str:
+    """Encode an in-memory image while preserving thin vector-rendered details."""
+    if max(img.size) > max_size:
+        ratio = max_size / max(img.size)
+        img = img.resize(
+            (max(1, int(img.width * ratio)), max(1, int(img.height * ratio))),
+            Image.Resampling.LANCZOS,
+        )
+    buffer = BytesIO()
+    img.save(buffer, format=fmt)
+    b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    mime = "image/png" if fmt == "PNG" else "image/jpeg"
+    return f"data:{mime};base64,{b64}"
+
+
 def image_to_base64(image_path: str | Path, max_size: int = 1024) -> str:
     """Convert image to base64 data URL, optionally resizing."""
     img = Image.open(image_path)
@@ -24,6 +39,76 @@ def image_to_base64(image_path: str | Path, max_size: int = 1024) -> str:
 
     mime = "image/png" if fmt == "PNG" else "image/jpeg"
     return f"data:{mime};base64,{b64}"
+
+
+def image_regions_to_base64(
+    image_path: str | Path,
+    regions: list[dict],
+    viewport_size: tuple[int, int] = (1280, 720),
+    max_size: int = 1920,
+) -> list[str]:
+    """Encode a full render, enlarged regions, and generic detail tile sheets.
+
+    Region coordinates are expressed in the browser viewport coordinate system.
+    This is intentionally content-agnostic: the caller decides which rendered
+    regions deserve a closer VLM inspection.
+    """
+    with Image.open(image_path) as source:
+        image = source.convert("RGB")
+        encoded = [_pil_to_base64(image.copy(), max_size=max_size)]
+        scale_x = image.width / max(viewport_size[0], 1)
+        scale_y = image.height / max(viewport_size[1], 1)
+
+        for region in regions:
+            x = float(region.get("x", 0))
+            y = float(region.get("y", 0))
+            width = float(region.get("width", 0))
+            height = float(region.get("height", 0))
+            if width <= 0 or height <= 0:
+                continue
+            padding = max(8.0, min(width, height) * 0.04)
+            box = (
+                max(0, int((x - padding) * scale_x)),
+                max(0, int((y - padding) * scale_y)),
+                min(image.width, int((x + width + padding) * scale_x)),
+                min(image.height, int((y + height + padding) * scale_y)),
+            )
+            if box[2] <= box[0] or box[3] <= box[1]:
+                continue
+            crop = image.crop(box)
+            # Small diagrams need enlargement for reliable path/marker inspection.
+            if max(crop.size) < 1200:
+                factor = min(3.0, 1200 / max(crop.size))
+                crop = crop.resize(
+                    (max(1, int(crop.width * factor)), max(1, int(crop.height * factor))),
+                    Image.Resampling.LANCZOS,
+                )
+            encoded.append(_pil_to_base64(crop, max_size=max_size))
+
+            # A 2x2 overlapping tile sheet exposes thin local geometry without
+            # guessing which part of an arbitrary visual matters.
+            tile_w = max(1, int(crop.width * 0.58))
+            tile_h = max(1, int(crop.height * 0.58))
+            tile_boxes = [
+                (0, 0, tile_w, tile_h),
+                (crop.width - tile_w, 0, crop.width, tile_h),
+                (0, crop.height - tile_h, tile_w, crop.height),
+                (crop.width - tile_w, crop.height - tile_h, crop.width, crop.height),
+            ]
+            cell_w, cell_h = 900, 600
+            sheet = Image.new("RGB", (cell_w * 2, cell_h * 2), "white")
+            for index, tile_box in enumerate(tile_boxes):
+                tile = crop.crop(tile_box)
+                scale = min(cell_w / tile.width, cell_h / tile.height)
+                tile = tile.resize(
+                    (max(1, int(tile.width * scale)), max(1, int(tile.height * scale))),
+                    Image.Resampling.LANCZOS,
+                )
+                offset_x = (index % 2) * cell_w + (cell_w - tile.width) // 2
+                offset_y = (index // 2) * cell_h + (cell_h - tile.height) // 2
+                sheet.paste(tile, (offset_x, offset_y))
+            encoded.append(_pil_to_base64(sheet, max_size=max_size))
+        return encoded
 
 
 def resize_image(

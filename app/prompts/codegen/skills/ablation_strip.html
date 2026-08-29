@@ -1,0 +1,175 @@
+<!--
+  SKILL: Ablation Strip / Component Analysis
+  Use when: showing ablation study results — what happens when you
+  add/remove components one at a time
+
+  Pattern: Horizontal strip of components showing cumulative contribution,
+  or SVG bar chart with delta annotations
+
+  KEY RULES:
+  - Each row/bar = one variant (full model, minus component A, minus B...)
+  - Highlight the full model row
+  - Show delta (Δ) for each removed component
+  - Clear reading order: full → ablated variants
+-->
+
+<style>
+  .ablation-container {
+    position: absolute;
+    left: 60px;
+    top: 110px;
+    width: 780px;
+  }
+
+  .ablation-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 0;
+    border-bottom: 1px solid #eef2f6;
+  }
+
+  .ablation-row.full-model {
+    background: rgba(ACCENT_RGB, 0.06);
+    border-radius: 8px;
+    padding: 12px 14px;
+    border-bottom: none;
+    margin-bottom: 6px;
+  }
+
+  .ablation-name {
+    width: 240px;
+    font-size: 14px;
+    color: #2c3e50;
+    font-weight: 500;
+  }
+  .ablation-row.full-model .ablation-name {
+    font-weight: 700;
+    color: PRIMARY_DARK;
+  }
+
+  .ablation-bar-wrap {
+    flex: 1;
+    height: 22px;
+    background: #f0f3f7;
+    border-radius: 4px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .ablation-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s;
+  }
+  .ablation-row.full-model .ablation-bar {
+    background: ACCENT;
+  }
+  .ablation-row:not(.full-model) .ablation-bar {
+    background: PRIMARY_MID;
+    opacity: 0.6;
+  }
+
+  .ablation-value {
+    width: 60px;
+    font-size: 14px;
+    font-weight: 700;
+    text-align: right;
+    color: PRIMARY_DARK;
+  }
+
+  .ablation-delta {
+    width: 70px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #c0392b;
+    text-align: right;
+  }
+  .ablation-delta.positive {
+    color: #27ae60;
+  }
+
+  /* Right-side summary */
+  .ablation-summary {
+    position: absolute;
+    right: 60px;
+    top: 130px;
+    width: 310px;
+    background: #f7f9fc;
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .ablation-summary h4 {
+    font-size: 13px;
+    font-weight: 700;
+    color: PRIMARY_DARK;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 12px;
+  }
+  .ablation-summary li {
+    font-size: 13px;
+    line-height: 1.5;
+    margin-bottom: 6px;
+    color: #2c3e50;
+  }
+  .ablation-summary ul {
+    padding-left: 16px;
+    margin: 0;
+  }
+</style>
+
+<!--
+  USAGE:
+
+  <div class="ablation-container">
+    <div class="ablation-row full-model">
+      <div class="ablation-name">Full model (GPT-5 + Trans G)</div>
+      <div class="ablation-bar-wrap"><div class="ablation-bar" style="width:100%"></div></div>
+      <div class="ablation-value">0.7907</div>
+      <div class="ablation-delta">—</div>
+    </div>
+    <div class="ablation-row">
+      <div class="ablation-name">− LLM refinement</div>
+      <div class="ablation-bar-wrap"><div class="ablation-bar" style="width:93%"></div></div>
+      <div class="ablation-value">0.7351</div>
+      <div class="ablation-delta">−0.0556</div>
+    </div>
+    <div class="ablation-row">
+      <div class="ablation-name">− Textual features</div>
+      <div class="ablation-bar-wrap"><div class="ablation-bar" style="width:95%"></div></div>
+      <div class="ablation-value">0.7520</div>
+      <div class="ablation-delta">−0.0387</div>
+    </div>
+    <div class="ablation-row">
+      <div class="ablation-name">− Statistical features</div>
+      <div class="ablation-bar-wrap"><div class="ablation-bar" style="width:97%"></div></div>
+      <div class="ablation-value">0.7690</div>
+      <div class="ablation-delta">−0.0217</div>
+    </div>
+  </div>
+
+  <div class="ablation-summary">
+    <h4>Takeaway</h4>
+    <ul>
+      <li>LLM refinement contributes the largest gain (+5.6 F1 points)</li>
+      <li>Textual features more important than statistical</li>
+      <li>Both feature types necessary for full performance</li>
+    </ul>
+  </div>
+
+  ALTERNATIVE: SVG bar chart version (use comparison skill's bar chart pattern)
+  when you want a cleaner chart look.
+
+  DESIGN RULES:
+  - Full model ALWAYS first (top), highlighted with accent color
+  - Ablated variants ordered by importance (biggest drop first)
+  - Bar widths proportional to values (use % of max)
+  - Delta column shows the loss in red
+  - Max 6 ablation rows
+
+  AVOID:
+  - More than 6 variants (summarize or pick top 5)
+  - Unclear naming (use "− component" format)
+  - Missing the full model reference row
+-->

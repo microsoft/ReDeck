@@ -1,0 +1,122 @@
+<!--
+  SKILL: Equation / Formula Display
+  Use when: showing mathematical formulas, model equations, or formal definitions
+
+  KEY RULES:
+  - Formulas displayed in larger font with monospace or serif styling
+  - Centered or left-aligned on white background
+  - Brief annotation below or beside the formula
+  - Use HTML entities or Unicode for math symbols
+  - NOT an image of the equation — actual styled text
+-->
+
+<style>
+  .formula-block {
+    margin: 16px 0;
+    padding: 14px 20px;
+    background: #f8f9fb;
+    border-radius: 6px;
+    border-left: 3px solid PRIMARY_MID;
+  }
+  .formula {
+    font-family: 'Cambria Math', 'Times New Roman', Georgia, serif;
+    font-size: 22px;
+    color: PRIMARY_DARK;
+    letter-spacing: 0.5px;
+    line-height: 1.6;
+  }
+  .formula sub {
+    font-size: 14px;
+    vertical-align: sub;
+  }
+  .formula sup {
+    font-size: 14px;
+    vertical-align: super;
+  }
+  .formula-annotation {
+    font-size: 12px;
+    color: #666;
+    margin-top: 8px;
+    font-family: 'Segoe UI', Arial, sans-serif;
+  }
+
+  /* Inline formula in running text */
+  .inline-formula {
+    font-family: 'Cambria Math', 'Times New Roman', Georgia, serif;
+    font-size: 16px;
+    color: PRIMARY_DARK;
+    font-weight: 600;
+  }
+
+  /* Variable definitions below a formula */
+  .var-defs {
+    margin-top: 10px;
+    font-size: 13px;
+    color: #555;
+    line-height: 1.6;
+  }
+  .var-defs .var {
+    font-family: 'Cambria Math', serif;
+    font-weight: 600;
+    color: PRIMARY_DARK;
+  }
+</style>
+
+<!--
+  CENTERED FORMULA BLOCK:
+
+  <div class="formula-block">
+    <div class="formula">
+      h<sub>i</sub> = Transformer(x<sub>i</sub>)
+    </div>
+    <div class="formula-annotation">
+      Each channel is encoded into a node embedding
+    </div>
+  </div>
+
+  FORMULA WITH VARIABLE DEFINITIONS:
+
+  <div class="formula-block">
+    <div class="formula">
+      p<sub>ij</sub> = σ(MLP(z<sub>ij</sub>))
+    </div>
+    <div class="var-defs">
+      where <span class="var">z<sub>ij</sub></span> = [h<sub>i</sub>; h<sub>j</sub>]
+      is the concatenated embedding of channels i and j,
+      and <span class="var">σ</span> is the sigmoid function
+    </div>
+  </div>
+
+  MULTIPLE FORMULAS IN SEQUENCE:
+
+  <div style="display:flex; gap:30px; margin:16px 0;">
+    <div class="formula-block" style="flex:1;">
+      <div style="font-size:11px; text-transform:uppercase; color:PRIMARY_MID;
+           letter-spacing:1px; margin-bottom:6px;">Channel Encoding</div>
+      <div class="formula">h<sub>i</sub> = Transformer(x<sub>i</sub>)</div>
+    </div>
+    <div class="formula-block" style="flex:1;">
+      <div style="font-size:11px; text-transform:uppercase; color:PRIMARY_MID;
+           letter-spacing:1px; margin-bottom:6px;">Edge Probability</div>
+      <div class="formula">p<sub>ij</sub> = σ(MLP(z<sub>ij</sub>))</div>
+    </div>
+  </div>
+
+  DESIGN RULES:
+  - Formula font: 20-24px, serif family (looks mathematical)
+  - Annotation: 12-13px, sans-serif, gray
+  - Light background (#f8f9fb) or white with left-border accent
+  - Max 3 formulas per slide (more = too dense)
+  - Use subscripts/superscripts for indices, not parenthesized
+
+  COMMON MATH SYMBOLS (HTML entities):
+  - × → &times;    · → &middot;    ≈ → &asymp;
+  - ≤ → &le;        ≥ → &ge;        ≠ → &ne;
+  - → → &rarr;      ← → &larr;      ∈ → &isin;
+  - σ → σ (Unicode)  α → α  β → β  θ → θ
+
+  AVOID:
+  - Images of equations (not searchable, hard to maintain)
+  - Complex multi-line derivations (simplify or split across slides)
+  - Tiny formula text (<16px) — make it readable
+-->

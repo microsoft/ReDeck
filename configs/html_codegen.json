@@ -1,31 +1,22 @@
 {
-  "run_id": "html_codegen_example",
+  "run_id": "html_codegen_hybrid",
   "models": {
-    "default": "gpt-4o"
+    "default": "gpt-5.5"
   },
-  "max_turns": 3,
-  "seed": 42,
+  "max_turns": 4,
   "use_html_codegen": true,
+  "theme_id": null,
   "layout_strategy": "template",
   "repair_strategy": "redeck",
+  "repair_text_loss_budget": 4,
   "eval_mode": {
     "enabled": true,
     "split_level": "family_plus_slide",
-    "deterministic_geom_first": true,
-    "verifier_enabled": false,
+    "use_probe_planner": true,
     "use_judge_agent": true
   },
-  "repair_mode": {
-    "enabled": true,
-    "local_only": true,
-    "max_repair_rounds": 3
-  },
   "render_mode": {
-    "fast_backend": "playwright",
-    "reference_backend": "playwright"
-  },
-  "prompt_mode": {
-    "specialist_prompts": true,
-    "shared_rules_version": "v1"
+    "fast_backend": "linux_lo_pdf",
+    "reference_backend": "graph_pdf"
   }
 }

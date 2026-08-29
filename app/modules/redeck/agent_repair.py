@@ -18,9 +18,12 @@ Architecture:
 """
 
 import json
+import difflib
 import logging
 import os
 import re
+import xml.etree.ElementTree as ET
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -29,12 +32,13 @@ from ...schemas.blueprint import BlueprintSlide
 from ...schemas.evidence import EvidenceState
 from ...schemas.issue import Issue
 from ...schemas.issue_types import (
-    SlideDimensions, SpatialThresholds,
+    ISSUE_TYPE_DEFS, SlideDimensions, SpatialThresholds,
     UNSOLVABLE_TYPES, CRITICAL_CONTENT_TYPES, LAYOUT_REPAIR_TYPES,
 )
 from ...utils.io_utils import read_text
 
 from .spatial_state import (
+    ContentBlock,
     format_spatial_state,
     format_checkpoint_result,
     SLIDE_WIDTH,
@@ -59,6 +63,19 @@ from .repair_utils import (
     _apply_edits,
     _parse_viz_data,
     CONTENT_ACCURACY_ISSUE_TYPES,
+    can_exempt_raw_figure_image_crop,
+    compute_overflow_px,
+    dom_parent_path,
+    extract_table_row_specs_from_correct_content,
+    html_image_css_crop_hints,
+    issues_allow_dominant_element_removal,
+    issues_allow_rendered_text_reveal,
+    issues_allow_support_copy_compression,
+    issues_allow_visible_text_change,
+    normalize_correct_content_text,
+    validate_repair_not_visual_compression,
+    validate_repair_not_visual_downgrade,
+    validate_visual_repair_scope,
 )
 
 logger = logging.getLogger(__name__)
@@ -77,6 +94,83 @@ STRUCTURAL_ISSUE_TYPES = {
     "low_contrast", "alignment_inconsistency",
 }
 
+# Visual issues that benefit from coarse whole-slide distribution evidence.
+# Other visual issues still receive the neutral per-element LAYOUT ANCHOR, but
+# not the SPACE MAP: occupancy cells are useful for composition and balance,
+# not for contrast, SVG topology, formatting, or other local visual defects.
+COMPOSITIONAL_SPATIAL_ISSUE_TYPES = frozenset({
+    "layout_inappropriate",
+    "text_visual_imbalance",
+    "density_imbalance",
+    "alignment_inconsistency",
+    # Kept for compatibility with older issue payloads that used these names.
+    "whitespace_imbalance",
+    "whitespace_asymmetry",
+})
+
+# Issues where a clean hard-defect check is not enough. The agent must record
+# an issue-level self-assessment against the original visual/compositional
+# complaint; deterministic tools provide evidence, not the final visual verdict.
+COMPOSITION_CLOSURE_ISSUE_TYPES = COMPOSITIONAL_SPATIAL_ISSUE_TYPES | frozenset({
+    "raw_figure",
+    "raw_table",
+})
+
+# Composition issues are judged visually, but a named composition region still
+# owns objective visibility failures inside that region. These measurements do
+# not decide whether the composition is attractive; they prevent clipped,
+# out-of-canvas, or covered protected content from being mistaken for a pass.
+COMPOSITION_TARGET_HARD_SPATIAL_CATEGORIES = frozenset({
+    "overlap",
+    "occlusion",
+    "text_overflow",
+    "clipped",
+    "canvas_truncation",
+    "out_of_bounds",
+})
+
+# These issue types can also use conservative same-parent peer hypotheses.
+# Keeping this separate from occupancy routing makes the information contract
+# explicit even though the current sets intentionally overlap.
+RELATIONAL_SPATIAL_ISSUE_TYPES = COMPOSITIONAL_SPATIAL_ISSUE_TYPES
+
+EXACT_CONTENT_ISSUE_TYPES = frozenset({
+    "numeric_error",
+    "entity_error",
+    "missing_entity",
+})
+
+
+def _is_long_content_target(text: str) -> bool:
+    text = re.sub(r"\s+", " ", text or "").strip()
+    if not text:
+        return False
+    sentence_breaks = len(re.findall(r"[.!?](?:\s+|$)", text))
+    separators = text.count(";") + text.count(":")
+    return len(text) > 170 or (len(text) > 120 and sentence_breaks >= 2) or separators >= 3
+
+
+def _source_target_label(issue_type: str, content: str, *, limit: int = 320) -> str:
+    """Format judge source text as a slide-safe semantic target.
+
+    correct_content is often a source-derived meaning target, not a string that
+    should be pasted verbatim into a fixed slide region. Numeric/entity fixes
+    still need exact values; longer D/E/C claims should be compressed or merged
+    into the closest same-topic visible sentence.
+    """
+    content = re.sub(r"\s+", " ", content or "").strip()
+    if not content:
+        return ""
+    clipped = content[:limit]
+    if issue_type in EXACT_CONTENT_ISSUE_TYPES and not _is_long_content_target(content):
+        return f'Exact source value/text: "{clipped}"'
+    return (
+        f'Source-backed semantic target: "{clipped}" '
+        "Cover these facts in compact presentation wording; paraphrase or split "
+        "across existing same-topic body text if needed, but do not paste a long "
+        "source-style sentence wholesale."
+    )
+
 
 def _count_html_words(html: str) -> int:
     """Count visible words in HTML, stripping style/script/tags."""
@@ -85,6 +179,82 @@ def _count_html_words(html: str) -> int:
     t = re.sub(r'<[^>]+>', ' ', t)
     t = re.sub(r'&[a-zA-Z]+;', ' ', t)
     return len(t.split())
+
+
+def _fixed_format_text_budget_warnings(
+    html: str,
+    *,
+    baseline_html: str | None = None,
+) -> list[str]:
+    """Return new title/footer budget violations in HTML slide text.
+
+    This catches a recurring content-repair failure mode where long source
+    sentences are pasted into a fixed-format title or footer. DOM overflow can
+    miss this when the parent clips text, so the repair loop needs a simple
+    text-budget guard before submit.
+    """
+    try:
+        from bs4 import BeautifulSoup
+    except Exception:
+        return []
+
+    def visible_text(tag) -> str:
+        return re.sub(r"\s+", " ", " ".join(tag.stripped_strings)).strip()
+
+    def class_tokens(tag) -> set[str]:
+        raw = tag.get("class", []) or []
+        if isinstance(raw, str):
+            raw = raw.split()
+        return {str(item).strip().lower() for item in raw if str(item).strip()}
+
+    def role_for(tag) -> str:
+        classes = class_tokens(tag)
+        class_text = " ".join(classes)
+        name = (tag.name or "").lower()
+        if "source" in classes or "credit" in classes:
+            return "source note"
+        if classes & {"bottom-bar", "bottom_bar", "takeaway", "footer", "footnote"}:
+            return "bottom/footer bar"
+        if (
+            name in {"h1", "h2"}
+            or classes & {"title", "slide-title", "page-title", "headline"}
+            or class_text in {"slide title", "page title"}
+        ):
+            return "title/header"
+        return ""
+
+    budgets = {
+        "title/header": (115, 16),
+        "bottom/footer bar": (220, 34),
+        "source note": (90, 14),
+    }
+
+    def collect(src: str) -> list[tuple[str, str]]:
+        soup = BeautifulSoup(src or "", "html.parser")
+        findings: list[tuple[str, str]] = []
+        for tag in soup.find_all(True):
+            if (tag.name or "").lower() in {"style", "script", "svg", "path"}:
+                continue
+            role = role_for(tag)
+            if not role:
+                continue
+            text = visible_text(tag)
+            if not text:
+                continue
+            max_chars, max_words = budgets[role]
+            words = re.findall(r"\b[\w.+-]+\b", text)
+            if len(text) <= max_chars and len(words) <= max_words:
+                continue
+            key = f"{role}:{text.casefold()[:100]}"
+            findings.append((
+                key,
+                f"{role} is over budget ({len(text)} chars, {len(words)} words): "
+                f"\"{text[:120]}{'...' if len(text) > 120 else ''}\"",
+            ))
+        return findings
+
+    baseline_keys = {key for key, _ in collect(baseline_html or "")}
+    return [message for key, message in collect(html) if key not in baseline_keys]
 
 
 def _visible_text_tokens(html: str) -> list:
@@ -158,6 +328,26 @@ def _dropped_high_value_tokens(original: str, current: str, limit: int = 12) -> 
     return out
 
 
+_TEXT_LOSS_IGNORED = frozenset("""style width height color margin padding position
+absolute relative hidden source page slide section overview summary takeaway
+agenda outline introduction conclusion results result method methods background
+redeck frame contract
+display content border radius transform opacity important""".split())
+
+
+def _meaningful_visible_words_lost(original: str, current: str) -> list[str]:
+    """Return removed visible-word occurrences, excluding layout chrome."""
+
+    before = Counter(token.lower().strip(".%×+-/") for token in _visible_text_tokens(original))
+    after = Counter(token.lower().strip(".%×+-/") for token in _visible_text_tokens(current))
+    lost: list[str] = []
+    for token, count in before.items():
+        if len(token) <= 4 or token in _TEXT_LOSS_IGNORED or not re.search(r"[a-z]", token):
+            continue
+        lost.extend([token] * max(0, count - after.get(token, 0)))
+    return lost
+
+
 
 @dataclass
 class PlanStep:
@@ -194,19 +384,62 @@ class AgentState:
     search_calls_used: int = 0               # cap searches to avoid wasting tool budget
     # ── Issue context (for tool-level decisions) ──
     issue_types: set = field(default_factory=set)  # set of issue_type strings for current repair
+    # ── Rollback learning context ──
+    rollback_history: list[str] = field(default_factory=list)  # brief summaries of failed attempts
     # ── Loop exit tracking ──
     submitted: bool = False                        # True if agent successfully submitted
     last_verified_code: str | None = None          # last code that passed verify_layout without regression
+    attempted_code_change: bool = False            # true after any successful edit/regen/reflow attempt
+    layout_revision: int = 0                       # increments whenever current_code changes
+    last_verify_revision: int = -1                 # layout_revision measured by last verify_layout
+    last_verify_stale_reason: str = ""             # why last verify no longer matches current_code
+    last_code_read_revision: int = -1               # revision returned by get_current_code
     # ── Best-verified-state tracking (attacks "trajectory luck": the agent could
     #    reach a low-issue state then drift to a worse one before submitting). We
     #    remember the verified code with the FEWEST filtered (SSOT) issues and fall
     #    back to it on submit / loop-timeout instead of the last non-regressing one. ──
     best_verified_code: str | None = None
     best_verified_issues: int | None = None
+    # Latest checkpoint that passed the hard content/media/scope guards.  Unlike
+    # best_verified_code this may retain detector residuals: visual composition
+    # repairs are allowed to trade one noisy DOM finding for a better rendered
+    # arrangement when the agent has inspected that exact revision.
+    latest_safe_verified_code: str | None = None
+    latest_safe_verified_revision: int = -1
+    latest_visual_checkpoint_code: str | None = None
+    latest_visual_checkpoint_revision: int = -1
+    latest_visual_checkpoint_hard_valid: bool = False
+    latest_visual_checkpoint_targeted_issues: int | None = None
+    last_verify_targeted_residual_counts: dict[str, int] = field(default_factory=dict)
     # ── Regen budget ──
     regen_attempts: int = 0                          # how many times regen_slide was called this session
     # ── Repair summary (generated by agent at end of repair) ──
     repair_summary: dict | None = None
+    cumulative_words_lost: int = 0
+    text_loss_budget: int = 4
+    text_loss_locked: bool = False
+    checkpoint_text_loss: list[int] = field(default_factory=lambda: [0])
+    checkpoint_labels: list[str] = field(default_factory=lambda: ["original"])
+    current_checkpoint_label: str = "original"
+    allow_visible_text_change: bool = False
+    allow_support_copy_compression: bool = False
+    pending_edit_cluster: bool = False
+    pending_edit_scopes: list[str] = field(default_factory=list)
+    last_edit_scope: tuple[str, ...] = field(default_factory=tuple)
+    active_cluster_start_code: str | None = None
+    active_cluster_start_text_loss: int = 0
+    active_cluster_start_label: str = ""
+    last_cluster_start_code: str | None = None
+    last_cluster_start_text_loss: int = 0
+    last_cluster_start_label: str = ""
+    spatial_regression_streak: int = 0
+    last_spatial_regression_signature: tuple[str, ...] = field(default_factory=tuple)
+    dashboard_verify_history: list[dict] = field(default_factory=list)
+    trajectory_extensions: int = 0
+    last_trajectory_extension_revision: int = -1
+    _last_verify_visual_compression_failed: bool = False
+    _last_verify_scope_failed: bool = False
+    initial_spatial_state: object | None = None
     _run_dir: str | None = None
     _turn_index: int = 0
 
@@ -219,18 +452,28 @@ class AgentRepair:
     conversation.
     """
 
-    MAX_TOOL_CALLS_PER_ISSUE = 8   # budget per issue (was 20; turns 3+ have <5% fix rate)
-    MAX_TOOL_CALLS_CAP = 30        # hard cap (was 100)
+    MAX_TOOL_CALLS_PER_ISSUE = 8   # budget per issue
+    MAX_TOOL_CALLS_CAP = 40        # hard cap
+    TRAJECTORY_EXTENSION_CALLS = 4
     MAX_NO_PROGRESS = 8   # abort if N turns without code change (raised from 4 to give more retry on parse errors)
     MAX_SEARCH_CALLS = 10  # max search_source/lookup_table calls per repair
 
-    def __init__(self, llm: LLMClient, model: str = "gpt-4o",
+    def __init__(self, llm: LLMClient, model: str = "gpt-5.5",
                  repair_config: dict | None = None):
         self.llm = llm
         self.model = model
         self._system_prompt = read_text(_REPAIR_PROMPT_PATH)
         self._last_retention = 0.0
         self._current_issues: list[Issue] = []
+        self.last_repair_submitted = False
+        self.last_repair_summary: dict | None = None
+        self.last_repair_needs_composition_closure = False
+        self.last_repair_has_valid_composition_closure = True
+        self.last_repair_has_resolved_composition_closure = True
+        self.last_repair_targeted_residual_total: int | None = None
+        self.last_repair_best_verified_code: str | None = None
+        self.last_repair_safe_checkpoint_current = False
+        self.last_repair_visual_checkpoint_current = False
 
         # Configurable features (for ablation study)
         cfg = repair_config or {}
@@ -247,7 +490,7 @@ class AgentRepair:
             "enable_layout_preplan", False,
         )
         self._enable_render_preview = cfg.get(
-            "enable_render_preview", False,  # disabled: vision calls unstable on Azure
+            "enable_render_preview", False,  # disabled by default; enable for visual verification
         )
         self._disable_step_render = cfg.get(
             "disable_step_render", False,  # ablation: disable verify_layout per-step feedback
@@ -258,7 +501,991 @@ class AgentRepair:
         self._enable_macro_planning = cfg.get(
             "enable_macro_planning", True,
         )
+        self._text_loss_budget = max(0, int(cfg.get("text_loss_budget", 4)))
+        self._max_edits_per_call = max(
+            1, int(cfg.get("max_edits_per_call", 40)),
+        )
         self._pending_actions: list[dict] = []
+        self._last_parse_error_message = ""
+
+    @staticmethod
+    def _has_current_verify(state: AgentState) -> bool:
+        """Whether verify_layout has measured the current code revision."""
+        return (
+            state.last_verify_result is not None
+            and state.last_verify_revision == state.layout_revision
+        )
+
+    @staticmethod
+    def _verify_needs_strategy_reconsideration(
+        defect_history: list[int],
+        signature_history: list[str],
+    ) -> bool:
+        """Return whether recent verifies show genuine non-convergence.
+
+        Equal counts alone are not stagnation: a multi-step reflow can replace
+        one residual with another while the structure is still settling. Ask
+        for a causal review only when the same residual identities persist
+        across three checks or the targeted count strictly worsens. Persistence
+        alone does not prove that the current topology is wrong: an intervening
+        edit may have restored hierarchy or worked on another owning region.
+        """
+        if len(defect_history) < 3 or defect_history[-1] <= 0:
+            return False
+        same_residuals = (
+            len(signature_history) >= 3
+            and signature_history[-1]
+            == signature_history[-2]
+            == signature_history[-3]
+        )
+        strictly_worsening = (
+            defect_history[-3]
+            < defect_history[-2]
+            < defect_history[-1]
+        )
+        return same_residuals or strictly_worsening
+
+    def _trajectory_continuation_message(
+        self,
+        state: AgentState,
+        *,
+        tool_name: str,
+        code_changed: bool,
+        tool_calls: int,
+        soft_limit: int,
+    ) -> str:
+        """Offer a small, state-aware extension after late real progress.
+
+        The normal budget remains the planning signal. This only prevents a
+        meaningful final edit or verification from ending the trajectory before
+        the agent can assess that exact revision and either submit or correct it.
+        """
+        if (
+            tool_calls < soft_limit
+            or soft_limit >= self.MAX_TOOL_CALLS_CAP
+            or state.submitted
+            or state.current_code == state.original_code
+            or not (code_changed or tool_name == "verify_layout")
+            or state.last_trajectory_extension_revision == state.layout_revision
+        ):
+            return ""
+
+        has_current_verify = self._has_current_verify(state)
+        residual_counts = getattr(
+            state, "last_verify_targeted_residual_counts", {}
+        ) or {}
+        regression_total = int(
+            getattr(state, "_last_verify_spatial_regression_total", 0) or 0
+        )
+        pending_steps = [
+            step.text
+            for step in getattr(state, "plan_steps", [])
+            if step.status in {"pending", "in_progress"}
+        ]
+
+        if has_current_verify:
+            residual_context = (
+                ", ".join(
+                    f"{category}={count}"
+                    for category, count in sorted(residual_counts.items())
+                )
+                if residual_counts
+                else "no targeted detector residuals recorded"
+            )
+            measurement = (
+                f"The current revision has been measured: {residual_context}; "
+                f"new spatial regressions={regression_total}."
+            )
+        else:
+            measurement = (
+                "The current revision changed after the last measurement and still "
+                "needs verification before its visual/spatial effect is known."
+            )
+
+        if pending_steps:
+            plan_context = (
+                " Active plan work still marked open: "
+                + " | ".join(pending_steps[:3])
+                + (" | ..." if len(pending_steps) > 3 else "")
+                + "."
+            )
+        else:
+            plan_context = " No plan steps are currently marked open."
+
+        cluster_context = (
+            " The current edit cluster is explicitly unfinished."
+            if state.pending_edit_cluster
+            else ""
+        )
+        return (
+            "\n\nTRAJECTORY BUDGET EXTENDED AFTER REAL PROGRESS\n"
+            f"{measurement}{plan_context}{cluster_context} The extra calls are "
+            "room to assess this exact revision, not an instruction to keep "
+            "editing. Choose from the evidence: submit if the original issue is "
+            "genuinely closed; continue the same coherent chain if a known dependent "
+            "edit remains; or correct/rollback the attempt if it displaced pressure, "
+            "damaged hierarchy, or made the topology less credible."
+        )
+
+    @staticmethod
+    def _invalidate_verify_after_code_change(
+        state: AgentState,
+        reason: str,
+    ) -> None:
+        """Mark cached verify_layout feedback stale after current_code changes."""
+        state.layout_revision += 1
+        state.attempted_code_change = True
+        state.last_verify_revision = -1
+        state.last_verify_stale_reason = reason
+        state.last_verify_result = None
+        state._last_verify_text_regression = False
+        state._last_verify_text_signal = False
+        state._last_verify_text_signal_reason = ""
+        state._last_verify_spatial_regression_total = 0
+        state._last_verify_targeted_residual_total = 0
+        state.last_verify_targeted_residual_counts = {}
+        state._last_verify_compact_issues = 0
+        state._last_verify_visual_compression_failed = False
+        state.pending_edit_cluster = False
+        state.pending_edit_scopes = []
+        state.last_edit_scope = ()
+        state._last_verify_scope_failed = False
+        state._last_html_state = None
+        state.spatial_regression_streak = 0
+        state.last_spatial_regression_signature = ()
+
+    @staticmethod
+    def _registry_residual_categories_for_issues(issues: list[Issue]) -> set[str]:
+        """Return categories explicitly owned by issue-type registry entries."""
+        categories: set[str] = set()
+        for issue in issues:
+            issue_def = ISSUE_TYPE_DEFS.get(issue.issue_type)
+            if issue_def:
+                categories.update(issue_def.residual_categories)
+        return categories
+
+    @classmethod
+    def _residual_categories_for_issues(cls, issues: list[Issue]) -> set[str]:
+        """Return target-scoped DOM categories used for completion evidence."""
+        categories = cls._registry_residual_categories_for_issues(issues)
+        for issue in issues:
+            if issue.issue_type in COMPOSITIONAL_SPATIAL_ISSUE_TYPES:
+                categories.update(COMPOSITION_TARGET_HARD_SPATIAL_CATEGORIES)
+        return categories
+
+    def _targeted_residual_categories(self) -> set[str]:
+        return self._residual_categories_for_issues(self._current_issues)
+
+    @staticmethod
+    def _issue_target_hints(issue: Issue) -> set[str]:
+        """Extract strong selector/text hints from an evaluator repair target."""
+        hints: set[str] = set()
+        evidence = getattr(issue, "evidence", None)
+        fix_detail = getattr(issue, "fix_detail", None)
+        for ref in getattr(evidence, "object_refs", []) or []:
+            normalized = re.sub(r"\s+", " ", str(ref)).strip().lower()
+            if normalized:
+                hints.add(normalized)
+                # Evaluators commonly name a descendant selector such as
+                # ``.hero .big`` while spatial blocks expose only the leaf
+                # selector (``.big``). Keep the full reference and its simple
+                # selector components so a precise target does not fall back
+                # to category-wide residual tracking.
+                hints.update(
+                    selector.lower()
+                    for selector in re.findall(
+                        r"(?:[#.][A-Za-z_][\w-]+)", normalized,
+                    )
+                )
+
+        target_texts = [
+            getattr(fix_detail, "target_location", ""),
+            getattr(evidence, "description", ""),
+            getattr(issue, "planned_fix", ""),
+        ]
+        for value in target_texts:
+            if not isinstance(value, str):
+                continue
+            for quoted in re.findall(r'["\u201c]([^"\u201d]{4,})["\u201d]', value):
+                normalized = re.sub(r"\s+", " ", quoted).strip().lower()
+                if normalized:
+                    hints.add(normalized)
+            for selector in re.findall(r"(?:[#.][A-Za-z_][\w-]+)", value):
+                hints.add(selector.lower())
+        return hints
+
+    @staticmethod
+    def _block_matches_target_hints(state, block_id: str, hints: set[str]) -> bool:
+        block = next(
+            (candidate for candidate in state.blocks if candidate.block_id == block_id),
+            None,
+        )
+        if block is None:
+            return False
+        text = re.sub(r"\s+", " ", " ".join(block.text_lines)).strip().lower()
+        blob = " ".join(
+            str(value).lower() for value in (
+                block.block_id,
+                block.var_name,
+                block.css_selector,
+                " ".join(block.css_classes),
+                block.dom_path,
+                text,
+            )
+            if value
+        )
+        for hint in hints:
+            if hint.startswith(".") and hint[1:] in {
+                str(value).lower() for value in block.css_classes
+            }:
+                return True
+            if hint.startswith("#") and (
+                hint in str(block.css_selector or "").lower()
+                or hint[1:] in str(block.dom_path or "").lower()
+            ):
+                return True
+            if hint in blob:
+                return True
+            # Evaluators often quote a full sentence while the spatial block
+            # contains a line fragment. Require a meaningful fragment length.
+            if len(text) >= 12 and text in hint:
+                return True
+        return False
+
+    def _targeted_significant_issues(self, baseline_state, current_state) -> dict:
+        """Filter residual categories to baseline objects named by the issue."""
+        from .html_spatial_state import (
+            count_significant_issues,
+            stable_block_identity,
+            stable_pair_identity,
+        )
+
+        current = count_significant_issues(current_state)
+        categories = self._targeted_residual_categories()
+        if baseline_state is None:
+            return {category: current.get(category, []) for category in categories}
+
+        baseline = count_significant_issues(baseline_state)
+
+        def identity(state, entry):
+            if isinstance(entry, (list, tuple)) and len(entry) == 2:
+                return stable_pair_identity(state, entry[0], entry[1])
+            return stable_block_identity(state, entry)
+
+        filtered = {}
+        pair_categories = {"overlap", "occlusion"}
+        for category in categories:
+            relevant_issues = [
+                issue for issue in self._current_issues
+                if category in self._residual_categories_for_issues([issue])
+            ]
+            hints = set().union(*(
+                self._issue_target_hints(issue) for issue in relevant_issues
+            )) if relevant_issues else set()
+            target_identities = set()
+            if hints:
+                candidate_categories = set()
+                for issue in relevant_issues:
+                    candidate_categories.update(
+                        self._residual_categories_for_issues([issue])
+                    )
+                candidate_categories = {
+                    candidate for candidate in candidate_categories
+                    if (candidate in pair_categories) == (category in pair_categories)
+                }
+                for candidate in candidate_categories:
+                    for entry in baseline.get(candidate, []):
+                        block_ids = (
+                            entry if isinstance(entry, (list, tuple)) else [entry]
+                        )
+                        if any(
+                            self._block_matches_target_hints(
+                                baseline_state, block_id, hints,
+                            )
+                            for block_id in block_ids
+                        ):
+                            target_identities.add(identity(baseline_state, entry))
+
+            # Strong evaluator hints should narrow the target even when the
+            # baseline identity cannot be recovered exactly. Keep current
+            # blocks that match the hint plus genuinely new defects; broad
+            # category-wide tracking is reserved for issues with no target hint.
+            if hints and not target_identities:
+                baseline_identities = {
+                    identity(baseline_state, entry)
+                    for entry in baseline.get(category, [])
+                }
+                filtered[category] = [
+                    entry for entry in current.get(category, [])
+                    if any(
+                        self._block_matches_target_hints(
+                            current_state, block_id, hints,
+                        )
+                        for block_id in (
+                            entry if isinstance(entry, (list, tuple)) else [entry]
+                        )
+                    )
+                    or identity(current_state, entry) not in baseline_identities
+                ]
+                continue
+            if not target_identities:
+                filtered[category] = current.get(category, [])
+                continue
+            filtered[category] = [
+                entry for entry in current.get(category, [])
+                if identity(current_state, entry) in target_identities
+                or any(
+                    self._block_matches_target_hints(
+                        current_state, block_id, hints,
+                    )
+                    for block_id in (
+                        entry if isinstance(entry, (list, tuple)) else [entry]
+                    )
+                )
+            ]
+        return filtered
+
+    @staticmethod
+    def _format_svg_text_overflow_residual(spatial_state, issue_id: str) -> str:
+        from .svg_repair import format_svg_text_overflow_residual
+        return format_svg_text_overflow_residual(spatial_state, issue_id)
+
+    @staticmethod
+    def _has_visual_issues(issues: list[Issue]) -> bool:
+        """Return whether the repair batch contains a B-family visual issue."""
+        for issue in issues:
+            issue_def = ISSUE_TYPE_DEFS.get(issue.issue_type)
+            if (issue_def and issue_def.is_b_series) or (
+                issue.rubric_id or ""
+            ).startswith("B"):
+                return True
+        return False
+
+    @staticmethod
+    def _needs_spatial_distribution(issues: list[Issue]) -> bool:
+        """Return whether coarse occupancy/distribution data is relevant."""
+        return any(
+            issue.issue_type in COMPOSITIONAL_SPATIAL_ISSUE_TYPES
+            for issue in issues
+        )
+
+    @staticmethod
+    def _composition_closure_issues(issues: list[Issue]) -> list[Issue]:
+        """Issues that need explicit issue-level composition self-assessment."""
+        return [
+            issue for issue in issues
+            if issue.issue_type in COMPOSITION_CLOSURE_ISSUE_TYPES
+        ]
+
+    @classmethod
+    def _needs_composition_closure(cls, issues: list[Issue]) -> bool:
+        return bool(cls._composition_closure_issues(issues))
+
+    @classmethod
+    def _composition_issue_labels(
+        cls, issues: list[Issue], *, limit: int = 8,
+    ) -> list[str]:
+        labels: list[str] = []
+        for issue in cls._composition_closure_issues(issues)[:limit]:
+            desc = (
+                getattr(getattr(issue, "evidence", None), "description", "")
+                or getattr(issue, "why_this_fails", "")
+                or ""
+            )
+            desc = re.sub(r"\s+", " ", str(desc)).strip()
+            if desc:
+                desc = f" - {desc[:130]}"
+            labels.append(
+                f"{issue.rubric_id} {issue.issue_type} ({issue.issue_id}){desc}"
+            )
+        return labels
+
+    @classmethod
+    def _build_composition_closure_guidance(cls, issues: list[Issue]) -> str:
+        labels = cls._composition_issue_labels(issues)
+        if not labels:
+            return ""
+        return (
+            "## Composition Self-Assessment Required\n"
+            "These issues are about layout composition, spatial coherence, or "
+            "figure inspectability. `verify_layout` and render tools provide "
+            "evidence; they do not decide visual quality for you. For each listed "
+            "issue, use the original evidence and planned_fix as a starting "
+            "hypothesis, choose an appropriate repair strategy, then record your "
+            "own assessment from the current revision and the spatial/render "
+            "evidence available in this run.\n\n"
+            "Applies to:\n"
+            + "\n".join(f"- {label}" for label in labels)
+            + "\n\nRequired self-assessment questions:\n"
+            "- What exact void, side/corner imbalance, anchor mismatch, "
+            "visual-weight mismatch, or raw-figure readability problem did the "
+            "issue name?\n"
+            "- Which repair family did you choose, and why: local resize/reposition, "
+            "layout reflow of existing elements, source crop/recomposition, or an "
+            "authorized exact-data redraw/source-grounded summary asset? Do not treat "
+            "planned_fix as a literal command when the current evidence shows a "
+            "different scale of change is needed.\n"
+            "- Protect the content and semantic role of the title/header, slide "
+            "number, source attribution, footer/takeaway bar, and any ReDeck "
+            "frame contract; do not use them as filler for a body void. Their "
+            "geometry is not frozen. If body pressure or lower-page voids persist, "
+            "inspect the whole-slide budget, including whether title/header wrapping "
+            "or an oversized frame track is an upstream constraint. Recalibrating "
+            "frame width, wrapping, typography, padding, or occupied space is allowed "
+            "when its content and role remain intact.\n"
+            "- What existing substantive content, real visual content, or "
+            "meaningful structure now uses or balances the originally problematic "
+            "area? An empty frame, stretched container, moved caption, source note, "
+            "citation, footer, or decorative border is not sufficient by itself. "
+            "If those are the main change, treat the result as uncertain or choose "
+            "a stronger reflow/adaptation strategy.\n"
+            "- Which LAYOUT ANCHOR / RELATION MAP / SPACE MAP evidence and any "
+            "available render observations support your assessment? Use measurements as evidence, "
+            "not thresholds or automatic pass/fail rules. Do not optimize to a "
+            "single proxy such as equal bottom edges, matching card heights, "
+            "coverage, or a denser SPACE MAP; the rendered slide must still have "
+            "a natural reading path and preserve each element's intended role.\n"
+            "- Treat small-font and dense-content notices as prompts to inspect "
+            "role-relative readability, not as unresolved verdicts. Support copy, "
+            "labels, and repeated annotations may be smaller than focal titles, "
+            "values, or conclusions. Check their wrapping, line boxes, contrast, "
+            "separation, and repeated rhythm. Do not infer unreadability from one "
+            "reported pixel size or total word count alone. A dense repeated-card "
+            "or dashboard repair may pass when the original crowding/overflow is "
+            "gone, focal and support roles remain distinct, all copy is visibly "
+            "contained, and peers scan coherently; do not force another topology "
+            "solely to clear generic typography warnings.\n"
+            "- For B13/spatial-coherence issues, a shared anchor is not the whole "
+            "goal. If the fix inflates table rows/cards, flattens natural hierarchy, "
+            "creates a worse rhythm, or pushes auxiliary text close to content, "
+            "prefer regrouping/body reflow or mark the result uncertain instead of "
+            "calling the alignment resolved.\n"
+            "- For image/chart/raw-figure issues, inspect the rendered image interior "
+            "when preview is available, not only the outer box. A larger <img> bbox does not by itself prove "
+            "that the chart, diagram, labels, or relevant panels became more useful. "
+            "For SVG redraws/summaries, check internal labels, annotations, legends, "
+            "cards, paths, and endpoints; revise or mark uncertain if text touches "
+            "borders, crosses marks, clips, or competes with nearby labels.\n"
+            "For quantitative charts/plots, also check fidelity to the original "
+            "evidence. A handmade SVG summary that approximates curves, axes, "
+            "legends, or tick values is a downgrade when the original chart is "
+            "clean. Preserve the original, use a real crop/recomposition, or "
+            "regenerate from exact source data; do not redraw a chart just because "
+            "the surrounding layout is hard to fit.\n"
+            "For raw figures displayed with object-fit: contain, do not use the "
+            "outer <img> slot or media frame as completion evidence. If verification "
+            "reports letterboxing, compare the rendered image content rect and inspect "
+            "the internal labels/marks; a larger empty slot with the same or smaller "
+            "chart content is unresolved.\n"
+            "- Treat captions, source notes, citations, and footers as auxiliary "
+            "labels. If they are the only reason a large blank region feels handled, "
+            "say so and decide whether another strategy is more appropriate.\n"
+            "- When a wide/shallow figure beside a text rail leaves lower-corner "
+            "voids, ordinary vertical enlargement may only create letterbox. "
+            "Consider body-only reflows such as a full-width/top evidence band "
+            "with existing callouts grouped below, a shorter figure plus compact "
+            "lower interpretation band made from existing body callouts, or "
+            "regrouping the side rail into balanced blocks while preserving all "
+            "visible strings, semantic roles, and a coherent reading path.\n"
+            "- If your evidence leaves you unconvinced, choose another repair strategy "
+            "or record a specific unresolved_concern. The next judge/render review "
+            "will decide whether the issue is actually resolved. A specific "
+            "uncertain/unresolved closure is useful traceability, but it is not "
+            "a completed repair; if a credible stronger body-only reflow, regroup, "
+            "source-preserving recomposition/crop, or faithful exact-data redraw remains, try it "
+            "before submitting. If render_preview is unavailable, that alone is not "
+            "a failure: a spatially explicit issue may pass when anchors, relations, "
+            "space distribution, and hard guards directly address the complaint. "
+            "Keep the submit confidence consistent with the verdict and self-assessment: "
+            "unresolved concerns, an uncertain verdict, or a merely moderate improvement "
+            "should not be labeled high confidence."
+        )
+
+    @classmethod
+    def _build_composition_closure_verify_reminder(cls, issues: list[Issue]) -> str:
+        labels = cls._composition_issue_labels(issues, limit=6)
+        if not labels:
+            return ""
+        return (
+            "\nCOMPOSITION SELF-ASSESSMENT REQUIRED:\n"
+            "Before update_plan marks a composition step done or before submit, "
+            "write an issue-level assessment for each target below: original "
+            "failure -> chosen strategy -> current spatial/render evidence -> "
+            "verdict or remaining uncertainty. "
+            "Do not rely only on 'no hard deterministic defects'.\n"
+            + "\n".join(f"  - {label}" for label in labels)
+            + "\nFor blank-space issues, name what substantive content, visual content, "
+            "or meaningful structure now uses or balances the original lower/side/"
+            "corner area. Do not count an empty frame, stretched container, moved "
+            "caption, source note, citation, footer, or decorative border as "
+            "sufficient evidence by itself. If SPACE MAP / anchors still show the "
+            "same void, mark the result uncertain/unresolved or change strategy. "
+            "Small-font and dense-content notices are informational. Judge support "
+            "copy by its role-relative wrapping, line boxes, contrast, separation, "
+            "and repeated rhythm; do not mark an otherwise resolved checkpoint "
+            "uncertain solely because support text is smaller than a generic body "
+            "guideline or because the slide remains information-rich. "
+            "Protect title/header, slide number, source attribution, footer/takeaway "
+            "bar, and ReDeck frame content and roles; do not use them as filler for "
+            "a body-composition void. Their geometry may still be recalibrated when "
+            "the whole-slide evidence shows that frame space is part of the cause. "
+            "For alignment issues, "
+            "name the peer anchor or gap now shared and explain why the result still "
+            "has a natural rhythm. Do not mark B13 done because one edge lines up "
+            "if the fix stretched rows/cards, flattened hierarchy, or moved auxiliary "
+            "text into visual competition with the body. For image/chart/raw-figure "
+            "issues, inspect the image interior, not just the outer bbox. For SVG "
+            "redraws/summaries, check internal labels, annotations, paths, and card "
+            "bounds for collisions or clipping before claiming success. "
+            "For quantitative charts/plots, verify that the repair preserves the "
+            "original evidence fidelity: axes, legend, tick meanings, and curve "
+            "relationships should remain source-grounded. Do not accept a handmade "
+            "SVG approximation as a better chart merely because labels are bigger. "
+            "If the image uses object-fit: contain, base your assessment on the "
+            "rendered image content rect, not the outer slot/bbox; a larger letterboxed "
+            "frame is not a raw-figure readability fix. "
+            "If local "
+            "resizing does not seem to solve the diagnosed composition, switch to "
+            "a layout reflow, source crop/recomposition, or exact-data redraw when "
+            "that better preserves the slide's meaning and evidence. If you remain uncertain, "
+            "record that uncertainty explicitly and keep working when a credible "
+            "stronger strategy remains instead of inventing certainty."
+        )
+
+    @staticmethod
+    def _compact_section(
+        compact: str,
+        marker: str,
+        stop_markers: tuple[str, ...] = (),
+    ) -> str:
+        """Extract one top-level section from compact spatial feedback."""
+        start = compact.find(marker)
+        if start < 0:
+            return ""
+        if compact[start] == "\n":
+            start += 1
+        end_candidates = [
+            compact.find(stop, start + len(marker))
+            for stop in stop_markers
+        ]
+        end_candidates = [end for end in end_candidates if end >= 0]
+        end = min(end_candidates) if end_candidates else len(compact)
+        return compact[start:end].strip()
+
+    @staticmethod
+    def _extract_low_contrast_findings(compact: str) -> str:
+        """Return current deterministic low-contrast targets from compact DOM feedback."""
+        lines = compact.splitlines()
+        findings: list[str] = []
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            if "LOW CONTRAST" not in line:
+                i += 1
+                continue
+            findings.append(line)
+            i += 1
+            while i < len(lines):
+                continuation = lines[i]
+                stripped = continuation.strip()
+                if not stripped:
+                    break
+                if continuation.startswith("❌ ") or continuation.startswith("⚠️ "):
+                    break
+                if continuation.startswith("📐") or continuation.startswith("RELATION MAP") or continuation.startswith("SPACE MAP"):
+                    break
+                findings.append(continuation)
+                i += 1
+            continue
+        return "\n".join(findings).strip()
+
+    @staticmethod
+    def _extract_svg_text_overflow_findings(compact: str) -> str:
+        from .svg_repair import extract_svg_text_overflow_findings
+        return extract_svg_text_overflow_findings(compact)
+
+    @classmethod
+    def _scope_spatial_context(cls, compact: str, issues: list[Issue]) -> str:
+        """Layer spatial feedback by issue ownership and information type.
+
+        Hard DOM-owned issues receive the complete report. Other visual issues
+        receive neutral element geometry without unrelated deterministic defect
+        lists. Composition/alignment issues additionally receive candidate peer
+        relations and the coarse SPACE MAP. Content-only issues receive neither
+        visual layer.
+        """
+        residual_categories = cls._registry_residual_categories_for_issues(issues)
+        svg_overflow_findings = ""
+        if residual_categories:
+            # B20 is mostly VLM-owned, with a deterministic text-fit backstop
+            # for both inline SVG labels and referenced SVG assets. Expose the
+            # target measurements without turning unrelated DOM findings into
+            # repair tasks.
+            if residual_categories == {"svg_text_overflow"}:
+                svg_overflow_findings = cls._extract_svg_text_overflow_findings(
+                    compact,
+                )
+            else:
+                return compact
+
+        # When the assigned issues are purely visual (no residual_categories)
+        # but the slide has significant spatial defects, expose the full report
+        # so the agent can address them holistically. This covers B09/B20 issues
+        # where the visual complaint is caused by underlying spatial pressure.
+        n_spatial = compact.count("❌ ")
+        if n_spatial >= 5 and not residual_categories:
+            return compact
+
+        header = compact.splitlines()[0] if compact else "DOM spatial state collected."
+        parts = [
+            header,
+            "DOM findings are regression guards for this issue, not additional "
+            "repair targets. Preserve or improve the baseline; resolve the listed "
+            "issue using its evidence and render.",
+        ]
+
+        if cls._has_visual_issues(issues):
+            if svg_overflow_findings:
+                parts.extend([
+                    "DETERMINISTIC SVG TEXT-FIT TARGETS: these are current "
+                    "measurements for the B20 target. Use the vertical and "
+                    "horizontal overflow values to choose the correct geometry "
+                    "change; unrelated DOM findings remain regression context.",
+                    svg_overflow_findings,
+                ])
+
+            if any(issue.issue_type == "low_contrast" for issue in issues):
+                contrast_findings = cls._extract_low_contrast_findings(compact)
+                if contrast_findings:
+                    parts.extend([
+                        "DETERMINISTIC LOW-CONTRAST TARGETS: these are the "
+                        "current rendered text blocks failing WCAG contrast. "
+                        "Prior issue wording may be stale after earlier repairs; "
+                        "fix the blocks listed here first.",
+                        contrast_findings,
+                    ])
+                else:
+                    parts.append(
+                        "DETERMINISTIC LOW-CONTRAST TARGETS: no current rendered "
+                        "text block fails the contrast checker. Treat any old "
+                        "low-contrast wording as likely stale unless it is visibly "
+                        "obvious in the render."
+                    )
+
+            layout_anchor = cls._compact_section(
+                compact,
+                "\n📐 LAYOUT ANCHOR",
+                ("\nRELATION MAP", "\nSPACE MAP"),
+            )
+            if layout_anchor:
+                parts.extend([
+                    "The LAYOUT ANCHOR below is neutral geometry for locating "
+                    "the issue target; it is not a list of defects.",
+                    layout_anchor,
+                ])
+
+        if any(
+            issue.issue_type in RELATIONAL_SPATIAL_ISSUE_TYPES
+            for issue in issues
+        ):
+            relation_map = cls._compact_section(
+                compact,
+                "\nRELATION MAP",
+                ("\nSPACE MAP",),
+            )
+            if relation_map:
+                parts.extend([
+                    "The RELATION MAP contains conservative same-parent peer "
+                    "hypotheses and raw spread measurements. Use only a group "
+                    "that matches the issue's named target; it is not a defect "
+                    "verdict.",
+                    relation_map,
+                ])
+
+        if any(issue.issue_type == "alignment_inconsistency" for issue in issues):
+            parts.append(
+                "ALIGNMENT REVIEW: use the issue evidence to identify logical "
+                "peers, then compare the matching RELATION MAP group and its "
+                "LAYOUT ANCHOR values. Relation groups are hypotheses, not "
+                "verdicts. Do not align unrelated elements, different hierarchy "
+                "levels, or intentional asymmetry. Do not treat equalized edges "
+                "as success if the repair creates stretched rows/cards, awkward "
+                "rhythm, or auxiliary text competing with body content."
+            )
+
+        if cls._needs_spatial_distribution(issues):
+            space_map = cls._compact_section(compact, "\nSPACE MAP")
+            if space_map:
+                parts.extend([
+                    "The SPACE MAP is coarse distribution evidence only; it cannot "
+                    "prove edge alignment or spacing regularity.",
+                    space_map,
+                ])
+
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _alignment_issue_context(issue: Issue) -> str:
+        """Collect the judge text that identifies an alignment target."""
+        return " ".join(filter(None, (
+            issue.evidence.description,
+            issue.planned_fix,
+            issue.why_this_fails,
+            issue.fix_detail.target_location,
+        )))
+
+    @staticmethod
+    def _alignment_metric_for_text(text: str) -> str | None:
+        """Map an alignment issue description to one measured peer metric."""
+        normalized = text.lower()
+        if re.search(r"whitespace|empty space|internal slack|留白|空白", normalized):
+            if re.search(
+                r"(?:whitespace|empty space|internal slack).{0,24}(?:right|horizontal)"
+                r"|(?:right|horizontal).{0,24}(?:whitespace|empty space|internal slack)"
+                r"|右侧留白|右侧空白|横向留白|横向空白",
+                normalized,
+            ):
+                return "internal_right_slack_spread_px"
+            if re.search(r"left|top|左侧|顶部|上方", normalized):
+                return None
+            return "internal_bottom_slack_spread_px"
+
+        metric_patterns = (
+            ("gap_spread_px", r"\bgaps?\b|spacing|rhythm|间距|间隔"),
+            ("width_spread_px", r"\bwidths?\b|equal[- ]width|等宽|宽度"),
+            ("height_spread_px", r"\bheights?\b|equal[- ]height|等高|高度"),
+            (
+                "bottom_spread_px",
+                r"bottom[- ]edge|bottom alignment|align(?:ed)? at the bottom|底边|下沿|底部对齐",
+            ),
+            (
+                "top_spread_px",
+                r"top[- ]edge|top alignment|align(?:ed)? at the top|顶边|上沿|顶部对齐",
+            ),
+            (
+                "left_spread_px",
+                r"left[- ]edge|left alignment|left[- ]aligned|左边缘|左对齐",
+            ),
+            (
+                "right_spread_px",
+                r"right[- ]edge|right alignment|right[- ]aligned|右边缘|右对齐",
+            ),
+        )
+        for metric, pattern in metric_patterns:
+            if re.search(pattern, normalized):
+                return metric
+        return None
+
+    @staticmethod
+    def _alignment_target_tokens(text: str) -> set[str]:
+        """Return non-generic tokens suitable for matching named peer groups."""
+        generic = {
+            "align", "aligned", "alignment", "bottom", "top", "left", "right",
+            "edge", "edges", "gap", "gaps", "spacing", "width", "widths",
+            "height", "heights", "uneven", "inconsistent", "mismatch", "group",
+            "groups", "element", "elements", "item", "items", "peer", "peers",
+            "slide", "within", "between", "same", "make", "fix", "adjust",
+            "visual", "logical", "position", "positions", "column", "columns",
+            "row", "rows", "布局", "对齐", "间距", "边缘", "元素", "同级",
+        }
+        tokens = set(re.findall(r"[a-z0-9_-]{3,}|[\u4e00-\u9fff]{2,}", text.lower()))
+        normalized = set()
+        for token in tokens - generic:
+            normalized.add(token)
+            if token.endswith("s") and len(token) > 4:
+                normalized.add(token[:-1])
+        return normalized
+
+    @classmethod
+    def _format_alignment_relation_delta(
+        cls,
+        baseline_state,
+        current_state,
+        issues: list[Issue],
+    ) -> str:
+        """Compare only the peer relation named by each B13 issue.
+
+        This is target-aware measurement feedback. It intentionally does not
+        convert geometric improvement into a resolved/persisted verdict.
+        """
+        alignment_issues = [
+            issue for issue in issues
+            if issue.issue_type == "alignment_inconsistency"
+        ]
+        if not alignment_issues or baseline_state is None or current_state is None:
+            return ""
+
+        from .html_spatial_state import infer_layout_relations
+
+        baseline_relations = infer_layout_relations(baseline_state)
+        current_relations = infer_layout_relations(current_state)
+        metric_labels = {
+            "bottom_spread_px": "bottom-edge spread",
+            "top_spread_px": "top-edge spread",
+            "left_spread_px": "left-edge spread",
+            "right_spread_px": "right-edge spread",
+            "gap_spread_px": "gap spread",
+            "width_spread_px": "width spread",
+            "height_spread_px": "height spread",
+            "internal_bottom_slack_spread_px": "internal bottom-slack spread",
+            "internal_right_slack_spread_px": "internal right-slack spread",
+        }
+        lines = [
+            "ALIGNMENT RELATION DELTA (measurement only; not a resolution verdict):"
+        ]
+
+        for issue in alignment_issues:
+            context = cls._alignment_issue_context(issue)
+            metric = cls._alignment_metric_for_text(context)
+            tokens = cls._alignment_target_tokens(context)
+            if metric is None:
+                lines.append(
+                    f"  {issue.issue_id}: no specific edge/gap/size/slack metric "
+                    "could be mapped from the issue evidence. Inspect the named "
+                    "peers in the render; do not infer success from global geometry."
+                )
+                continue
+
+            candidates = []
+            for relation in baseline_relations:
+                searchable = " ".join(
+                    relation.get("labels", [])
+                    + relation.get("member_keys", [])
+                    + [relation.get("parent", ""), relation.get("basis", "")]
+                ).lower()
+                searchable_tokens = set(re.findall(
+                    r"[a-z0-9_-]{3,}|[\u4e00-\u9fff]{2,}",
+                    searchable,
+                ))
+                hits = tokens & searchable_tokens
+                if not hits:
+                    continue
+                score = len(hits) * 10
+                if relation.get("confidence") == "high":
+                    score += 2
+                if metric in {"top_spread_px", "bottom_spread_px", "height_spread_px"}:
+                    score += int(relation.get("orientation") == "row")
+                elif metric in {"left_spread_px", "right_spread_px", "width_spread_px"}:
+                    score += int(relation.get("orientation") == "column")
+                candidates.append((score, relation))
+
+            if not candidates:
+                lines.append(
+                    f"  {issue.issue_id}: no candidate peer group matched the "
+                    "issue's named target. Do not use a global relation or whole-slide "
+                    "average to claim the alignment repair succeeded."
+                )
+                continue
+
+            baseline_relation = max(candidates, key=lambda item: item[0])[1]
+            baseline_keys = set(baseline_relation.get("member_keys", []))
+            current_matches = []
+            for relation in current_relations:
+                current_keys = set(relation.get("member_keys", []))
+                if (
+                    current_keys == baseline_keys
+                    and relation.get("orientation") == baseline_relation.get("orientation")
+                    and relation.get("role_key") == baseline_relation.get("role_key")
+                ):
+                    current_matches.append(relation)
+            if not current_matches:
+                lines.append(
+                    f"  {issue.issue_id}: matched baseline "
+                    f"{baseline_relation['relation_id']}, but no current peer group "
+                    "retains the complete member set, role, and orientation. Verify "
+                    "the target visually; splitting, moving, or dropping peers is not "
+                    "proof of alignment repair."
+                )
+                continue
+
+            current_relation = current_matches[0]
+            if metric == "gap_spread_px" and (
+                len(baseline_relation.get("gaps_px", [])) < 2
+                or len(current_relation.get("gaps_px", [])) < 2
+            ):
+                lines.append(
+                    f"  {issue.issue_id}: the matched group has fewer than three "
+                    "peers, so gap regularity cannot be measured as a spread."
+                )
+                continue
+            if metric.startswith("internal_"):
+                baseline_slack = [
+                    value for value in baseline_relation.get("internal_slack_px", [])
+                    if value is not None
+                ]
+                current_slack = [
+                    value for value in current_relation.get("internal_slack_px", [])
+                    if value is not None
+                ]
+                if len(baseline_slack) < 2 or len(current_slack) < 2:
+                    lines.append(
+                        f"  {issue.issue_id}: the matched peer containers do not "
+                        "have enough measurable descendants for internal-slack comparison."
+                    )
+                    continue
+
+            before = baseline_relation["metrics"][metric]
+            after = current_relation["metrics"][metric]
+            if after < before:
+                direction = "improved"
+            elif after > before:
+                direction = "worsened"
+            else:
+                direction = "unchanged"
+            labels = ", ".join(baseline_relation.get("labels", [])[:3])
+            lines.append(
+                f"  {issue.issue_id}: {metric_labels[metric]} for matched peers "
+                f"[{labels}] {before}px -> {after}px ({direction})."
+            )
+
+        lines.append(
+            "  Lower spread supports regularity only for the matched logical peers. "
+            "Use the rendered slide and original issue evidence to decide whether "
+            "the visual problem is actually resolved."
+        )
+        return "\n".join(lines)
+
+    @staticmethod
+    def _edit_may_affect_svg(action: dict, code: str) -> bool:
+        """Return whether an apply_edits action can change rendered SVG pixels."""
+        svg_fragments = re.findall(
+            r"<svg\b[^>]*>.*?</svg\s*>", code,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if not svg_fragments:
+            return False
+        svg_source = "\n".join(svg_fragments)
+
+        for edit in action.get("edits", []):
+            search = str(edit.get("search", ""))
+            replacement = str(edit.get("replace", ""))
+            insert_after = str(edit.get("insert_after", ""))
+
+            if search and search in svg_source:
+                return True
+            if insert_after and insert_after in svg_source:
+                return True
+            if re.search(
+                r"</?(?:svg|g|path|line|polyline|polygon|rect|circle|"
+                r"ellipse|marker|defs|text|tspan|foreignObject)\b",
+                replacement,
+                flags=re.IGNORECASE,
+            ):
+                return True
+
+            # A CSS custom property declared outside the SVG can still control
+            # its fills, strokes, or typography through var(--name).
+            custom_properties = set(re.findall(r"--[A-Za-z0-9_-]+", search))
+            custom_properties.update(
+                re.findall(r"--[A-Za-z0-9_-]+", replacement)
+            )
+            if any(
+                re.search(rf"var\(\s*{re.escape(name)}\s*[,)]", svg_source)
+                for name in custom_properties
+            ):
+                return True
+
+        return False
 
     # ================================================================
     # MAIN ENTRY
@@ -279,6 +1506,15 @@ class AgentRepair:
         attempt: int = 0,
     ) -> str | None:
         """Run agent loop to repair a slide. Returns repaired code or None."""
+        self.last_repair_submitted = False
+        self.last_repair_summary = None
+        self.last_repair_needs_composition_closure = False
+        self.last_repair_has_valid_composition_closure = True
+        self.last_repair_has_resolved_composition_closure = True
+        self.last_repair_targeted_residual_total = None
+        self.last_repair_best_verified_code = None
+        self.last_repair_safe_checkpoint_current = False
+        self.last_repair_visual_checkpoint_current = False
 
         # 0. Filter issues: remove cross-slide issues where this slide
         # is not the primary (first) affected slide.  Attempting to fix
@@ -330,16 +1566,14 @@ class AgentRepair:
             )
         all_issues = filtered_issues
 
-        # Filter: allow B* (layout/visual) + critical content issues.
-        # Previously all C/D/E issues were dropped; now we allow
-        # CRITICAL_CONTENT_TYPES through because fabricated/incorrect
-        # content should be repaired (text-only edits, no layout changes).
-        # A-family (narrative) and non-critical C issues still excluded.
+        # Filter: allow B* visual issues plus content issues with an explicit
+        # repair contract. Missing-point/evidence fixes may require local reflow
+        # after the surgical content patch was spatially rejected.
         pre_filter_count = len(all_issues)
         all_issues = [
             i for i in all_issues
             if i.rubric_id.startswith("B")
-            or i.issue_type in CRITICAL_CONTENT_TYPES
+            or i.issue_type in CONTENT_ACCURACY_ISSUE_TYPES
         ]
         if len(all_issues) < pre_filter_count:
             logger.info(
@@ -455,8 +1689,33 @@ class AgentRepair:
         # Spatial state of original code
         if self._is_html_code(code):
             from .html_spatial_state import extract_html_slide_state, format_html_compact_state
-            spatial_state = extract_html_slide_state(slide_id, code)
-            spatial_info = format_html_compact_state(spatial_state)
+            spatial_state = extract_html_slide_state(
+                slide_id,
+                code,
+                html_base_dir=Path(case_dir),
+                asset_base_dirs=self._html_asset_base_dirs(
+                    case_dir, run_dir, turn_index,
+                ),
+            )
+            spatial_info = self._scope_spatial_context(
+                format_html_compact_state(spatial_state), all_issues,
+            )
+            # Provide overflow/leverage info when there are significant spatial issues
+            # (not just for table-dashboard patterns — absolute-layout slides need it too)
+            from .html_spatial_state import count_significant_issues as _count_sig
+            _sig_issues = _count_sig(spatial_state)
+            _sig_total = sum(len(v) for v in _sig_issues.values())
+            _has_spatial_pressure = (
+                self._looks_like_table_dashboard_pressure_from(
+                    code, {issue.issue_type for issue in all_issues},
+                )
+                or _sig_total >= 5
+            )
+            if _has_spatial_pressure:
+                spatial_info = self._dashboard_measurement_context(spatial_info)
+                allocation_map = self._dashboard_allocation_map(spatial_state)
+                if allocation_map:
+                    spatial_info += "\n\n" + allocation_map
         else:
             spatial_state = extract_slide_state(slide_id, code)
             spatial_info = format_spatial_state(spatial_state)
@@ -550,11 +1809,52 @@ class AgentRepair:
                 case_dir=case_dir,
                 evidence=evidence,
                 bp_slide=bp_slide,
+                initial_spatial_state=spatial_state,
             ),
             attempt=attempt,
             prev_failures_ctx=prev_failures_ctx,
             run_dir=run_dir,
             turn_index=turn_index,
+        )
+
+    def _record_last_repair_result(
+        self, state: AgentState, issues: list[Issue],
+    ) -> None:
+        """Expose final loop state to dispatcher-level acceptance gates."""
+        self.last_repair_submitted = bool(state.submitted)
+        self.last_repair_summary = state.repair_summary
+        self.last_repair_needs_composition_closure = (
+            self._needs_composition_closure(issues)
+        )
+        self.last_repair_has_valid_composition_closure = (
+            not self.last_repair_needs_composition_closure
+            or self._summary_has_composition_closure(state, issues)
+        )
+        self.last_repair_has_resolved_composition_closure = (
+            not self.last_repair_needs_composition_closure
+            or self._summary_has_resolved_composition_closure(state, issues)
+        )
+        residual_total = getattr(
+            state, "_last_verify_targeted_residual_total", None,
+        )
+        if (
+            state.best_verified_code is not None
+            and state.current_code == state.best_verified_code
+            and state.best_verified_issues is not None
+        ):
+            residual_total = state.best_verified_issues
+        self.last_repair_targeted_residual_total = (
+            int(residual_total) if residual_total is not None else None
+        )
+        self.last_repair_best_verified_code = state.best_verified_code
+        self.last_repair_safe_checkpoint_current = bool(
+            state.latest_safe_verified_code == state.current_code
+            and state.latest_safe_verified_revision == state.layout_revision
+        )
+        self.last_repair_visual_checkpoint_current = bool(
+            state.latest_visual_checkpoint_code == state.current_code
+            and state.latest_visual_checkpoint_revision == state.layout_revision
+            and state.latest_visual_checkpoint_hard_valid
         )
 
     def _run_single_repair(
@@ -589,52 +1889,116 @@ class AgentRepair:
             evidence=state_template.get("evidence"),
             bp_slide=state_template.get("bp_slide"),
             issue_types={i.issue_type for i in all_issues},
+            text_loss_budget=self._text_loss_budget,
+            initial_spatial_state=state_template.get("initial_spatial_state"),
         )
         state._run_dir = run_dir
         self._pending_actions = []  # Clear between slides
+        self._multi_action_ignored_count = 0
         state._turn_index = turn_index
 
         max_tool_calls = min(
             self.MAX_TOOL_CALLS_CAP,
             max(12, len(all_issues) * self.MAX_TOOL_CALLS_PER_ISSUE),
         )
+        dashboard_pressure = self._looks_like_table_dashboard_pressure_from(
+            code,
+            {issue.issue_type for issue in all_issues},
+        )
+        if self._needs_composition_closure(all_issues) or dashboard_pressure:
+            # Structural composition repairs may need two additional
+            # edit/verify cycles after the broad reflow to close local residuals.
+            # This expands execution time only; it does not prescribe a layout.
+            max_tool_calls = min(self.MAX_TOOL_CALLS_CAP, max_tool_calls + 10)
 
         system_prompt = self._system_prompt
+
+        # Post-repair whitespace self-check — applies to all repair sessions
+        system_prompt += (
+            "\n\n**POST-REPAIR WHITESPACE CHECK (ALWAYS DO THIS):**\n"
+            "After fixing overflow/overlap issues, check the SPACE MAP in your "
+            "`verify_layout` output. If it shows:\n"
+            "- Coverage below 70%, OR\n"
+            "- An empty band (Bottom/Middle X% has no content), OR\n"
+            "- One side of the grid is mostly '.' while the other is '#'\n"
+            "Then you MUST fix the whitespace by: reducing body/container padding, "
+            "increasing element heights (figure max-height, row min-height, gaps), "
+            "using justify-content:space-between on flex containers, or enlarging "
+            "undersized figures. Do NOT add new text content — only redistribute "
+            "existing elements to fill the space evenly.\n"
+        )
+
+        if all(issue.issue_type == "svg_visual_defect" for issue in all_issues):
+            system_prompt += (
+                "\n\n**PURE SVG REPAIR SCOPE:**\n"
+                "- Change only SVG geometry, paths, markers, endpoints, and styling needed "
+                "for the reported target.\n"
+                "- If the defect is inside an external `<img src=\"*.svg\">` asset, "
+                "use `create_svg_asset` to create a fixed turn-local SVG and then "
+                "update only that target `<img src>` to the returned path. This is an "
+                "allowed media-target replacement for `svg_visual_defect`.\n"
+                "- Preserve all source-visible labels and claims. Keep the rendered "
+                "reading path coherent if SVG geometry changes.\n"
+                "- Preserve media references, SVG accessibility semantics, and the semantic "
+                "DOM outside SVG except for the allowed target SVG asset replacement above. "
+                "The acceptance gate rejects out-of-scope changes.\n"
+            )
 
         # When blueprint is not available (spatial-only repair mode),
         # tell agent to skip regen_slide and use apply_edits directly
         if not state_template.get("bp_slide"):
+            external_evidence = (
+                "the current render and spatial evidence"
+                if self._enable_render_preview
+                else (
+                    "the current HTML/CSS, LAYOUT ANCHOR, RELATION MAP, "
+                    "SPACE MAP, and detector evidence"
+                )
+            )
+            completion_evidence = (
+                "the original issue and full render"
+                if self._enable_render_preview
+                else "the original issue and current spatial evidence"
+            )
             system_prompt += (
                 "\n\n**IMPORTANT — EXTERNAL HTML REPAIR MODE:**\n"
                 "- `regen_slide` is NOT available. Do NOT attempt it.\n"
-                "- You have full freedom to restructure the DOM, not just CSS tweaks.\n\n"
-                "**OVERLAP REPAIR STRATEGY (use in order):**\n"
-                "1. **Try CSS position/size first** — move or shrink overlapping elements.\n"
-                "2. **If CSS fails after 2 attempts → RESTRUCTURE the overlapping region.** "
-                "This means: DELETE the cluster of overlapping elements entirely, then INSERT "
-                "a replacement block with fewer, properly-sized elements that convey the same "
-                "information. For example, if 5 small `.feature` divs overlap each other, "
-                "delete all 5 and replace with 2-3 larger, non-overlapping divs.\n"
-                "3. **Atomic restructure pattern:**\n"
-                "   - Use apply_edits to search for the FIRST overlapping element's opening tag "
-                "through the LAST overlapping element's closing tag\n"
-                "   - Replace that entire block with new HTML that has:\n"
-                "     a) Fewer elements (combine related items)\n"
-                "     b) Explicit absolute positions with sufficient spacing\n"
-                "     c) Smaller font sizes if needed to fit\n"
-                "   - Then verify_layout to confirm no new issues\n"
-                "4. **Do NOT keep retrying the same CSS nudges** — if moving element A "
-                "causes it to overlap element C, the layout is too dense for CSS-only fixes. "
-                "Restructure instead.\n"
-                "5. **Content preservation during restructure:** keep all KEY text (titles, "
-                "labels, numbers) but you may merge verbose descriptions or remove decorative "
-                "sub-elements (icons, accent borders).\n"
+                "- You have full freedom to restructure the DOM, not just CSS tweaks, when "
+                f"{external_evidence} shows that several symptoms share one spatial cause.\n"
+                f"- Diagnose from {external_evidence} whether the issue is local or belongs to "
+                "a shared body-space conflict. Inspect the whole fixed-canvas budget before "
+                "choosing the scope of the edit.\n"
+                "- A coherent restructure may require several edits. Continue through a "
+                "recoverable same-region intermediate state while text, roles, and meaning "
+                "remain intact and the approach is converging. Roll back or change direction "
+                "when information is lost, unrelated regions regress, or pressure is merely "
+                "being displaced.\n"
+                "- Preserve all source-visible text, semantic relationships, information-bearing "
+                "visuals, and meaning-dependent sequences. Do not use clipping, hidden overflow, "
+                "or off-canvas placement as a fit solution.\n"
+                "- After structural CSS or DOM changes, call verify_layout and judge the result "
+                f"against {completion_evidence}.\n"
             )
 
         # Inject previous repair failures context if available
         user_content = initial_msg
         if prev_failures_ctx:
-            user_content = initial_msg + "\n\n" + prev_failures_ctx
+            if isinstance(initial_msg, list):
+                user_content = [dict(block) for block in initial_msg]
+                for block in reversed(user_content):
+                    if block.get("type") == "text":
+                        block["text"] = (
+                            str(block.get("text", ""))
+                            + "\n\n" + prev_failures_ctx
+                        )
+                        break
+                else:
+                    user_content.append({
+                        "type": "text",
+                        "text": prev_failures_ctx,
+                    })
+            else:
+                user_content = initial_msg + "\n\n" + prev_failures_ctx
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -645,21 +2009,44 @@ class AgentRepair:
         no_progress = 0
         submit_bounced_content = 0   # MUST-NOT + content accuracy bounces
         submit_bounced_spatial = 0   # spatial (overflow/OOB/overlap) bounces
-        n_successful_edits = 0       # count of apply_edits that changed code
+        submit_bounced_raw_figure = 0
         has_content_edit_since_verify = False  # track content edits without verify
+        has_raw_figure_issue = any(
+            issue.issue_type in {"raw_figure", "raw_table"}
+            for issue in all_issues
+        )
+        has_composition_closure_issue = self._needs_composition_closure(all_issues)
+        has_svg_visual_issue = (
+            any(issue.issue_type == "svg_visual_defect" for issue in all_issues)
+            or (
+                self._enable_render_preview
+                and self._is_html_code(code)
+                and bool(re.search(r"<svg\b", code, re.IGNORECASE))
+                and any(issue.rubric_id.startswith("B") for issue in all_issues)
+            )
+        )
+        visual_only_repair = bool(all_issues) and all(
+            issue.rubric_id.startswith("B") for issue in all_issues
+        )
+        visual_repair_may_replace_image = any(
+            issue.issue_type in {"raw_figure", "raw_table", "svg_visual_defect"}
+            for issue in all_issues
+        )
+        visual_repair_may_change_formatting = any(
+            issue.issue_type == "formatting_error"
+            for issue in all_issues
+        )
+        visual_repair_may_change_text = issues_allow_visible_text_change(all_issues)
+        state.allow_visible_text_change = visual_repair_may_change_text
+        state.allow_support_copy_compression = (
+            issues_allow_support_copy_compression(all_issues)
+        )
 
         while tool_calls < max_tool_calls:
-            # Check for queued actions from a multi-JSON response
-            pending = self._next_pending_action()
-            if pending:
-                action = pending
-                tool_name = action.get("tool", "?")
-                reasoning = action.get("reasoning", "")[:150]
-                logger.info(
-                    "Agent slide %d turn %d: tool=%s (queued) reason=%s",
-                    slide_id, tool_calls, tool_name, reasoning,
-                )
-            else:
+            # Every action after the first must be planned from real tool output.
+            # Never execute speculative multi-tool responses from an old state.
+            pending = None
+            if pending is None:
                 # LLM turn
                 try:
                     response = self.llm.call_multiturn(
@@ -671,14 +2058,9 @@ class AgentRepair:
                         temperature=temp,
                     )
                 except Exception as e:
-                    # A single LLM error used to abort the whole repair, dumping
-                    # the agent at whatever (possibly unconverged) state it was in
-                    # — exactly how GPHash gpt54 shipped 5 issues: an Azure content
-                    # filter false-positive fired at turn 12 while the agent was
-                    # actively working the last paint-over, and the loop broke.
-                    # Most of these (content-filter 400, rate-limit 429, transient
-                    # 5xx/timeouts) clear on a retry. Retry a bounded number of
-                    # times before giving up; only break after the budget is spent.
+                    # Transient LLM errors (content-filter 400, rate-limit 429,
+                    # 5xx/timeouts) often clear on retry. Retry a bounded number
+                    # of times before giving up.
                     emsg = str(e)
                     is_transient = any(s in emsg.lower() for s in (
                         "content management policy", "content_filter", "filtered",
@@ -744,11 +2126,14 @@ class AgentRepair:
                             )
                             break
                         continue
+                    parse_error = getattr(self, "_last_parse_error_message", "")
                     messages.append({"role": "user", "content":
-                        "Error: could not parse your action. "
-                        "Return a JSON object with a \"tool\" field. "
-                        "Example: {\"tool\": \"apply_edits\", \"reason\": \"...\", \"edits\": [{\"search\": \"old\", \"replace\": \"new\"}]}. "
-                        "Do NOT wrap in markdown fences. Just the raw JSON object."
+                        parse_error or (
+                            "Error: could not parse your action. "
+                            "Return a JSON object with a \"tool\" field. "
+                            "Example: {\"tool\": \"apply_edits\", \"reason\": \"...\", \"edits\": [{\"search\": \"old\", \"replace\": \"new\"}]}. "
+                            "Do NOT wrap in markdown fences. Just the raw JSON object."
+                        )
                     })
                     tool_calls += 1
                     # Only count every other malformed response as no-progress
@@ -762,6 +2147,9 @@ class AgentRepair:
                         )
                         break
                     continue
+
+                if getattr(self, "_multi_action_ignored_count", 0):
+                    messages[-1]["content"] = json.dumps(action, ensure_ascii=False)
 
                 # Log agent action
                 tool_name = action.get("tool", "?")
@@ -824,7 +2212,8 @@ class AgentRepair:
                 # at all, bounce once to force at least one attempt
                 if (state.current_code == state.original_code
                         and submit_bounced_total == 0
-                        and self._enable_macro_planning):
+                        and self._enable_macro_planning
+                        and not state.attempted_code_change):
                     submit_bounced_content += 1
                     messages.append({"role": "user", "content":
                         "⚠ SUBMIT BLOCKED — you haven't made any edits "
@@ -841,40 +2230,184 @@ class AgentRepair:
                     )
                     continue
 
-                # Multi-issue minimum-effort guard: if the slide has
-                # multiple issues but the agent made very few edits,
-                # bounce once to force more thorough repair.
-                n_issues = len(all_issues)
-                # Skip this gate if verify_layout shows improvement
-                # (agent may batch multiple fixes in one apply_edits call)
-                verify_shows_improvement = (
-                    hasattr(state, 'last_verify_result')
-                    and state.last_verify_result
-                    and state.last_verify_result.get("delta_total", 0) < 0
+                composition_closure_bounces = getattr(
+                    state, "_composition_closure_bounces", 0,
                 )
-                if (n_issues >= 3
-                        and n_successful_edits < max(2, n_issues // 2)
-                        and submit_bounced_total == 0
-                        and state.current_code != state.original_code
-                        and not verify_shows_improvement):
-                    submit_bounced_content += 1
-                    unaddressed = n_issues - n_successful_edits
-                    messages.append({"role": "user", "content":
-                        f"⚠ SUBMIT BLOCKED — this slide has {n_issues} issues "
-                        f"but you only made {n_successful_edits} edit(s). "
-                        f"At least {unaddressed} issues may not have been "
-                        f"addressed. Review each issue in your plan and make "
-                        f"sure you've attempted a fix for each one before "
-                        f"submitting. If an issue is genuinely unfixable, "
-                        f"note it in submit_repair_summary."
+                if (
+                    has_composition_closure_issue
+                    and not self._summary_has_composition_closure(state, all_issues)
+                ):
+                    state._composition_closure_bounces = composition_closure_bounces + 1
+                    messages.append({
+                        "role": "user",
+                        "content": self._composition_closure_block_message(
+                            state, all_issues, for_submit=True,
+                        ),
                     })
                     tool_calls += 1
                     logger.info(
-                        "Agent slide %d: submit bounced (min-effort: "
-                        "%d edits for %d issues)",
-                        slide_id, n_successful_edits, n_issues,
+                        "Agent slide %d: submit bounced (missing composition self-assessment)",
+                        slide_id,
                     )
                     continue
+
+                if has_composition_closure_issue:
+                    composition_unresolved_reasons = (
+                        self._composition_closure_unresolved_reasons(
+                            state, all_issues,
+                        )
+                    )
+                    if composition_unresolved_reasons:
+                        state._composition_closure_bounces = (
+                            composition_closure_bounces + 1
+                        )
+                        messages.append({
+                            "role": "user",
+                            "content": self._composition_completion_block_message(
+                                state, all_issues, for_submit=True,
+                            ),
+                        })
+                        tool_calls += 1
+                        logger.info(
+                            "Agent slide %d: submit bounced "
+                            "(composition unresolved: %s)",
+                            slide_id,
+                            "; ".join(composition_unresolved_reasons[:3]),
+                        )
+                        continue
+
+                # SVG topology cannot be validated from DOM measurements. Once
+                # an SVG repair changes code, require the same multimodal agent
+                # to inspect the resulting pixels before it may submit.
+                preview_bounces = getattr(state, "_svg_preview_bounces", 0)
+                if (
+                    self._enable_render_preview
+                    and has_svg_visual_issue
+                    and getattr(state, "_svg_edit_since_preview", False)
+                    and preview_bounces < 2
+                ):
+                    state._svg_preview_bounces = preview_bounces + 1
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "SUBMIT BLOCKED: the SVG changed after the last "
+                            "visual inspection. Call render_preview, inspect "
+                            "the current pixels and graph roles, then fix any "
+                            "remaining defect or submit again."
+                        ),
+                    })
+                    tool_calls += 1
+                    logger.info(
+                        "Agent slide %d: submit bounced "
+                        "(SVG edit without current preview)",
+                        slide_id,
+                    )
+                    continue
+
+                raw_css_crop_hints = (
+                    html_image_css_crop_hints(state.current_code)
+                    if has_raw_figure_issue and self._is_html_code(state.current_code)
+                    else []
+                )
+                if raw_css_crop_hints and submit_bounced_raw_figure < 2:
+                    submit_bounced_raw_figure += 1
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "SUBMIT BLOCKED: this raw_figure/raw_table repair "
+                            "still relies on CSS image-window cropping: "
+                            f"{', '.join(raw_css_crop_hints)}. B17 requires a "
+                            "presentation-adapted image source, exact-data generated "
+                            "chart, or fidelity-preserving SVG summary displayed intact with object-fit: contain. "
+                            "Create or use a real cropped/recomposed source asset first when possible, "
+                            "replace the image src if needed, remove CSS crop "
+                            "mechanisms such as object-view-box/object-fit:cover/"
+                            "object-fit:none/negative offsets, then call "
+                            "verify_layout and render_preview."
+                        ),
+                    })
+                    tool_calls += 1
+                    logger.info(
+                        "Agent slide %d: submit bounced "
+                        "(raw figure CSS crop: %s)",
+                        slide_id, ", ".join(raw_css_crop_hints),
+                    )
+                    continue
+
+                raw_preview_bounces = getattr(state, "_raw_figure_preview_bounces", 0)
+                if (
+                    self._enable_render_preview
+                    and has_raw_figure_issue
+                    and getattr(state, "_raw_figure_edit_since_preview", False)
+                    and raw_preview_bounces < 2
+                ):
+                    state._raw_figure_preview_bounces = raw_preview_bounces + 1
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "SUBMIT BLOCKED: the raw figure/table region changed "
+                            "after the last visual inspection. Call "
+                            "render_preview and inspect whether the intended "
+                            "subject remains complete, labels are readable, "
+                            "key findings are visually guided, and no panel is "
+                            "cut off. Fix any remaining defect before submitting."
+                        ),
+                    })
+                    tool_calls += 1
+                    logger.info(
+                        "Agent slide %d: submit bounced "
+                        "(raw figure edit without current preview)",
+                        slide_id,
+                    )
+                    continue
+
+                # Spatial submit bounce: if significant overlaps or OOB remain,
+                # bounce back to let agent continue fixing from current state.
+                # Only bounce when budget allows meaningful follow-up (≥10 calls).
+                _budget_left = max_tool_calls - tool_calls
+                if submit_bounced_spatial < 2 and _budget_left >= 10 and self._is_html_code(state.current_code):
+                    try:
+                        from .html_spatial_state import extract_html_slide_state
+                        _submit_state = extract_html_slide_state(
+                            slide_id, state.current_code,
+                            html_base_dir=Path(state.case_dir),
+                            asset_base_dirs=self._html_asset_base_dirs(
+                                state.case_dir, getattr(state, "_run_dir", None),
+                            ),
+                        )
+                        _submit_sig = self._targeted_significant_issues(
+                            getattr(state, '_t0_html_state', _submit_state),
+                            _submit_state,
+                        )
+                        _submit_overlaps = len(_submit_sig.get("overlap", []))
+                        _submit_oob = len(_submit_sig.get("out_of_bounds", []))
+                        _submit_overflow = len(_submit_sig.get("text_overflow", []))
+                        _submit_total = _submit_overlaps + _submit_oob + _submit_overflow
+                        if _submit_total >= 3:
+                            submit_bounced_spatial += 1
+                            messages.append({
+                                "role": "user",
+                                "content": (
+                                    f"SUBMIT BLOCKED: {_submit_total} significant "
+                                    f"spatial issues remain ({_submit_overlaps} overlaps, "
+                                    f"{_submit_oob} out-of-bounds, {_submit_overflow} "
+                                    f"text overflow). Continue editing from the current "
+                                    f"state to fix these — your edits so far are preserved. "
+                                    f"Call verify_layout to see which elements still overlap."
+                                ),
+                            })
+                            tool_calls += 1
+                            logger.info(
+                                "Agent slide %d: submit bounced "
+                                "(residual significant issues: %s)",
+                                slide_id, {k: len(v) for k, v in _submit_sig.items()},
+                            )
+                            continue
+                    except Exception as _spatial_err:
+                        logger.warning(
+                            "Agent slide %d: spatial submit check failed: %s",
+                            slide_id, str(_spatial_err)[:100],
+                        )
 
                 # Validate: check if MUST NOT strings still in code
                 if submit_bounced_content < 2 and must_not:
@@ -922,11 +2455,10 @@ class AgentRepair:
                                     f"to MOVE or RESIZE elements, not to "
                                     f"delete entire cards/sections. If a "
                                     f"region is too crowded:\n"
-                                    f"  1. Shrink font sizes (min 12px)\n"
-                                    f"  2. Reduce padding/margins\n"
-                                    f"  3. Adjust container dimensions\n"
-                                    f"  4. Condense TEXT (shorter phrasing)\n"
-                                    f"  5. Remove ONLY decorative accents\n"
+                                    f"  1. Reduce excessive padding/margins\n"
+                                    f"  2. Adjust container dimensions or grid tracks\n"
+                                    f"  3. Move the affected region as a unit\n"
+                                    f"  4. Remove ONLY decorative accents\n"
                                     f"NEVER delete a card/section that "
                                     f"contains method names, metrics, "
                                     f"benchmark results, or key claims.\n"
@@ -941,6 +2473,179 @@ class AgentRepair:
                                 slide_id, wc_pct,
                             )
                             continue
+
+                # This gate also applies to content repairs. Adding a required
+                # sentence does not authorize collapsing the slide's dominant
+                # hero/title or globally tightening typography to make it fit.
+                if (
+                    state.current_code != code
+                    and self._is_html_code(state.current_code)
+                ):
+                    compression_ok, compression_reason = (
+                        validate_repair_not_visual_compression(
+                            state.original_code,
+                            state.current_code,
+                            allow_dominant_element_removal=(
+                                issues_allow_dominant_element_removal(
+                                    self._current_issues
+                                )
+                            ),
+                        )
+                    )
+                    # Bypass compression gate when overflow still exists —
+                    # compression is necessary to fit content within canvas.
+                    _submit_overflow = getattr(state, '_last_verified_overflow_px', 0) or 0
+                    if _submit_overflow > 30:
+                        compression_ok = True
+                    if not compression_ok:
+                        state.current_code = (
+                            state.best_verified_code
+                            or state.last_verified_code
+                            or state.original_code
+                        )
+                        self._invalidate_verify_after_code_change(
+                            state,
+                            "submit compression gate rolled back code",
+                        )
+                        submit_bounced_spatial += 1
+                        messages.append({
+                            "role": "user",
+                            "content": (
+                                "SUBMIT BLOCKED — visual compression shipment "
+                                f"gate failed: {compression_reason}. The invalid "
+                                "state was rolled back to the latest legal "
+                                "checkpoint. Preserve the dominant hero/title. "
+                                "Reallocate column width or container height and "
+                                "reduce only local gaps/padding before reducing "
+                                "body type; then verify again."
+                            ),
+                        })
+                        tool_calls += 1
+                        continue
+
+                # Fixed-format text budget gate. Content repairs may need to
+                # qualify a title or takeaway, but long source text belongs in
+                # body/interpretation text, not in fixed title/footer chrome.
+                fixed_budget_bounces = getattr(
+                    state, "_fixed_format_budget_bounces", 0,
+                )
+                if (
+                    state.current_code != code
+                    and self._is_html_code(state.current_code)
+                    and fixed_budget_bounces < 2
+                ):
+                    budget_warnings = _fixed_format_text_budget_warnings(
+                        state.current_code,
+                        baseline_html=state.original_code,
+                    )
+                    if budget_warnings:
+                        state._fixed_format_budget_bounces = fixed_budget_bounces + 1
+                        submit_bounced_content += 1
+                        messages.append({
+                            "role": "user",
+                            "content": (
+                                "SUBMIT BLOCKED — fixed-format text budget "
+                                "failed:\n"
+                                + "\n".join(f"- {w}" for w in budget_warnings[:4])
+                                + "\n\nKeep titles/page headers concise. Do not put long "
+                                  "source-backed corrections into full-width "
+                                  "bottom bars, footers, or source notes. Move "
+                                  "necessary qualifiers into the closest body/"
+                                  "interpretation sentence, then call "
+                                  "verify_layout before submitting."
+                            ),
+                        })
+                        tool_calls += 1
+                        logger.info(
+                            "Agent slide %d: submit bounced "
+                            "(fixed-format text budget: %s)",
+                            slide_id, "; ".join(budget_warnings[:3]),
+                        )
+                        continue
+
+                # Unconditional source/media visual-scope gate. Rendered text
+                # sampling is intentionally advisory: it is brittle during
+                # dashboard/table rhythm calibration and can flag useful
+                # reveal/reflow states that preserve the source DOM.
+                if (
+                    visual_only_repair
+                    and state.current_code != code
+                    and self._is_html_code(state.current_code)
+                ):
+                    scope_ok, scope_reason = validate_visual_repair_scope(
+                        state.original_code,
+                        state.current_code,
+                        allow_image_replacement=visual_repair_may_replace_image,
+                        allow_text_formatting_change=visual_repair_may_change_formatting,
+                        allow_text_content_change=visual_repair_may_change_text,
+                    )
+                    downgrade_ok, downgrade_reason = validate_repair_not_visual_downgrade(
+                        state.original_code, state.current_code,
+                    )
+                    from .html_spatial_state import extract_html_slide_state
+                    html_asset_base_dirs = self._html_asset_base_dirs(
+                        state.case_dir,
+                        getattr(state, "_run_dir", None),
+                        getattr(state, "_turn_index", None),
+                    )
+                    t0_scope_state = getattr(state, '_t0_html_gate_state', None)
+                    if t0_scope_state is None:
+                        t0_scope_state = extract_html_slide_state(
+                            slide_id,
+                            state.original_code,
+                            html_base_dir=Path(state.case_dir),
+                            asset_base_dirs=html_asset_base_dirs,
+                        )
+                        state._t0_html_gate_state = t0_scope_state
+                    t1_scope_state = extract_html_slide_state(
+                        slide_id,
+                        state.current_code,
+                        html_base_dir=Path(state.case_dir),
+                        asset_base_dirs=html_asset_base_dirs,
+                    )
+                    from .repair_utils import validate_rendered_text_preservation
+                    rendered_ok, rendered_reason = validate_rendered_text_preservation(
+                        t0_scope_state,
+                        t1_scope_state,
+                        allow_revealed_text=issues_allow_rendered_text_reveal(
+                            self._current_issues,
+                        ),
+                        allow_text_formatting_change=(
+                            visual_repair_may_change_formatting
+                        ),
+                        allow_text_content_change=visual_repair_may_change_text,
+                    )
+                    if not rendered_ok:
+                        logger.info(
+                            "Agent slide %d: submit rendered-text advisory: %s",
+                            slide_id, rendered_reason,
+                        )
+                    if not scope_ok or not downgrade_ok:
+                        reason = (
+                            scope_reason if not scope_ok
+                            else downgrade_reason
+                        )
+                        state.current_code = (
+                            state.best_verified_code
+                            or state.last_verified_code
+                            or state.original_code
+                        )
+                        self._invalidate_verify_after_code_change(
+                            state,
+                            "submit visual-scope gate rolled back code",
+                        )
+                        submit_bounced_content += 1
+                        messages.append({
+                            "role": "user",
+                            "content": (
+                                "SUBMIT BLOCKED — visual-only repair shipment gate failed: "
+                                f"{reason}. The invalid state was rolled back to the "
+                                "latest legal checkpoint. Make a targeted layout/style "
+                                "edit, verify it, then submit again."
+                            ),
+                        })
+                        tool_calls += 1
+                        continue
 
                 # Pre-submit spatial check: overflow, OOB, AND overlaps.
                 # This catches cases where the agent made edits without
@@ -963,11 +2668,27 @@ class AgentRepair:
                             # HTML mode: use Playwright DOM check (same as verify_layout)
                             from .html_spatial_state import (
                                 extract_html_slide_state,
-                                count_significant_issues,
+                                significant_issue_regressions,
+                                stable_block_identity,
                             )
-                            t1_html_st = extract_html_slide_state(slide_id, state.current_code)
+                            html_asset_base_dirs = self._html_asset_base_dirs(
+                                state.case_dir,
+                                getattr(state, "_run_dir", None),
+                                getattr(state, "_turn_index", None),
+                            )
+                            t1_html_st = extract_html_slide_state(
+                                slide_id,
+                                state.current_code,
+                                html_base_dir=Path(state.case_dir),
+                                asset_base_dirs=html_asset_base_dirs,
+                            )
                             if not hasattr(state, '_t0_html_gate_state'):
-                                state._t0_html_gate_state = extract_html_slide_state(slide_id, state.original_code)
+                                state._t0_html_gate_state = extract_html_slide_state(
+                                    slide_id,
+                                    state.original_code,
+                                    html_base_dir=Path(state.case_dir),
+                                    asset_base_dirs=html_asset_base_dirs,
+                                )
                             t0_html_st = state._t0_html_gate_state
 
                             # Count per-category significant issues via the SINGLE
@@ -980,35 +2701,113 @@ class AgentRepair:
                             # was clipped text passed this gate while the harness
                             # still flagged it. The SSOT covers all six categories
                             # incl. clipped + canvas_truncation.
-                            t1_cats = count_significant_issues(t1_html_st)
-                            t0_cats = count_significant_issues(t0_html_st)
-                            t1_counts = {k: len(v) for k, v in t1_cats.items()}
-                            t0_counts = {k: len(v) for k, v in t0_cats.items()}
-                            residual_total = sum(t1_counts.values())
+                            targeted_t1_cats = self._targeted_significant_issues(
+                                t0_html_st, t1_html_st,
+                            )
+                            t1_counts = {
+                                k: len(v) for k, v in targeted_t1_cats.items()
+                            }
+                            targeted_residual_categories = (
+                                self._targeted_residual_categories()
+                            )
+                            residual_total = sum(
+                                t1_counts.get(category, 0)
+                                for category in targeted_residual_categories
+                            )
 
-                            # (1) Regression bounce — never submit a slide that is
-                            # WORSE than the original in any category.
-                            new_issues = {}
-                            for stype in t1_counts:
-                                if t1_counts[stype] > t0_counts.get(stype, 0):
-                                    new_issues[stype] = t1_counts[stype] - t0_counts[stype]
+                            # (1) Regression bounce. Compare stable physical
+                            # defects rather than raw category counts: the same
+                            # pair may move between overlap and occlusion, and
+                            # the same block between visible overflow and clip.
+                            regressions = significant_issue_regressions(
+                                t0_html_st, t1_html_st,
+                            )
+                            if can_exempt_raw_figure_image_crop(
+                                self._current_issues, state.current_code,
+                            ):
+                                regressions.pop("image_crop", None)
+                            new_issues = {
+                                category: len(items)
+                                for category, items in regressions.items()
+                            }
 
-                            # Build detailed rejection message
-                            if new_issues:
+                            current_safe_checkpoint = bool(
+                                state.latest_safe_verified_code == state.current_code
+                                and state.latest_safe_verified_revision == state.layout_revision
+                            )
+                            detector_regressions_are_advisory = bool(
+                                visual_only_repair
+                                and current_safe_checkpoint
+                            )
+
+                            # NET improvement override: when total spatial
+                            # issues dropped by ≥50%, a small number of new
+                            # regressions (relocated content) should not block
+                            # submission — the agent is moving in the right
+                            # direction overall.
+                            if (
+                                new_issues
+                                and not detector_regressions_are_advisory
+                            ):
+                                t0_sig = sum(
+                                    len(v) for v in
+                                    count_significant_issues(t0_html_st).values()
+                                )
+                                t1_sig = sum(
+                                    len(v) for v in
+                                    count_significant_issues(t1_html_st).values()
+                                )
+                                new_issue_total = sum(new_issues.values())
+                                # Also check actual overflow px
+                                _t1_overflow_px = compute_overflow_px(t1_html_st.blocks)
+                                if (
+                                    t0_sig > 0
+                                    and t1_sig <= t0_sig * 0.5
+                                    and new_issue_total <= 6
+                                    and _t1_overflow_px <= 20
+                                ):
+                                    detector_regressions_are_advisory = True
+
+                            # Build detailed rejection message.  For a pure visual
+                            # repair, detector deltas are advisory once verify_layout
+                            # has measured this exact hard-valid revision.  The DOM probe
+                            # is deliberately conservative and the curated visual
+                            # targets themselves contain residual hits, so it must not
+                            # overrule a grounded visual judgment by itself.
+                            if new_issues and not detector_regressions_are_advisory:
                                 warn_parts = []
-                                if new_issues.get("overlap"):
-                                    # Show which pairs are new
-                                    t0_pairs = {(min(a,b), max(a,b)) for a,b,_ in t0_html_st.overlap_pairs}
-                                    new_overlaps = [(a,b,r) for a,b,r in t1_html_st.overlap_pairs
-                                                    if (min(a,b),max(a,b)) not in t0_pairs]
-                                    details = "\n".join(f"NEW OVERLAP: {a} ↔ {b} (area={r:.2f} sq in)" for a,b,r in new_overlaps)
-                                    warn_parts.append(f"🚨 SUBMIT BLOCKED — {len(new_overlaps)} new element overlaps introduced:\n{details}")
-                                if new_issues.get("text_overflow"):
-                                    warn_parts.append(f"🚨 SUBMIT BLOCKED — {new_issues['text_overflow']} new text overflow(s) introduced.")
+                                if regressions.get("interaction"):
+                                    details = "\n".join(
+                                        f"NEW {kind.upper()}: {first} ↔ {second}"
+                                        for kind, (first, second) in regressions["interaction"]
+                                    )
+                                    warn_parts.append(
+                                        f"🚨 SUBMIT BLOCKED — "
+                                        f"{new_issues['interaction']} new element "
+                                        f"interaction(s) introduced:\n{details}"
+                                    )
+                                if regressions.get("content_fit"):
+                                    details = ", ".join(
+                                        f"{kind}:{block_id}"
+                                        for kind, block_id in regressions["content_fit"]
+                                    )
+                                    warn_parts.append(
+                                        f"🚨 SUBMIT BLOCKED — "
+                                        f"{new_issues['content_fit']} new content-fit "
+                                        f"defect(s) introduced: {details}."
+                                    )
                                 if new_issues.get("out_of_bounds"):
-                                    warn_parts.append(f"🚨 SUBMIT BLOCKED — {new_issues['out_of_bounds']} new out-of-bounds element(s) introduced.")
-                                if new_issues.get("clipped"):
-                                    warn_parts.append(f"🚨 SUBMIT BLOCKED — {new_issues['clipped']} new clipped element(s) introduced.")
+                                    warn_parts.append(
+                                        f"🚨 SUBMIT BLOCKED — "
+                                        f"{new_issues['out_of_bounds']} new "
+                                        f"out-of-bounds element(s) introduced."
+                                    )
+                                if new_issues.get("image_crop"):
+                                    warn_parts.append(
+                                        f"🚨 SUBMIT BLOCKED — "
+                                        f"{new_issues['image_crop']} new excessive "
+                                        f"image crop(s) introduced."
+                                    )
                                 warn_parts.append(
                                     "\nFix these issues before submitting. "
                                     "Use verify_layout for details. "
@@ -1028,35 +2827,34 @@ class AgentRepair:
                                     submit_bounced_spatial, new_issues,
                                 )
                                 continue
+                            elif new_issues:
+                                logger.info(
+                                    "Agent slide %d: allowing hard-valid verified "
+                                    "B-family candidate with detector advisories: %s",
+                                    slide_id, new_issues,
+                                )
 
                             # (2) Residual backstop — BOUNDED, PROGRESS-AWARE,
                             # ESCAPABLE. The regression bounce above only blocks
                             # "worse than original"; it lets a slide submit with
                             # residual fixable issues that are simply fewer than
-                            # baseline (e.g. 4→3). That is how Olympus shipped 3
+                            # baseline (e.g. 4→3). This is a known failure mode:
                             # clipped-text issues.
                             #
                             # A STRICT single-fire bounce proved too weak: on a
-                            # hard multi-clip slide (Implicit gpt54) the agent
+                            # hard multi-clip slide the agent
                             # burned its one bounce early, then later edits made
-                            # clips WORSE (rewrote captions longer: 19px→40px) and
-                            # it submitted at 18 issues — believing it was "clean
-                            # on targeted defects" — after using only 6 of 30 tool
-                            # calls. Five identical-input runs ranged {0,0,4,6,18}:
-                            # the slide IS fully fixable; the tail is the agent
-                            # QUITTING EARLY on a still-dirty slide it misread.
+                            # clips worse and it submitted with residuals.
                             #
-                            # So we re-bounce when ALL of these hold (still not a
-                            # hard "issues==0" gate — a clean OR genuinely-justified
-                            # trajectory always escapes):
+                            # Re-bounce when ALL of these hold (a clean or
+                            # genuinely-justified trajectory always escapes):
                             #   • substantial residuals remain (> RESIDUAL_FLOOR),
-                            #   • the agent has ample budget left (so we never loop
-                            #     near the cap — bounded by construction),
+                            #   • the agent has ample budget left,
                             #   • it has NOT justified them in its summary, and
-                            #   • we are under a hard re-bounce ceiling.
-                            # The agent always keeps full authority to delete or
-                            # restructure; we only stop it SHIPPING residuals by
-                            # inattention while it still has budget to address them.
+                            #   • under a hard re-bounce ceiling.
+                            # The agent keeps full authority to delete or
+                            # restructure; this only prevents shipping residuals
+                            # by inattention while budget remains.
                             RESIDUAL_FLOOR = 2          # ≤2 residuals → let it ship (don't nag tiny tails)
                             RESIDUAL_BOUNCE_CEIL = 3    # hard ceiling on re-bounces
                             budget_left = max_tool_calls - tool_calls
@@ -1078,19 +2876,43 @@ class AgentRepair:
                                 # Enumerate the residuals with element ids + px so
                                 # the agent knows exactly what is still open.
                                 res_lines = []
-                                for bid in (t1_cats.get("clipped", []) + t1_cats.get("canvas_truncation", [])):
+                                for bid in (
+                                    (targeted_t1_cats.get("clipped", []) if "clipped" in targeted_residual_categories else [])
+                                    + (targeted_t1_cats.get("canvas_truncation", []) if "canvas_truncation" in targeted_residual_categories else [])
+                                ):
                                     blk = next((b for b in t1_html_st.blocks if b.block_id == bid), None)
                                     if blk is not None:
                                         px = int(getattr(blk, 'clipped_bottom_px', 0) or 0)
                                         prev = " ".join(blk.text_lines)[:40] if blk.text_lines else bid
                                         res_lines.append(f"  • CLIPPED {bid}: \"{prev}\" ({px}px hidden)")
-                                for bid in t1_cats.get("text_overflow", []):
+                                for bid in (
+                                    targeted_t1_cats.get("text_overflow", [])
+                                    if "text_overflow" in targeted_residual_categories else []
+                                ):
                                     res_lines.append(f"  • OVERFLOW {bid}")
-                                for a, b in t1_cats.get("overlap", []):
+                                for issue_id in (
+                                    targeted_t1_cats.get("svg_text_overflow", [])
+                                    if "svg_text_overflow" in targeted_residual_categories else []
+                                ):
+                                    res_lines.append(
+                                        self._format_svg_text_overflow_residual(
+                                            t1_html_st, issue_id,
+                                        )
+                                    )
+                                for a, b in (
+                                    targeted_t1_cats.get("overlap", [])
+                                    if "overlap" in targeted_residual_categories else []
+                                ):
                                     res_lines.append(f"  • OVERLAP {a} ↔ {b}")
-                                for bid in t1_cats.get("out_of_bounds", []):
+                                for bid in (
+                                    targeted_t1_cats.get("out_of_bounds", [])
+                                    if "out_of_bounds" in targeted_residual_categories else []
+                                ):
                                     res_lines.append(f"  • OUT-OF-BOUNDS {bid}")
-                                for a, b in t1_cats.get("occlusion", []):
+                                for a, b in (
+                                    targeted_t1_cats.get("occlusion", [])
+                                    if "occlusion" in targeted_residual_categories else []
+                                ):
                                     res_lines.append(f"  • OCCLUDED {b} behind {a}")
                                 detail = "\n".join(res_lines) if res_lines else f"  {residual_total} residual issue(s)"
                                 # On a re-fire, the message is sharper: the agent
@@ -1102,27 +2924,28 @@ class AgentRepair:
                                     body = (
                                         f"⚠ {residual_total} spatial issue(s) still open on this "
                                         f"slide:\n{detail}\n\n"
-                                        f"These are usually fixable with small adjustments — increase "
-                                        f"a container's height, add a few px of bottom margin/padding, "
-                                        f"move a row up, or shave a font size. Clipped text means a box "
-                                        f"is too short for its content.\n"
-                                        f"Fix what you can, then submit again. If a specific residual is "
-                                        f"genuinely unfixable (true structural overflow with no room), "
-                                        f"say which one and why in submit_repair_summary and submit again "
-                                        f"— this check won't block you a second time."
+                                        f"Compare these residuals with the original issue and the current "
+                                        f"render. Decide whether they are isolated symptoms or evidence that "
+                                        f"the owning composition is still under pressure, then continue the "
+                                        f"current structural attempt or change direction accordingly. Preserve "
+                                        f"all information-bearing content. If a residual is genuinely outside "
+                                        f"scope or cannot be resolved without damage, explain that specific "
+                                        f"judgment in submit_repair_summary. For SVG text overflow, repair the "
+                                        f"asset's internal layout rather than hiding the label."
                                     )
                                 else:
                                     body = (
                                         f"⚠ Still {residual_total} spatial issue(s) open — and you "
                                         f"have ~{budget_left} tool calls left to spend:\n{detail}\n\n"
-                                        f"Clipped text is a COUNTED defect, not optional chrome: the "
-                                        f"viewer literally cannot read the hidden part. These boxes are "
-                                        f"fixable — most are short containers; grow the box height (or "
-                                        f"its parent's), trim a word, or drop the font 1px. Do NOT "
-                                        f"lengthen the clipped text (that makes it worse).\n"
-                                        f"Spend a few more edits to clear them. If one is TRULY "
-                                        f"structural with zero room left, name that specific element and "
-                                        f"why in submit_repair_summary — then submit will pass."
+                                        f"Clipped protected content is still unreadable. Use the current "
+                                        f"render to decide whether the active approach can converge through "
+                                        f"further coherent edits or should be replaced. Do not rollback only "
+                                        f"because an unfinished same-region state is imperfect, and do not "
+                                        f"continue merely by moving the same pressure around. Preserve visible "
+                                        f"text, semantic roles, and information-bearing visuals. If a residual "
+                                        f"is genuinely outside scope or structurally unresolved, identify the "
+                                        f"specific reason in submit_repair_summary. For SVG text overflow, "
+                                        f"repair the asset's internal layout rather than hiding the label."
                                     )
                                 messages.append({
                                     "role": "user",
@@ -1139,89 +2962,13 @@ class AgentRepair:
                                 )
                                 continue
 
-                            # Coverage gate — guard the RENDERED OUTCOME
-                            # (a sparse-looking slide), not the act of deleting.
-                            # We deliberately do NOT bounce on "coverage dropped
-                            # ≥Npp" — a large drop can be the correct fix (a
-                            # section genuinely had to go), and telling the agent
-                            # to "restore deleted elements" re-creates the very
-                            # overflow it just resolved. What actually matters is
-                            # whether the FINAL slide looks under-filled, which
-                            # the absolute-coverage check below captures directly.
-                            if submit_bounced_spatial < 2:
-                                # Gate: low absolute coverage after repair
-                                # (catches slides where agent shrank content
-                                # without shrinking containers, leaving the
-                                # slide looking sparse/unfinished)
-                                t1_cov_gate = self._compute_coverage_pct(t1_html_st)
-                                _cov_bounce_attr = '_cov_low_bounced'
-                                if (t1_cov_gate < 50
-                                        and not getattr(state, _cov_bounce_attr, False)):
-                                    setattr(state, _cov_bounce_attr, True)
-                                    submit_bounced_spatial += 1
-                                    messages.append({
-                                        "role": "user",
-                                        "content": (
-                                            f"⚠ SUBMIT BLOCKED — space coverage is only "
-                                            f"{t1_cov_gate:.0f}%. The slide looks sparse. "
-                                            f"Expand content containers, increase font "
-                                            f"sizes, or redistribute elements to fill "
-                                            f"the empty areas. Target ≥55% coverage. "
-                                            f"Then call submit again."
-                                        ),
-                                    })
-                                    tool_calls += 1
-                                    logger.info(
-                                        "Agent slide %d: submit bounced "
-                                        "(low coverage %d%%, "
-                                        "content=%d spatial=%d)",
-                                        slide_id, t1_cov_gate,
-                                        submit_bounced_content,
-                                        submit_bounced_spatial,
-                                    )
-                                    continue
-
-                                # Gate 4: font size floor
-                                # Reject if body text was shrunk below readable size
-                                # Skip for external HTML repair (bp_slide=None) where
-                                # small fonts are often intentional (chart labels, etc.)
-                                _font_bounce_attr = '_font_bounced'
-                                if (state.bp_slide is not None
-                                        and not getattr(state, _font_bounce_attr, False)):
-                                    small_text = [
-                                        b for b in t1_html_st.blocks
-                                        if b.font_size_px > 0
-                                        and b.font_size_px < 13
-                                        and b.text_chars > 10
-                                        and b.shape_type not in ('picture', 'chart')
-                                    ]
-                                    if small_text:
-                                        setattr(state, _font_bounce_attr, True)
-                                        details = ", ".join(
-                                            f"{b.css_selector or b.var_name}={b.font_size_px:.0f}px"
-                                            for b in small_text[:5]
-                                        )
-                                        submit_bounced_spatial += 1
-                                        messages.append({
-                                            "role": "user",
-                                            "content": (
-                                                f"🚨 SUBMIT BLOCKED — {len(small_text)} text "
-                                                f"element(s) have font-size below 13px minimum: "
-                                                f"{details}. Text this small is unreadable on "
-                                                f"projection. Increase font sizes or remove a "
-                                                f"section to make room. Then call submit again."
-                                            ),
-                                        })
-                                        tool_calls += 1
-                                        logger.info(
-                                            "Agent slide %d: submit bounced "
-                                            "(font floor: %d elements < 13px, "
-                                            "content=%d spatial=%d)",
-                                            slide_id, len(small_text),
-                                            submit_bounced_content,
-                                            submit_bounced_spatial,
-                                        )
-                                        continue
+                            # Coverage and absolute font size are diagnostic
+                            # signals, not acceptance targets. Dense tables,
+                            # rankings, legends, and compact support copy can use
+                            # smaller role-relative type when the hierarchy and
+                            # rendered information remain coherent. Concrete
+                            # clipping, overlap, text loss, media loss, and visual
+                            # hierarchy damage are handled by the existing gates.
                         else:
                             # PPTX mode: use extract_slide_state for detailed feedback
                             baseline_st = extract_slide_state(
@@ -1520,6 +3267,39 @@ class AgentRepair:
                             slide_id,
                         )
                         continue
+                    elif (
+                        len(added_words) >= 10
+                        and submit_bounced_content < 2
+                        and not state.allow_support_copy_compression
+                        and (
+                            state.allow_visible_text_change
+                            or any(
+                                not (i.rubric_id or "").startswith("B")
+                                for i in self._current_issues
+                            )
+                        )
+                    ):
+                        submit_bounced_content += 1
+                        messages.append({"role": "user", "content":
+                            "⚠ SUBMIT BLOCKED — you added significant new "
+                            "visible text but never called search_source or "
+                            "lookup_table. For C/D/E fixes and B14/B12 text "
+                            "exceptions, every new claim must come from the "
+                            "paper or from the issue's exact correct_content. "
+                            "Do not introduce limitation/scope/causal wording "
+                            "such as 'limitation', 'only', 'depends on', or "
+                            "'remains' unless the source explicitly says it. "
+                            "Either call search_source and revise the text, or "
+                            "remove the new unsupported wording and keep only "
+                            "the source-backed retained content."
+                        })
+                        tool_calls += 1
+                        logger.info(
+                            "Agent slide %d: submit bounced "
+                            "(significant new text without source search: %d words)",
+                            slide_id, len(added_words),
+                        )
+                        continue
                     elif len(added_words) >= 10:
                         logger.info(
                             "Agent slide %d: content verification warning "
@@ -1594,12 +3374,43 @@ class AgentRepair:
                 break
 
             # Execute tool
+            code_before_action = state.current_code
             result, code_changed = self._execute_tool(action, state)
+            pure_svg_repair = all(
+                issue.issue_type == "svg_visual_defect" for issue in all_issues
+            )
+            if (
+                code_changed
+                and has_svg_visual_issue
+                and (
+                    pure_svg_repair
+                    or self._edit_may_affect_svg(action, code_before_action)
+                )
+            ):
+                state._svg_edit_since_preview = True
+            if code_changed and has_raw_figure_issue and self._is_html_code(state.current_code):
+                state._raw_figure_edit_since_preview = True
+            if tool_name in {"render_preview", "verify_layout"} and isinstance(result, list):
+                state._svg_edit_since_preview = False
+                state._raw_figure_edit_since_preview = False
             # result may be str (normal) or list (multimodal, e.g. render_preview)
             if isinstance(result, list):
                 log_preview = "[multimodal: image + text]"
             else:
                 log_preview = result[:200]
+
+            ignored_actions = getattr(self, "_multi_action_ignored_count", 0)
+            if ignored_actions:
+                warning = (
+                    f"\n\nSEQUENCING: ignored {ignored_actions} additional tool call(s) "
+                    "from your previous response. Inspect this actual result, then return "
+                    "exactly one next JSON tool call."
+                )
+                if isinstance(result, list):
+                    result.append({"type": "text", "text": warning})
+                else:
+                    result += warning
+                self._multi_action_ignored_count = 0
             logger.info(
                 "Agent slide %d turn %d: result=%s changed=%s",
                 slide_id, tool_calls, log_preview, code_changed,
@@ -1618,6 +3429,16 @@ class AgentRepair:
                         result.append({"type": "text", "text": plan_progress})
                 else:
                     result += plan_progress
+
+            # Sanitize content before appending — ensure list content has only dicts
+            if isinstance(result, list):
+                sanitized = []
+                for item in result:
+                    if isinstance(item, dict):
+                        sanitized.append(item)
+                    elif isinstance(item, str):
+                        sanitized.append({"type": "text", "text": item})
+                result = sanitized
 
             messages.append({"role": "user", "content": result})
 
@@ -1646,62 +3467,121 @@ class AgentRepair:
 
                 # Track verify defect counts for stagnation detection
                 verify_defect_count = 0
+                targeted_categories = self._targeted_residual_categories()
+                significant = {}
                 if hasattr(state, '_last_html_state') and state._last_html_state:
                     hs = state._last_html_state
                     # Use the FILTERED single-source-of-truth count, not raw len().
                     # Two reasons: (1) it includes clipped_blocks + canvas
                     # truncation, so a clip-only residual can still trigger
-                    # escalation (previously invisible — the Olympus failure mode);
+                    # escalation (a previously invisible failure mode);
                     # (2) raw len() counted sub-threshold noise the scorer ignores,
                     # which could keep the trajectory "hot" and fire the
                     # destructive condensation escalation on non-issues.
-                    from .html_spatial_state import count_significant_issue_total
-                    verify_defect_count = count_significant_issue_total(hs)
+                    significant = self._targeted_significant_issues(
+                        getattr(state, '_t0_html_state', None), hs,
+                    )
+                    verify_defect_count = sum(
+                        len(significant.get(category, []))
+                        for category in targeted_categories
+                    )
                 if not hasattr(state, '_verify_defect_history'):
                     state._verify_defect_history = []
                 state._verify_defect_history.append(verify_defect_count)
+                targeted_snapshot = {
+                    category: significant.get(category, [])
+                    for category in sorted(targeted_categories)
+                }
+                verify_signature = json.dumps(
+                    targeted_snapshot,
+                    ensure_ascii=True,
+                    sort_keys=True,
+                    default=str,
+                )
+                if not hasattr(state, '_verify_signature_history'):
+                    state._verify_signature_history = []
+                state._verify_signature_history.append(verify_signature)
 
-                # Escalation: if 3+ verify calls and defects not decreasing,
-                # inject guidance to change strategy fundamentally
+                # Reconsider only on persistent identities or strict worsening.
+                # Equal counts with changing targets can be a legitimate
+                # intermediate state in a coupled multi-edit reflow.
                 hist = state._verify_defect_history
-                if (len(hist) >= 3
-                        and hist[-1] >= hist[-2]
-                        and hist[-2] >= hist[-3]
-                        and hist[-1] > 0):
-                    # Defects stagnant or increasing for 3 verifies
-                    escalation_msg = (
-                        "\n\n🚨 STRATEGY ESCALATION REQUIRED\n"
-                        f"Your last 3 verify_layout checks show no improvement "
-                        f"(defect trajectory: {hist[-3]}→{hist[-2]}→{hist[-1]}). "
-                        f"Your current micro-edit approach is not working.\n\n"
-                        f"You MUST change strategy. Options:\n"
-                        f"1. **Content condensation**: The root cause is often too much "
-                        f"text for the layout. Aggressively shorten text to 60-70% of "
-                        f"current length while preserving key claims.\n"
-                        f"2. **Structural simplification**: Reduce the number of containers "
-                        f"(merge cards, remove decorative elements, flatten hierarchy).\n"
-                        f"3. **Rollback + structural rewrite**: Call rollback, then use "
-                        f"apply_edits to replace the crowded region with fewer elements "
-                        f"while preserving the original visible claims and numbers. Use "
-                        f"regen_slide only as a last resort, and only if you can preserve "
-                        f"the original text/numbers or verify every changed claim with "
-                        f"search_source.\n\n"
-                        f"Do NOT make another small CSS adjustment — it will not fix this."
-                    )
-                    # Append to the last tool result message
-                    if messages and messages[-1]["role"] == "user":
-                        messages[-1]["content"] += escalation_msg
-                    else:
-                        messages.append({"role": "user", "content": escalation_msg})
-                    logger.info(
-                        "Agent slide %d: verify stagnation detected "
-                        "(trajectory: %s), injecting escalation guidance",
-                        slide_id, hist[-3:],
-                    )
+                signature_hist = state._verify_signature_history
+                if self._verify_needs_strategy_reconsideration(
+                    hist, signature_hist,
+                ):
+                    reconsideration_key = tuple(signature_hist[-3:])
+                    already_reported = getattr(
+                        state, "_last_strategy_reconsideration_key", None,
+                    ) == reconsideration_key
+                    if not already_reported:
+                        state._last_strategy_reconsideration_key = reconsideration_key
+                        escalation_msg = (
+                            "\n\nSTRATEGY RECONSIDERATION\n"
+                            f"The recent verify_layout evidence indicates that the current "
+                            f"execution needs a causal review (targeted trajectory: "
+                            f"{hist[-3]}→{hist[-2]}→{hist[-1]}). This does not by itself "
+                            f"show that the current topology is wrong. Use the current revision's "
+                            f"layout anchors, relation/space map, detector details, and original "
+                            f"issue to identify the unresolved owning region. First ask whether "
+                            f"the edits between these verifies actually changed that region; an "
+                            f"edit that restored hierarchy/content or handled another region may "
+                            f"legitimately leave the same residual unchanged. If the reading path "
+                            f"and grouping remain coherent, finish the relevant role-aware "
+                            f"calibration before switching. Changing peer orientation or grouping "
+                            f"(for example, a vertical stack into side-by-side columns) is reflow, "
+                            f"not same-topology calibration. Choose it only when current spatial "
+                            f"evidence shows that the existing organization itself causes or moves "
+                            f"the pressure."
+                        )
+                        # Append to the last tool result message
+                        if messages and messages[-1]["role"] == "user":
+                            messages[-1]["content"] += escalation_msg
+                        else:
+                            messages.append({"role": "user", "content": escalation_msg})
+                        logger.info(
+                            "Agent slide %d: verify stagnation detected "
+                            "(trajectory: %s), injecting escalation guidance",
+                            slide_id, hist[-3:],
+                        )
+
+                signatures = state._verify_signature_history
+                if (
+                    verify_defect_count > 0
+                    and len(signatures) >= 4
+                    and len(set(signatures[-4:])) == 1
+                ):
+                    persistent_key = signatures[-1]
+                    if getattr(
+                        state, "_last_persistent_residual_advisory", None,
+                    ) != persistent_key:
+                        state._last_persistent_residual_advisory = persistent_key
+                        advisory = (
+                            "\n\nPERSISTENT RESIDUAL ADVISORY\n"
+                            "Four verifies show the same targeted identities. This is "
+                            "evidence that those objects are not yet closed, but it is not "
+                            "evidence by itself that the current topology has failed and it is "
+                            "not an automatic stop or rollback. Check whether the verified edits "
+                            "actually changed the residual-owning region. If they restored "
+                            "hierarchy/content, handled another region, or are an unfinished part "
+                            "of one coherent allocation, complete and verify the relevant repair. "
+                            "Otherwise reconsider the spatial cause instead of continuing smaller "
+                            "versions of the same fit edit. Treat any change to peer orientation "
+                            "or semantic grouping as reflow and justify it from current spatial "
+                            "evidence."
+                        )
+                        if messages and messages[-1]["role"] == "user":
+                            messages[-1]["content"] += advisory
+                        else:
+                            messages.append({"role": "user", "content": advisory})
+                        logger.info(
+                            "Agent slide %d: four identical targeted verify states; "
+                            "injected advisory without forcing loop exit",
+                            slide_id,
+                        )
 
             # ── Reset verify failure counter on successful edits ──
             if tool_name in ("apply_edits", "delete_shape") and code_changed:
-                n_successful_edits += 1
                 has_content_edit_since_verify = True  # any edit needs verify
                 # Don't reset counter here — wait for verify_layout
                 # to confirm the edit was actually beneficial.
@@ -1726,6 +3606,35 @@ class AgentRepair:
                 )
                 break
 
+            continuation = self._trajectory_continuation_message(
+                state,
+                tool_name=tool_name,
+                code_changed=code_changed,
+                tool_calls=tool_calls,
+                soft_limit=max_tool_calls,
+            )
+            if continuation:
+                previous_limit = max_tool_calls
+                max_tool_calls = min(
+                    self.MAX_TOOL_CALLS_CAP,
+                    max_tool_calls + self.TRAJECTORY_EXTENSION_CALLS,
+                )
+                state.trajectory_extensions += 1
+                state.last_trajectory_extension_revision = state.layout_revision
+                if messages and messages[-1]["role"] == "user":
+                    messages[-1]["content"] += continuation
+                else:
+                    messages.append({"role": "user", "content": continuation})
+                logger.info(
+                    "Agent slide %d: extended active trajectory budget %d->%d "
+                    "after %s at revision %d",
+                    slide_id,
+                    previous_limit,
+                    max_tool_calls,
+                    tool_name,
+                    state.layout_revision,
+                )
+
         logger.info(
             "Agent repair slide %d: loop ended after %d tool calls, "
             "code %s",
@@ -1733,20 +3642,50 @@ class AgentRepair:
             "changed" if state.current_code != state.original_code else "unchanged",
         )
 
-        # Loop-timeout rollback: if the agent never successfully submitted,
-        # roll back to the best verified state (fewest filtered issues), falling
-        # back to the last non-regressing verified state, then to original.
-        # Using best_verified_code (not just last_verified_code) prevents shipping
-        # a late drift to a worse layout — the core of the "trajectory luck" bug.
+        # The final allowed tool call can be a successful edit. Measure that
+        # candidate before timeout fallback so a useful, non-regressing state is
+        # not discarded merely because the model had no call left for verify.
+        if (
+            not state.submitted
+            and state.current_code != state.original_code
+            and not self._has_current_verify(state)
+            and not self._disable_step_render
+        ):
+            try:
+                self._tool_verify_layout(state)
+                logger.info(
+                    "Agent slide %d: deterministically verified final unmeasured "
+                    "candidate before timeout fallback",
+                    slide_id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Agent slide %d: final deterministic verification failed: %s",
+                    slide_id,
+                    str(exc)[:160],
+                )
+
+        # Loop-timeout fallback preserves the latest hard-valid checkpoint.  A
+        # detector-minimal state is not automatically visually better, and using
+        # it as the first fallback erased coherent multi-edit composition work.
         if not state.submitted and state.current_code != state.original_code:
             rollback_target = None
             target_label = None
-            if state.best_verified_code is not None and state.best_verified_code != state.current_code:
-                rollback_target = state.best_verified_code
-                target_label = f"best verified ({state.best_verified_issues} issues)"
+            current_is_safe = bool(
+                state.latest_safe_verified_code == state.current_code
+                and state.latest_safe_verified_revision == state.layout_revision
+            )
+            if current_is_safe:
+                target_label = "current hard-valid verified checkpoint"
+            elif state.latest_safe_verified_code is not None:
+                rollback_target = state.latest_safe_verified_code
+                target_label = "latest hard-valid verified checkpoint"
             elif state.last_verified_code is not None and state.last_verified_code != state.current_code:
                 rollback_target = state.last_verified_code
                 target_label = "last non-regressing verified"
+            elif state.best_verified_code is not None and state.best_verified_code != state.current_code:
+                rollback_target = state.best_verified_code
+                target_label = f"best verified ({state.best_verified_issues} issues)"
             if rollback_target is not None:
                 logger.info(
                     "Agent slide %d: loop timeout — rolling back to %s "
@@ -1755,7 +3694,11 @@ class AgentRepair:
                     abs(len(state.current_code) - len(rollback_target)),
                 )
                 state.current_code = rollback_target
-            elif state.last_verified_code is None and state.best_verified_code is None:
+            elif not current_is_safe and (
+                state.last_verified_code is None
+                and state.best_verified_code is None
+                and state.latest_safe_verified_code is None
+            ):
                 logger.info(
                     "Agent slide %d: loop timeout, no verified checkpoint "
                     "— rolling back to original code",
@@ -1770,13 +3713,37 @@ class AgentRepair:
         # here (on the shipped artifact) is cheap vs. the whole LLM loop.
         if (state.submitted
                 and state.best_verified_code is not None
-                and state.best_verified_code != state.current_code):
+                and state.best_verified_code != state.current_code
+                and not (
+                    state.latest_safe_verified_code == state.current_code
+                    and state.latest_safe_verified_revision == state.layout_revision
+                )):
             try:
-                from .html_spatial_state import extract_html_slide_state, count_significant_issue_total
+                from .html_spatial_state import extract_html_slide_state
                 if self._is_html_code(state.current_code):
-                    cur_issues = count_significant_issue_total(
-                        extract_html_slide_state(slide_id, state.current_code)
+                    html_asset_base_dirs = self._html_asset_base_dirs(
+                        state.case_dir,
+                        getattr(state, "_run_dir", None),
+                        getattr(state, "_turn_index", None),
                     )
+                    cur_state = extract_html_slide_state(
+                        slide_id,
+                        state.current_code,
+                        html_base_dir=Path(state.case_dir),
+                        asset_base_dirs=html_asset_base_dirs,
+                    )
+                    baseline_state = getattr(state, '_t0_html_state', None)
+                    if baseline_state is None:
+                        baseline_state = extract_html_slide_state(
+                            slide_id,
+                            state.original_code,
+                            html_base_dir=Path(state.case_dir),
+                            asset_base_dirs=html_asset_base_dirs,
+                        )
+                    current_significant = self._targeted_significant_issues(
+                        baseline_state, cur_state,
+                    )
+                    cur_issues = sum(len(items) for items in current_significant.values())
                     if (state.best_verified_issues is not None
                             and state.best_verified_issues < cur_issues):
                         logger.info(
@@ -1814,9 +3781,23 @@ class AgentRepair:
                         else:
                             redacted.append(block)
                     log_messages.append({"role": m["role"], "content": redacted})
-                elif isinstance(content, str) and len(content) > 10000:
-                    # Truncate very long messages
-                    log_messages.append({"role": m["role"], "content": content[:10000] + f"\n... [truncated, total {len(content)} chars]"})
+                elif isinstance(content, str) and len(content) > 20000:
+                    # Keep both the repair brief and the late spatial maps.  The
+                    # latter are deliberately appended after compact DOM output,
+                    # so prefix-only truncation makes a successful diagnostic
+                    # delivery look absent when reviewing an agent trajectory.
+                    head_chars = 12000
+                    tail_chars = 8000
+                    omitted = len(content) - head_chars - tail_chars
+                    log_messages.append({
+                        "role": m["role"],
+                        "content": (
+                            content[:head_chars]
+                            + f"\n... [middle truncated, {omitted} chars omitted; "
+                              f"total {len(content)} chars] ...\n"
+                            + content[-tail_chars:]
+                        ),
+                    })
                 else:
                     log_messages.append(m)
             try:
@@ -1837,10 +3818,13 @@ class AgentRepair:
                         backend = PlaywrightRenderBackend()
                         for html_file in html_files:
                             png_file = html_file.with_suffix(".png")
-                            backend.render_html_to_png(str(html_file), str(png_file))
+                            backend.render_html_file_to_png(html_file, png_file)
+                        backend.close()
                         logger.info("Agent slide %d: rendered %d snapshots", slide_id, len(html_files))
                     except Exception as e:
                         logger.warning("Agent slide %d: snapshot render failed: %s", slide_id, str(e)[:200])
+
+        self._record_last_repair_result(state, all_issues)
 
         # 5. Validate result
         if state.current_code == state.original_code:
@@ -1850,6 +3834,26 @@ class AgentRepair:
                 slide_id, tool_calls, len(state.current_code), len(state.original_code),
             )
             return None
+
+        if (
+            visual_only_repair
+            and self._is_html_code(state.current_code)
+        ):
+            scope_ok, scope_reason = validate_visual_repair_scope(
+                state.original_code,
+                state.current_code,
+                allow_image_replacement=visual_repair_may_replace_image,
+                allow_text_formatting_change=(
+                    visual_repair_may_change_formatting
+                ),
+                allow_text_content_change=visual_repair_may_change_text,
+            )
+            if not scope_ok:
+                logger.info(
+                    "Agent repair slide %d: visual scope violation after loop "
+                    "(%s)", slide_id, scope_reason,
+                )
+                return None
 
         # Content retention check
         threshold = self._get_retention_threshold(all_issues)
@@ -2037,6 +4041,9 @@ class AgentRepair:
                     ), False
             return self._tool_apply_edits(action, state)
 
+        if tool == "apply_css_patch":
+            return self._tool_apply_css_patch(action, state)
+
         # Dispatch table for simple tool routing
         _TOOL_DISPATCH: dict[str, tuple] = {
             "verify_layout": (self._tool_verify_layout, "state_only"),
@@ -2044,16 +4051,29 @@ class AgentRepair:
             "delete_shape": (self._tool_delete_shape, "action_state"),
             "reflow_layout": (self._tool_reflow_layout, "action_state"),
             "get_current_code": (self._tool_get_current_code, "state_only"),
+            "measure_space": (self._tool_measure_space, "state_only"),
             "plan": (self._tool_plan, "action_state"),
             "update_plan": (self._tool_update_plan, "action_state"),
             "search_source": (self._tool_search_source, "action_state"),
             "lookup_table": (self._tool_lookup_table, "action_state"),
+            "crop_image": (self._tool_crop_image, "action_state"),
+            "compose_image_grid": (self._tool_compose_image_grid, "action_state"),
             "generate_chart": (self._tool_generate_chart, "action_state"),
+            "create_svg_asset": (self._tool_create_svg_asset, "action_state"),
             "regen_slide": (self._tool_regen_slide, "action_state"),
         }
 
         if tool == "render_preview":
-            return "render_preview is no longer available. Use verify_layout for compile + spatial checks.", False
+            if not self._enable_render_preview:
+                return (
+                    "render_preview is unavailable for this repair. "
+                    "Use verify_layout for compile and spatial checks, but do not "
+                    "claim a high-confidence visual/composition pass from this alone. "
+                    "If the original issue is subjective, cite the strongest spatial "
+                    "evidence you have or mark the result uncertain.",
+                    False,
+                )
+            return self._tool_render_preview(state)
 
         if tool == "submit_repair_summary":
             return self._tool_submit_repair_summary(
@@ -2070,8 +4090,145 @@ class AgentRepair:
             else:
                 return fn(action, state)
 
-        available = ", ".join(["apply_edits", *_TOOL_DISPATCH.keys(), "submit_repair_summary", "submit"])
+        available = ", ".join([
+            "apply_edits", "apply_css_patch", *_TOOL_DISPATCH.keys(),
+            "submit_repair_summary", "submit",
+        ])
         return f"Unknown tool: {tool}. Available: {available}", False
+
+    @staticmethod
+    def _normalize_checkpoint_metadata(state: AgentState) -> None:
+        """Keep optional checkpoint metadata aligned with legacy state fixtures."""
+        if not hasattr(state, "checkpoint_text_loss"):
+            state.checkpoint_text_loss = [0] * len(state.checkpoints)
+        if not hasattr(state, "checkpoint_labels"):
+            state.checkpoint_labels = ["legacy checkpoint"] * len(state.checkpoints)
+        if not hasattr(state, "current_checkpoint_label"):
+            state.current_checkpoint_label = "legacy checkpoint"
+        defaults = {
+            "pending_edit_cluster": False,
+            "pending_edit_scopes": [],
+            "last_edit_scope": (),
+            "active_cluster_start_code": None,
+            "active_cluster_start_text_loss": 0,
+            "active_cluster_start_label": "",
+            "last_cluster_start_code": None,
+            "last_cluster_start_text_loss": 0,
+            "last_cluster_start_label": "",
+        }
+        for name, value in defaults.items():
+            if not hasattr(state, name):
+                setattr(state, name, value.copy() if isinstance(value, list) else value)
+        while len(state.checkpoint_text_loss) < len(state.checkpoints):
+            state.checkpoint_text_loss.append(0)
+        while len(state.checkpoint_labels) < len(state.checkpoints):
+            state.checkpoint_labels.append("legacy checkpoint")
+
+    def _commit_html_code_change(
+        self,
+        state: AgentState,
+        new_code: str,
+        *,
+        projected_text_loss: int,
+        edit_scopes: list[str],
+        cluster_complete: bool,
+        action_label: str,
+    ) -> None:
+        """Record one HTML edit while preserving a recoverable cluster boundary."""
+        self._normalize_checkpoint_metadata(state)
+        was_pending_cluster = state.pending_edit_cluster
+        pre_edit_code = state.current_code
+        pre_edit_text_loss = state.cumulative_words_lost
+        pre_edit_label = state.current_checkpoint_label
+        combined_scopes = list(getattr(state, "pending_edit_scopes", []))
+        for scope in edit_scopes:
+            if scope not in combined_scopes:
+                combined_scopes.append(scope)
+
+        if not was_pending_cluster:
+            state.active_cluster_start_code = pre_edit_code
+            state.active_cluster_start_text_loss = pre_edit_text_loss
+            state.active_cluster_start_label = pre_edit_label
+
+        state.checkpoints.append(pre_edit_code)
+        state.checkpoint_text_loss.append(pre_edit_text_loss)
+        state.checkpoint_labels.append(pre_edit_label)
+        state.current_code = new_code
+        state.cumulative_words_lost = projected_text_loss
+        self._invalidate_verify_after_code_change(state, f"{action_label} changed code")
+        state.last_edit_scope = tuple(combined_scopes)
+        state.current_checkpoint_label = (
+            f"{action_label} revision {state.layout_revision}; scopes: "
+            + (", ".join(combined_scopes) if combined_scopes else "unclassified")
+        )
+
+        if cluster_complete:
+            state.last_cluster_start_code = (
+                state.active_cluster_start_code
+                if state.active_cluster_start_code is not None
+                else pre_edit_code
+            )
+            state.last_cluster_start_text_loss = state.active_cluster_start_text_loss
+            state.last_cluster_start_label = (
+                state.active_cluster_start_label or pre_edit_label
+            )
+            state.pending_edit_cluster = False
+            state.pending_edit_scopes = []
+            state.active_cluster_start_code = None
+            state.active_cluster_start_text_loss = 0
+            state.active_cluster_start_label = ""
+        else:
+            state.pending_edit_cluster = True
+            state.pending_edit_scopes = combined_scopes
+
+    @staticmethod
+    def _introduced_unstyled_layout_classes(
+        before_code: str,
+        after_code: str,
+    ) -> list[str]:
+        """Find new layout-role classes whose closure CSS is not present yet.
+
+        Structural HTML reflows often need one edit for wrappers and another for
+        their CSS. Treating the wrapper-only state as a completed rollback unit
+        can strand half of that reflow when the closure CSS is later abandoned.
+        """
+        if not (
+            AgentRepair._is_html_code(before_code)
+            and AgentRepair._is_html_code(after_code)
+        ):
+            return []
+
+        try:
+            from bs4 import BeautifulSoup
+
+            def classes_in(code: str) -> set[str]:
+                soup = BeautifulSoup(code, "html.parser")
+                return {
+                    str(class_name)
+                    for tag in soup.find_all(class_=True)
+                    for class_name in (tag.get("class") or [])
+                    if class_name
+                }
+
+            introduced = classes_in(after_code) - classes_in(before_code)
+            soup = BeautifulSoup(after_code, "html.parser")
+            css = "\n".join(
+                style.get_text("\n") for style in soup.find_all("style")
+            )
+        except Exception:
+            return []
+
+        layout_terms = (
+            "stack", "grid", "wrap", "wrapper", "container", "row", "column",
+            "col", "panel", "rail", "card", "zone", "region", "layout", "body",
+            "main", "aside", "cluster", "group",
+        )
+        return [
+            class_name
+            for class_name in sorted(introduced)
+            if any(term in class_name.lower() for term in layout_terms)
+            and not re.search(rf"\.{re.escape(class_name)}(?![\w-])", css)
+        ]
 
     def _tool_apply_edits(
         self, action: dict, state: AgentState,
@@ -2081,19 +4238,92 @@ class AgentRepair:
         if not edits:
             return "No edits provided.", False
 
-        # Cap at 10 edits
-        edits = edits[:10]
+        max_edits_per_call = getattr(self, "_max_edits_per_call", 24)
+        if len(edits) > max_edits_per_call:
+            return (
+                "EDIT BATCH NOT APPLIED: received "
+                f"{len(edits)} edits, but the per-call limit is "
+                f"{max_edits_per_call}. Consolidate selectors or split the "
+                "work at a coherent cluster boundary. No partial prefix was "
+                "applied, so the current code is unchanged."
+            ), False
 
-        # Count occurrences before applying, for feedback
+        cluster_complete = action.get("cluster_complete", True) is not False
+        edit_scopes = self._edit_scope_labels(edits)
+
+        # Reject ambiguous edits before applying any of the batch. Silent global
+        # replacement is too risky in generated HTML/CSS where short fragments
+        # commonly repeat across unrelated elements.
         edit_counts = []
-        for edit in edits:
+        ambiguous = []
+        exact_no_op_edits: list[int] = []
+        for index, edit in enumerate(edits, 1):
             search = edit.get("search", "")
             insert_after = edit.get("insert_after", "")
+            if search and search == edit.get("replace", ""):
+                exact_no_op_edits.append(index)
             if search:
                 count = state.current_code.count(search)
-                edit_counts.append((search, count))
+                occurrence = edit.get("occurrence")
+                expected = edit.get("expected_matches")
+                edit_counts.append((search, count, occurrence, expected, False))
+                if occurrence is None and expected is None and count != 1:
+                    ambiguous.append(
+                        f"Edit {index}: search matches {count} times; make the search "
+                        "unique, set occurrence (1-based), or set expected_matches."
+                    )
+                elif expected is not None:
+                    try:
+                        expected_int = int(expected)
+                    except (TypeError, ValueError):
+                        ambiguous.append(f"Edit {index}: expected_matches must be an integer.")
+                    else:
+                        if count != expected_int:
+                            ambiguous.append(
+                                f"Edit {index}: expected {expected_int} matches but found {count}."
+                            )
+                elif occurrence is not None:
+                    try:
+                        occurrence_int = int(occurrence)
+                    except (TypeError, ValueError):
+                        ambiguous.append(f"Edit {index}: occurrence must be an integer.")
+                    else:
+                        if occurrence_int < 1 or occurrence_int > count:
+                            ambiguous.append(
+                                f"Edit {index}: occurrence {occurrence_int} is outside 1..{count}."
+                            )
             elif insert_after:
-                edit_counts.append((f"[insert after] {insert_after[:40]}", 1 if insert_after in state.current_code else 0))
+                count = state.current_code.count(insert_after)
+                occurrence = edit.get("occurrence")
+                edit_counts.append((f"[insert after] {insert_after[:40]}", count, occurrence, None, True))
+                if occurrence is None and count != 1:
+                    ambiguous.append(
+                        f"Edit {index}: insert_after matches {count} times; make it unique "
+                        "or set occurrence (1-based)."
+                    )
+
+        if ambiguous:
+            refresh = (
+                "Call get_current_code before retrying this structural batch and "
+                "construct every exact search from the current revision"
+            )
+            if state.last_code_read_revision == state.layout_revision:
+                refresh = (
+                    "Re-read the current-code result and rebuild the failed exact "
+                    "search around the current DOM structure before retrying"
+                )
+            return (
+                "AMBIGUOUS EDITS - no changes applied:\n"
+                + "\n".join(ambiguous)
+                + f"\n{refresh}. Do not reuse a pre-edit wrapper/closing-tag pattern."
+            ), False
+
+        dashboard_strategy_warning = self._dashboard_local_first_html_edit_message(
+            edits, state,
+        )
+        broad_structural_warning = self._broad_structural_html_edit_message(
+            edits, state,
+        )
 
         new_code = _apply_edits(state.current_code, edits)
         if new_code == state.current_code:
@@ -2107,6 +4337,13 @@ class AgentRepair:
                 return "No changes applied. Failed matches:\n" + "\n".join(failed), False
             return "No changes applied — search strings may not match current code.", False
 
+        edit_diff = ""
+        for e in action.get("edits", []):
+            edit_diff += e.get("search", "") + e.get("replace", "")
+        raw_slot_warning = self._raw_figure_dense_slot_edit_warning(state, edit_diff)
+        if raw_slot_warning:
+            return raw_slot_warning, False
+
         # Compile test
         ok = self._test_compile(
             new_code, state.codegen_compiler, state.case_dir, state.slide_id,
@@ -2117,9 +4354,135 @@ class AgentRepair:
                 "Python syntax or runtime error. Check indentation and variable names."
             ), False
 
-        # Success — save checkpoint and update code
-        state.checkpoints.append(state.current_code)
-        state.current_code = new_code
+        text_loss_warning = ""
+        projected_text_loss = state.cumulative_words_lost
+        allows_content_change = (
+            bool(state.issue_types & CONTENT_ACCURACY_ISSUE_TYPES)
+            or getattr(state, "allow_visible_text_change", False)
+        )
+        if (
+            self._is_html_code(new_code)
+            and getattr(state, "allow_support_copy_compression", False)
+        ):
+            semantic_role_regressions = self._support_compression_role_regressions(
+                state.current_code,
+                new_code,
+            )
+            if semantic_role_regressions:
+                return (
+                    "AUTO-ROLLBACK: Support-copy compression removed an "
+                    "information-bearing structural role: "
+                    + ", ".join(semantic_role_regressions)
+                    + ". Compression may shorten the authorized explanatory "
+                    "support copy, but it may not delete a repeated metric/KPI "
+                    "item, dissolve a findings/takeaway branch into metric notes, "
+                    "or merge distinct roles. Preserve each recognizable semantic "
+                    "unit and solve its geometry separately. Shorten prose within "
+                    "each role, then use the measured card extents to reserve a real "
+                    "terminal region or choose another role-preserving reflow."
+                ), False
+            dropped_high_value = _dropped_high_value_tokens(
+                state.current_code, new_code, limit=10,
+            )
+            if dropped_high_value:
+                shown = ", ".join(f'"{token}"' for token in dropped_high_value)
+                return (
+                    "AUTO-ROLLBACK: Support-copy compression removed protected "
+                    f"values or named terms: {shown}. Shorten only explanatory "
+                    "wording while retaining every number, metric, entity, label, "
+                    "finding, and source attribution."
+                ), False
+        elif self._is_html_code(new_code) and not allows_content_change:
+            dropped_high_value = _dropped_high_value_tokens(state.current_code, new_code, limit=10)
+            if dropped_high_value:
+                shown = ", ".join(f'"{token}"' for token in dropped_high_value)
+                return (
+                    "AUTO-ROLLBACK: This layout edit removed value-bearing content: "
+                    f"{shown}. Preserve numbers, metrics, model/method names, and dataset names; "
+                    "resolve the issue with CSS or relocate the existing content. "
+                    "For table/card pressure, do not keep only the currently visible "
+                    "subset; instead give the content a real region, recalibrate the "
+                    "existing grid/table/card tracks, use stable-DOM grid areas, or "
+                    "move supporting cards into another explicit track while preserving "
+                    "all strings."
+                ), False
+
+            ordinary_lost = _meaningful_visible_words_lost(state.current_code, new_code)
+            projected_text_loss += len(ordinary_lost)
+            if ordinary_lost and projected_text_loss > state.text_loss_budget:
+                shown = ", ".join(ordinary_lost[:6])
+                return (
+                    "AUTO-ROLLBACK: Cumulative visible-text loss budget would be exceeded "
+                    f"({projected_text_loss} > {state.text_loss_budget}; removed: {shown}). "
+                    "This edit was rejected, but DOM reflow remains available. Retry with "
+                    "the complete information-bearing elements preserved or relocated "
+                    "atomically."
+                ), False
+            if ordinary_lost:
+                text_loss_warning = (
+                    f"\nText-loss budget: {projected_text_loss}/{state.text_loss_budget} "
+                    f"after removing {len(ordinary_lost)} ordinary word(s)."
+                )
+
+        # A wrapper-only DOM reflow is not a coherent rollback boundary yet.
+        # Keep the transaction open until its dependent CSS/DOM closure arrives.
+        implicit_cluster_classes = self._introduced_unstyled_layout_classes(
+            state.current_code,
+            new_code,
+        )
+        implicit_cluster_note = ""
+        if cluster_complete and implicit_cluster_classes:
+            cluster_complete = False
+            shown = ", ".join(f".{name}" for name in implicit_cluster_classes)
+            implicit_cluster_note = (
+                "\n\nSTRUCTURAL EDIT CLUSTER KEPT OPEN: this DOM batch introduced "
+                f"layout wrapper class(es) without closure CSS: {shown}. Apply the "
+                "dependent CSS/DOM closure next with cluster_complete=true. If the "
+                "reflow is abandoned, rollback(scope=\"cluster\") will restore the "
+                "state before these wrappers were introduced."
+            )
+
+        support_copy_checkpoint_note = self._dashboard_support_copy_checkpoint_note(
+            state,
+            state.current_code,
+            new_code,
+            cluster_complete=cluster_complete,
+        )
+        no_op_edit_note = ""
+        if exact_no_op_edits:
+            shown = ", ".join(str(index) for index in exact_no_op_edits)
+            no_op_edit_note = (
+                "\n\nNO-OP EDIT NOTE: edit entries "
+                f"{shown} replace text with the identical text and therefore make "
+                "no code or rendered-demand change. Do not count them as completed "
+                "compression or repair work; omit them from the next batch and judge "
+                "copy calibration by changed wrapping and containment."
+            )
+
+        active_cluster_start = getattr(state, "active_cluster_start_code", None)
+        cluster_start_code = (
+            active_cluster_start
+            if getattr(state, "pending_edit_cluster", False)
+            and active_cluster_start is not None
+            else state.current_code
+        )
+
+        # Success — save checkpoint and update code.
+        self._commit_html_code_change(
+            state,
+            new_code,
+            projected_text_loss=projected_text_loss,
+            edit_scopes=edit_scopes,
+            cluster_complete=cluster_complete,
+            action_label="apply_edits",
+        )
+        edit_cluster_coverage_note = self._edit_cluster_execution_coverage_note(
+            state,
+            before_code=cluster_start_code,
+            after_code=new_code,
+            action_text=str(action.get("reasoning", "") or ""),
+            cluster_complete=cluster_complete,
+        )
 
         # NOTE: No auto-rollback here. All spatial checking is deferred
         # to verify_layout, where the model can decide whether to rollback
@@ -2127,11 +4490,22 @@ class AgentRepair:
 
         # Build detailed feedback with occurrence counts
         details = []
-        for i, (search_str, count) in enumerate(edit_counts):
-            if count > 1:
-                details.append(f"  Edit {i+1}: replaced {count} occurrences of \"{search_str[:60]}\"")
+        for i, (search_str, count, occurrence, expected, is_insert) in enumerate(edit_counts):
+            verb = "inserted after" if is_insert else "replaced"
+            if occurrence is not None:
+                details.append(
+                    f"  Edit {i+1}: {verb} occurrence {occurrence} of {count} "
+                    f"matches for \"{search_str[:60]}\""
+                )
+            elif expected is not None and count > 1:
+                details.append(
+                    f"  Edit {i+1}: {verb} {count} verified occurrences of "
+                    f"\"{search_str[:60]}\""
+                )
+            elif count > 1:
+                details.append(f"  Edit {i+1}: {verb} {count} occurrences of \"{search_str[:60]}\"")
             elif count == 1:
-                details.append(f"  Edit {i+1}: replaced 1 occurrence of \"{search_str[:60]}\"")
+                details.append(f"  Edit {i+1}: {verb} 1 occurrence of \"{search_str[:60]}\"")
             else:
                 details.append(f"  Edit {i+1}: search string not found (insert or no-op)")
 
@@ -2195,15 +4569,11 @@ class AgentRepair:
         warn_str = "\n".join(overflow_warnings) if overflow_warnings else ""
 
         # IMMEDIATE high-value-deletion warning — fire IN THE EDIT RESULT, not
-        # only at the next verify_layout. Root cause (Implicit gpt55 trace): when
-        # the agent can't REPOSITION an overlapping card, it deletes the whole
-        # card — and the card it deletes sometimes holds the only benchmark
-        # numbers ("KEY RESULT 0.799 AV2 mAP vs MP3 0.774"). The verify-based
-        # warning fired too late (the agent had already committed to deleting and
-        # moved to submit). Surfacing it on the deleting edit itself lets the
-        # agent choose to RELOCATE/SHRINK instead of delete — before it commits.
-        # Non-blocking (the deletion may be correct); we only make the trade
-        # explicit. Compares this edit's before (checkpoints[-1]) vs after.
+        # Warn when an edit deletes high-value content (benchmark numbers,
+        # model names). Surfacing this on the edit lets the agent choose to
+        # RELOCATE/SHRINK instead of delete before it commits.
+        # Non-blocking (the deletion may be correct).
+        # Compares this edit's before (checkpoints[-1]) vs after.
         hv_delete_warning = ""
         if state.checkpoints:
             just_dropped = _dropped_high_value_tokens(
@@ -2222,29 +4592,198 @@ class AgentRepair:
                 )
 
         # Detect layout property changes and force verify reminder
-        edit_diff = ""
-        for e in action.get("edits", []):
-            edit_diff += e.get("search", "") + e.get("replace", "")
-
         layout_verify_warning = ""
         is_html = self._is_html_code(state.current_code)
         if is_html:
             layout_keywords = ["left:", "top:", "width:", "height:", "position:", "margin", "padding", "flex", "grid"]
             if any(kw in edit_diff for kw in layout_keywords):
-                layout_verify_warning = "\n\n⚠️ Layout properties changed. You MUST call verify_layout before making more edits or submitting."
+                if cluster_complete:
+                    layout_verify_warning = (
+                        "\n\nLayout checkpoint marked complete. Call verify_layout "
+                        "before submitting or starting a different repair family."
+                    )
+                else:
+                    layout_verify_warning = (
+                        "\n\nThis batch is marked as part of an unfinished coupled "
+                        "edit cluster. Apply the remaining dependent-region edits "
+                        "before treating the layout as a checkpoint. If you verify "
+                        "now for measurements, interpret same-cluster residuals as "
+                        "an intermediate state rather than a finished strategy."
+                    )
         else:
             if "Inches(" in edit_diff:
-                layout_verify_warning = "\n\n⚠️ Coordinate values changed. You MUST call verify_layout before making more edits or submitting."
+                if cluster_complete:
+                    layout_verify_warning = (
+                        "\n\nCoordinate checkpoint marked complete. Call "
+                        "verify_layout before submitting or changing repair family."
+                    )
+                else:
+                    layout_verify_warning = (
+                        "\n\nThis coordinate batch is an unfinished coupled edit "
+                        "cluster. Complete its dependent edits before final "
+                        "verification."
+                    )
+        dashboard_table_warning = self._dashboard_table_outer_frame_warning_from_edits(
+            edits, state,
+        )
+        dashboard_coupled_warning = self._dashboard_coupled_cluster_warning_from_edits(
+            edits, state,
+        )
+        dashboard_descendant_warning = self._dashboard_parent_descendant_patch_warning(
+            state,
+            self._html_edit_blob(edits),
+        )
+        dashboard_plan_implementation_warning = (
+            self._dashboard_plan_implementation_warning(
+                state,
+                action_text=str(action.get("reasoning", "") or ""),
+                cluster_complete=cluster_complete,
+            )
+        )
 
         result_msg = (
             f"Applied {len(edits)} edit(s) successfully. Code compiles OK.\n"
             f"{detail_str}\n"
             f"{warn_str}"
             f"{hv_delete_warning}\n"
-            f"If you changed positions/sizes, call verify_layout next."
+            f"{text_loss_warning}\n"
+            f"Verify after the current coherent edit cluster is complete."
             f"{layout_verify_warning}"
+            f"{dashboard_strategy_warning or ''}"
+            f"{broad_structural_warning or ''}"
+            f"{dashboard_table_warning}"
+            f"{dashboard_coupled_warning}"
+            f"{dashboard_descendant_warning}"
+            f"{dashboard_plan_implementation_warning}"
+            f"{support_copy_checkpoint_note}"
+            f"{no_op_edit_note}"
+            f"{implicit_cluster_note}"
+            f"{edit_cluster_coverage_note}"
         )
         return result_msg, True
+
+    def _tool_apply_css_patch(
+        self, action: dict, state: AgentState,
+    ) -> tuple[str, bool]:
+        """Append or replace one cascade-late CSS repair block in HTML slides."""
+        if not self._is_html_code(state.current_code):
+            return "apply_css_patch is available only for HTML slides.", False
+
+        css = str(action.get("css", "") or "").strip()
+        if not css:
+            return "No CSS provided.", False
+        if "<style" in css.lower() or "</style" in css.lower():
+            return (
+                "Provide CSS declarations only; do not include <style> tags. "
+                "The tool owns the repair patch wrapper."
+            ), False
+
+        mode = str(action.get("mode", "append") or "append").lower()
+        if mode not in {"append", "replace"}:
+            return "mode must be either 'append' or 'replace'.", False
+
+        start_marker = "/* REDECK_REPAIR_PATCH_START */"
+        end_marker = "/* REDECK_REPAIR_PATCH_END */"
+        patch_re = re.compile(
+            re.escape(start_marker) + r".*?" + re.escape(end_marker),
+            re.DOTALL,
+        )
+        existing = patch_re.search(state.current_code)
+        if existing and mode == "replace":
+            patch = f"{start_marker}\n{css}\n{end_marker}"
+            new_code = (
+                state.current_code[:existing.start()]
+                + patch
+                + state.current_code[existing.end():]
+            )
+        elif existing:
+            insertion = f"\n{css}\n"
+            marker_start = existing.end() - len(end_marker)
+            new_code = (
+                state.current_code[:marker_start]
+                + insertion
+                + state.current_code[marker_start:]
+            )
+        else:
+            style_end = state.current_code.lower().rfind("</style>")
+            if style_end < 0:
+                return "Could not find a closing </style> tag for the CSS patch.", False
+            patch = f"\n{start_marker}\n{css}\n{end_marker}\n"
+            new_code = state.current_code[:style_end] + patch + state.current_code[style_end:]
+
+        raw_slot_warning = self._raw_figure_dense_slot_edit_warning(state, css)
+        if raw_slot_warning:
+            return raw_slot_warning, False
+        if not self._test_compile(
+            new_code, state.codegen_compiler, state.case_dir, state.slide_id,
+        ):
+            return "Compile error — CSS patch reverted. Check the CSS syntax.", False
+
+        cluster_complete = action.get("cluster_complete", True) is not False
+        edit_scopes = self._edit_scope_labels([{"search": "", "replace": css}])
+        active_cluster_start = getattr(state, "active_cluster_start_code", None)
+        cluster_start_code = (
+            active_cluster_start
+            if getattr(state, "pending_edit_cluster", False)
+            and active_cluster_start is not None
+            else state.current_code
+        )
+        self._commit_html_code_change(
+            state,
+            new_code,
+            projected_text_loss=state.cumulative_words_lost,
+            edit_scopes=edit_scopes,
+            cluster_complete=cluster_complete,
+            action_label="apply_css_patch",
+        )
+        edit_cluster_coverage_note = self._edit_cluster_execution_coverage_note(
+            state,
+            before_code=cluster_start_code,
+            after_code=new_code,
+            action_text=str(action.get("reasoning", "") or ""),
+            cluster_complete=cluster_complete,
+        )
+
+        boundary = (
+            "checkpoint marked complete; call verify_layout"
+            if cluster_complete
+            else "unfinished coupled edit cluster; apply the dependent patch/DOM edits next"
+        )
+        scopes = ", ".join(edit_scopes) if edit_scopes else "unclassified selectors"
+        plan_implementation_warning = self._dashboard_plan_implementation_warning(
+            state,
+            action_text=str(action.get("reasoning", "") or ""),
+            cluster_complete=cluster_complete,
+        )
+        allocation_warning = (
+            ""
+            if plan_implementation_warning
+            else self._dashboard_terminal_support_patch_warning(state, css)
+        )
+        variable_track_warning = self._dashboard_variable_track_patch_warning(
+            state,
+            css,
+        )
+        descendant_warning = self._dashboard_parent_descendant_patch_warning(
+            state,
+            css,
+        )
+        owner_budget_warning = self._dashboard_repeated_owner_budget_warning(
+            state,
+            css,
+        )
+        return (
+            f"CSS patch {mode} applied successfully for {scopes}; {boundary}. "
+            "The patch cascades after the original stylesheet, so revise it with "
+            "mode='replace' if the combined hypothesis is wrong instead of layering "
+            "contradictory overrides."
+            f"{allocation_warning}"
+            f"{plan_implementation_warning}"
+            f"{variable_track_warning}"
+            f"{descendant_warning}"
+            f"{owner_budget_warning}"
+            f"{edit_cluster_coverage_note}"
+        ), True
 
     def _tool_verify_layout(self, state: AgentState) -> tuple[str | list, bool]:
         """Render current HTML and check spatial layout via Playwright DOM.
@@ -2260,10 +4799,21 @@ class AgentRepair:
 
         from .html_spatial_state import extract_html_slide_state, format_html_compact_state
 
+        asset_base_dirs = self._html_asset_base_dirs(
+            state.case_dir,
+            getattr(state, "_run_dir", None),
+            getattr(state, "_turn_index", None),
+        )
+
         def _extract_state(code: str, slide_id: int):
             """Render HTML and extract spatial state."""
             try:
-                state_obj = extract_html_slide_state(slide_id, code)
+                state_obj = extract_html_slide_state(
+                    slide_id,
+                    code,
+                    html_base_dir=Path(state.case_dir),
+                    asset_base_dirs=asset_base_dirs,
+                )
                 return state_obj, None
             except Exception as e:
                 return None, str(e)[:200]
@@ -2279,7 +4829,11 @@ class AgentRepair:
             t0_state, t0_err = _extract_state(state.original_code, state.slide_id)
             if t0_state:
                 state._t0_html_state = t0_state
-                t0_compact = format_html_compact_state(t0_state)
+                # Cache T0 overflow for rollback protection
+                state._t0_overflow_px = compute_overflow_px(t0_state.blocks)
+                t0_compact = self._scope_spatial_context(
+                    format_html_compact_state(t0_state), self._current_issues,
+                )
                 state._t0_compact_issues = t0_compact.count("❌ ")
                 # Cache T0 space-map coverage for delta tracking
                 import re as _re
@@ -2287,119 +4841,463 @@ class AgentRepair:
                 state._t0_space_coverage = int(_cov_m.group(1)) if _cov_m else None
 
         # Format compact state (single, consistent output)
-        compact = format_html_compact_state(t1_state)
+        compact = self._scope_spatial_context(
+            format_html_compact_state(t1_state), self._current_issues,
+        )
+        if self._looks_like_table_dashboard_pressure(state):
+            compact = self._dashboard_measurement_context(compact)
+            allocation_map = self._dashboard_allocation_map(t1_state)
+            if allocation_map:
+                compact += "\n\n" + allocation_map
         compact_issues = compact.count("❌ ")
 
         # Authoritative residual count via the single source of truth — this is
         # what the external scorer AND the submit gate use, so the agent should
         # be told about the SAME issues (the compact "❌" tally diverges slightly
         # on thresholds and historically under-counted clipped text).
-        from .html_spatial_state import count_significant_issues
-        t1_sig = count_significant_issues(t1_state)
-        sig_total = sum(len(v) for v in t1_sig.values())
+        from .html_spatial_state import (
+            significant_issue_regressions,
+        )
+        targeted_categories = self._targeted_residual_categories()
+        t0_state = getattr(state, '_t0_html_state', None)
+        targeted_sig = self._targeted_significant_issues(t0_state, t1_state)
+        sig_total = sum(len(value) for value in targeted_sig.values())
+        state.last_verify_targeted_residual_counts = {
+            category: len(items)
+            for category, items in targeted_sig.items()
+            if items
+        }
+        targeted_measurement_seen = False
+        if targeted_categories:
+            from .html_spatial_state import count_significant_issues
+            current_all_sig = count_significant_issues(t1_state)
+            baseline_all_sig = count_significant_issues(t0_state) if t0_state else {}
+            targeted_measurement_seen = any(
+                current_all_sig.get(category) or baseline_all_sig.get(category)
+                for category in targeted_categories
+            )
 
-        lines = [compact]
+        lines = []
+        if self._looks_like_table_dashboard_pressure(state):
+            decision_summary = self._dashboard_decision_summary(state, t1_state)
+            if decision_summary:
+                lines.append(decision_summary)
+        coupled_compression_note = self._dashboard_pending_coupled_compression_note(
+            state,
+            t1_state,
+        )
+        if coupled_compression_note:
+            lines.append(coupled_compression_note)
+        recent_scope = ", ".join(state.last_edit_scope) or "the edited region"
+        if state.pending_edit_cluster:
+            lines.append(
+                "COUPLED EDIT CLUSTER IN PROGRESS: the latest revision was "
+                f"explicitly marked unfinished. Recent edit scope: {recent_scope}. "
+                "Use this verification as intermediate spatial evidence. Before "
+                "rolling back, distinguish residuals owned by dependent regions "
+                "that have not yet received their closure edit from damage to "
+                "content, media, hierarchy, or unrelated regions. Continue the "
+                "cluster when its remaining dependent edits have a credible direct "
+                "closure path; abandon it when that path is no longer credible."
+            )
+        elif state.last_edit_scope:
+            lines.append(
+                "LATEST COHERENT EDIT SCOPE: "
+                f"{recent_scope}. Judge new residuals by whether this checkpoint "
+                "actually changed their owning region; persistence elsewhere does "
+                "not by itself invalidate the checkpoint."
+            )
+        state._last_verify_text_regression = False
+        state._last_verify_text_signal = False
+        state._last_verify_text_signal_reason = ""
+        state._last_verify_visual_compression_failed = False
+        state._last_verify_scope_failed = False
+        text_ok = True
+        text_reason = ""
+
+        compression_ok = True
+        compression_reason = ""
+        recoverable_dashboard_compression = False
+        if state.current_code != state.original_code:
+            # Skip visual compression check when large overflow exists —
+            # compression is NECESSARY to fit content within 720px canvas.
+            _current_overflow = compute_overflow_px(t1_state.blocks) if t1_state else 0
+            # Also check stored overflow from last verify as fallback
+            _stored_overflow = getattr(state, '_last_verified_overflow_px', 0) or 0
+            _effective_overflow = max(_current_overflow, _stored_overflow)
+            _large_overflow_bypass = _effective_overflow > 30
+
+            compression_ok, compression_reason = (
+                validate_repair_not_visual_compression(
+                    state.original_code,
+                    state.current_code,
+                    allow_dominant_element_removal=(
+                        issues_allow_dominant_element_removal(
+                            self._current_issues
+                        )
+                    ),
+                )
+            )
+            if _large_overflow_bypass:
+                compression_ok = True  # allow compression when overflow demands it
+                state._last_verify_visual_compression_failed = False
+            if not compression_ok:
+                recoverable_dashboard_compression = (
+                    self._is_recoverable_dashboard_dominant_compression(
+                        state, compression_reason,
+                    )
+                )
+                if recoverable_dashboard_compression:
+                    lines.append(
+                        "VISUAL HIERARCHY CORRECTION REQUIRED: "
+                        f"{compression_reason}. The coupled dashboard checkpoint "
+                        "may still contain useful table, ranking, and summary "
+                        "calibration, so do not roll back the whole batch solely "
+                        "for this focal-scale error. Make the next edit a local "
+                        "correction that restores only the primary hero/KPI to the "
+                        "nearest clearly dominant fitting scale with a natural "
+                        "line-height. Do not compensate by shrinking its description, "
+                        "notes, or summary copy further. Choose the corrected scale "
+                        "from the current full render rather than a memorized size. "
+                        "Preserve the support-role calibration, then verify again. This checkpoint "
+                        "cannot be submitted until the final compression gate passes."
+                    )
+                else:
+                    state._last_verify_visual_compression_failed = True
+                    lines.append(
+                        "SHIPMENT GATE FAILED — VISUAL COMPRESSION: "
+                        f"{compression_reason}. Evaluate whether this compression "
+                        "is NECESSARY to resolve the overflow (if content still "
+                        "extends past 720px, compression is justified — continue "
+                        "editing to finish the fit). Roll back ONLY if the "
+                        "compression damaged unrelated regions or compressed "
+                        "elements that were already fitting fine. If overflow "
+                        "remains, this checkpoint is a valid intermediate state."
+                    )
+
+        # Use the same stable physical-defect comparison as the submit gate.
+        # Scoped compact output intentionally hides unrelated baseline noise,
+        # but it must never hide a regression introduced by the current edit.
+        visual_only_repair = bool(self._current_issues) and all(
+            (issue.rubric_id or "").startswith("B")
+            for issue in self._current_issues
+        )
+        if t0_state is not None and visual_only_repair:
+            from .repair_utils import validate_rendered_text_preservation
+            text_ok, text_reason = validate_rendered_text_preservation(
+                t0_state, t1_state,
+                allow_revealed_text=issues_allow_rendered_text_reveal(
+                    self._current_issues,
+                ),
+                allow_text_formatting_change=any(
+                    issue.issue_type == "formatting_error"
+                    for issue in self._current_issues
+                ),
+                allow_text_content_change=issues_allow_visible_text_change(
+                    self._current_issues
+                ),
+            )
+            if not text_ok:
+                state._last_verify_text_signal = True
+                state._last_verify_text_signal_reason = text_reason
+                lines.append(
+                    "VISIBLE TEXT CHANGE SIGNAL (advisory): "
+                    f"{text_reason}. This rendered-token comparison is a "
+                    "risk signal, not a checkpoint or shipment gate by itself. "
+                    "Use it to inspect whether source text was truly deleted, "
+                    "hidden, or semantically reordered. If the source DOM, media, "
+                    "roles, and deterministic spatial issues are acceptable, "
+                    "continue the current closure/calibration chain instead of "
+                    "rolling back solely because of this signal."
+                )
+        regressions = (
+            significant_issue_regressions(t0_state, t1_state)
+            if t0_state is not None else {}
+        )
+        target_aligned_crop = []
+        raw_css_crop_hints = (
+            html_image_css_crop_hints(state.current_code)
+            if any(
+                issue.issue_type in {"raw_figure", "raw_table"}
+                for issue in self._current_issues
+            ) and self._is_html_code(state.current_code)
+            else []
+        )
+        if can_exempt_raw_figure_image_crop(self._current_issues, state.current_code):
+            target_aligned_crop = regressions.pop("image_crop", [])
+        regression_total = sum(len(items) for items in regressions.values())
+        state._last_verify_spatial_regression_total = regression_total
+        state._last_verify_targeted_residual_total = sig_total
+        state._last_verify_compact_issues = compact_issues
+
+        def _describe_block(block_id: str) -> str:
+            block = next(
+                (item for item in t1_state.blocks if item.block_id == block_id),
+                None,
+            )
+            if block is None:
+                return block_id
+            text = " ".join(block.text_lines).strip()
+            label = text[:56] if text else (block.css_selector or block.var_name)
+            x, y, width, height = block.bbox_px
+            return (
+                f'{block_id} "{label}" '
+                f'at ({x:.0f},{y:.0f},{width:.0f}x{height:.0f})'
+            )
+
+        if regression_total:
+            lines.append(self._spatial_regression_policy_message(
+                regression_total,
+                hard_quality_failure=(
+                    f"visual compression: {compression_reason}"
+                    if not compression_ok and not recoverable_dashboard_compression
+                    else ""
+                ),
+            ))
+            regression_signature = tuple(sorted(
+                f"{group}:{kind}"
+                for group, items in regressions.items()
+                for kind, _payload in items
+            ))
+            if regression_signature == state.last_spatial_regression_signature:
+                state.spatial_regression_streak += 1
+            else:
+                state.last_spatial_regression_signature = regression_signature
+                state.spatial_regression_streak = 1
+            shown_regressions, omitted_regressions = (
+                self._representative_spatial_regressions(regressions)
+            )
+            for group, kind, payload in shown_regressions:
+                if group == "interaction":
+                    first_id, second_id = payload
+                    lines.append(
+                        f"  NEW {kind.upper()}: "
+                        f"{_describe_block(first_id)} <-> "
+                        f"{_describe_block(second_id)}"
+                    )
+                else:
+                    lines.append(
+                        f"  NEW {kind.upper()}: "
+                        f"{_describe_block(payload)}"
+                    )
+            if omitted_regressions:
+                omitted_summary = ", ".join(
+                    f"{group} +{count}"
+                    for group, count in omitted_regressions.items()
+                )
+                lines.append(
+                    "  REGRESSION DETAIL SUMMARY: representative root examples "
+                    f"shown above; omitted repeated detector findings: {omitted_summary}. "
+                    "Use the descendant, relation, and repeated-allocation maps to "
+                    "reason about their shared spatial cause rather than treating "
+                    "each nested pair as an independent failure."
+                )
+            if state.spatial_regression_streak >= 2:
+                lines.append(
+                    "STRATEGY ESCALATION: the same class of hard spatial "
+                    "regression has appeared on consecutive verify_layout calls. "
+                    "Use the render to decide whether this is an unfinished state "
+                    "inside the same structural repair or evidence that the current "
+                    "approach is not converging. Continue the same attempt when the "
+                    "content and roles remain intact and the remaining defect has a "
+                    "clear structural cause. Roll back or change direction when "
+                    "information is damaged, unrelated regions regress, or the same "
+                    "pressure is only being moved around."
+                )
+        else:
+            state.spatial_regression_streak = 0
+            state.last_spatial_regression_signature = ()
+        if target_aligned_crop:
+            lines.append(
+                "TARGET-ALIGNED MEASUREMENT: the requested raw-figure crop "
+                "changed visible image framing. This is not a regression by "
+                "itself; use render_preview to confirm the intended subject "
+                "remains complete and the unwanted source material is gone."
+            )
+        if raw_css_crop_hints:
+            lines.append(
+                "RAW-FIGURE CSS CROP WARNING: current code uses CSS image "
+                f"windowing ({', '.join(raw_css_crop_hints)}). For B17, this "
+                "is not a sufficient final repair because it can make DOM "
+                "geometry pass while cutting away figure content. Replace the "
+                "image with a real cropped/recomposed asset, exact-data generated chart, "
+                "or fidelity-preserving SVG summary asset, "
+                "display it intact with object-fit: contain, then call "
+                "render_preview."
+            )
 
         # Delta vs baseline — with specific fixed/new issue details
         t0_count = getattr(state, '_t0_compact_issues', 0)
         compact_delta = compact_issues - t0_count
-        if compact_delta < 0:
-            lines.append(f"\n✅ Improved: {compact_delta:+d} hard defects vs baseline ({t0_count}→{compact_issues}).")
+        if regression_total and compact_delta < 0:
+            reduction_pct = int(100 * (-compact_delta) / max(t0_count, 1))
+            if reduction_pct >= 75:
+                lines.append(
+                    f"NET PROGRESS: strongly improved by {-compact_delta} hard "
+                    f"defect(s) vs baseline ({t0_count}→{compact_issues}, "
+                    f"{reduction_pct}% reduction), despite {regression_total} "
+                    f"new finding(s)."
+                )
+            else:
+                lines.append(
+                    f"NET PROGRESS: improved by {-compact_delta} hard defect(s) "
+                    f"vs baseline ({t0_count}→{compact_issues}), despite "
+                    f"{regression_total} new finding(s)."
+                )
+            # If new findings include overlaps, call them out explicitly
+            if regression_total > 0:
+                lines.append(
+                    f"The {regression_total} new finding(s) listed above "
+                    f"(NEW OVERLAP / NEW CLIPPED) are real spatial defects "
+                    f"that need fixing — they are not detector artifacts. "
+                    f"Do not mark the plan step as done while these remain."
+                )
+        elif regression_total and compact_delta == 0:
+            lines.append(
+                f"NET NEUTRAL: total hard defect count unchanged vs baseline "
+                f"({t0_count}→{compact_issues}). {regression_total} new "
+                f"finding(s) appeared but an equal number of baseline findings "
+                f"resolved. The strategy is making progress if the remaining "
+                f"defects are in the region being actively repaired."
+            )
+        elif regression_total and compact_delta > 0:
+            lines.append(
+                f"NET REGRESSION: {compact_delta:+d} net hard defect(s) vs "
+                f"baseline ({t0_count}→{compact_issues}). {regression_total} "
+                f"new finding(s) appeared. Inspect whether new defects are "
+                f"in the actively edited region (expected intermediate state) "
+                f"or in unrelated regions (real regression requiring rollback)."
+            )
+        elif compact_delta < 0:
+            lines.append(
+                f"REGRESSION CHECK: improved by {-compact_delta} hard defect(s) "
+                f"vs baseline ({t0_count}→{compact_issues}). Remaining baseline "
+                "findings are context, not automatically new tasks. Do not dismiss "
+                "one as unrelated when it shows protected content participating in "
+                "the same spatial-pressure chain as the original issue."
+            )
         elif compact_delta > 0:
-            lines.append(f"\n⚠ Regression: {compact_delta:+d} new hard defects vs baseline ({t0_count}→{compact_issues}).")
+            lines.append(
+                f"REGRESSION CHECK: {compact_delta:+d} net hard defect(s) vs "
+                f"baseline ({t0_count}→{compact_issues}). Inspect the diff and "
+                "fix only defects introduced by the current edits."
+            )
+        elif compact_issues == 0 and sig_total == 0:
+            lines.append(
+                "REGRESSION CHECK: no new hard regression vs baseline and no "
+                "target-region deterministic visibility defect. Resolve the "
+                "original visual issue and use the space map only as supporting evidence."
+            )
         elif compact_issues == 0:
-            lines.append(f"\n✅ No hard defects (overlap/overflow/OOB). "
-                         "Review the space map for density and balance issues before submitting.")
+            lines.append(
+                "REGRESSION CHECK: no new hard regression vs baseline, but "
+                f"{sig_total} deterministic visibility measurement(s) remain in "
+                "the issue's named region. They are listed below and must not be "
+                "described as a clean or fully visible checkpoint."
+            )
         else:
-            lines.append(f"\nUnchanged: {compact_issues} hard defect(s) from baseline.")
+            lines.append(
+                f"REGRESSION CHECK: no net new hard defects; {compact_issues} "
+                "finding(s) are unchanged from baseline. They are not automatically "
+                "additional repair tasks, but they still matter when they expose the "
+                "same named layout conflict or keep protected content invisible."
+            )
+
+        alignment_delta = self._format_alignment_relation_delta(
+            t0_state,
+            t1_state,
+            self._current_issues,
+        )
+        if alignment_delta:
+            lines.append(alignment_delta)
+
+        lines.append("\n" + compact)
 
         # Residual significant-issue feedback (non-blocking, every verify call).
-        # The gap that let Olympus ship 3 clipped-text issues was NOT visibility
-        # (the agent saw "❌ CLIPPED" lines) but the absence of any push to ACT on
-        # residuals that are merely fewer-than-baseline. So on every verify where
-        # significant issues remain, we name them and ask the agent to fix or
-        # justify — informing its judgment, never blocking it.
+        # On every verify where significant issues remain, name them and ask
+        # the agent to fix or justify — informing its judgment, never blocking it.
         if sig_total > 0:
             res_lines = []
-            for bid in (t1_sig.get("clipped", []) + t1_sig.get("canvas_truncation", [])):
+            for bid in (
+                targeted_sig.get("clipped", [])
+                + targeted_sig.get("canvas_truncation", [])
+            ):
                 blk = next((b for b in t1_state.blocks if b.block_id == bid), None)
                 if blk is not None:
                     px = int(getattr(blk, 'clipped_bottom_px', 0) or 0)
                     prev = " ".join(blk.text_lines)[:36] if blk.text_lines else bid
                     res_lines.append(f"  • CLIPPED {bid}: \"{prev}\"" + (f" ({px}px hidden)" if px else ""))
-            for bid in t1_sig.get("text_overflow", []):
+            for bid in targeted_sig.get("text_overflow", []):
                 res_lines.append(f"  • OVERFLOW {bid}")
-            for a, b in t1_sig.get("overlap", []):
+            for issue_id in targeted_sig.get("svg_text_overflow", []):
+                res_lines.append(
+                    self._format_svg_text_overflow_residual(t1_state, issue_id)
+                )
+            for a, b in targeted_sig.get("overlap", []):
                 res_lines.append(f"  • OVERLAP {a} ↔ {b}")
-            for bid in t1_sig.get("out_of_bounds", []):
+            for bid in targeted_sig.get("out_of_bounds", []):
                 res_lines.append(f"  • OUT-OF-BOUNDS {bid}")
-            for a, b in t1_sig.get("occlusion", []):
+            for a, b in targeted_sig.get("occlusion", []):
                 res_lines.append(f"  • OCCLUDED {b} behind {a}")
             if res_lines:
+                if self._looks_like_table_dashboard_pressure(state):
+                    residual_advice = (
+                        "For this dense dashboard, decide from the current revision evidence whether "
+                        "the residual is local or reflects shared pressure across regions. "
+                        "A role-aware calibration may be enough when topology and hierarchy "
+                        "remain sound; regional reflow may be better when pressure keeps "
+                        "moving or normal flow cannot expose all semantic groups. Repeated "
+                        "rows and cards multiply small rhythm costs, so compare their cumulative "
+                        "height and wrapping with one-time title, header, and KPI roles before "
+                        "shrinking the frame again. Choose the next direction from that diagnosis, "
+                        "not from a fixed sequence or detector count."
+                    )
+                else:
+                    residual_advice = (
+                        "If several remaining measurements belong to the same body, lower, "
+                        "table/card, or footer-adjacent region, diagnose that shared spatial "
+                        "pressure before the next edit. A repeated local font/padding/height "
+                        "nudge is usually the wrong next move unless the region topology is "
+                        "already sound; prefer a real regional/body reflow that gives the "
+                        "affected semantic units visible space while preserving text and roles."
+                    )
                 lines.append(
-                    f"\n⏳ {sig_total} spatial issue(s) still open (these are what the "
-                    f"scorer counts — clear them before submitting):\n"
+                    f"\n{sig_total} target-category deterministic measurement(s) "
+                    f"remain:\n"
                     + "\n".join(res_lines)
-                    + "\n  ↳ Usually small fixes: grow a container's height, add bottom "
-                    "margin/padding, move a row up, or shave a font size. If one is a true "
-                    "structural overflow with no room left, note which and why in "
-                    "submit_repair_summary."
+                    + "\n  Use these measurements only to assess the original issue and "
+                    "its owning spatial region. Preserve unrelated baseline content, "
+                    "but do not label clipped protected content unrelated when it shares "
+                    "the same layout pressure. "
+                    + residual_advice
                 )
 
         # ── Quadrant fill data (spatial, non-blocking) ──
-        # Present raw fill ratios so the agent can judge whitespace balance.
-        _CONTAINER_TAGS = {"tr", "thead", "tbody", "table", "tfoot"}
-        _ws_blocks = [
-            b for b in t1_state.blocks
-            if b.bbox_px[2] > 20 and b.bbox_px[3] > 10  # min size in px
-            and not (b.bbox_px[2] / 1280 > 0.95 and b.bbox_px[3] / 720 > 0.90)  # exclude full-canvas wrappers
-            and not (b.var_name in _CONTAINER_TAGS and b.bbox_px[2] / 1280 > 0.80)  # exclude wide row containers
-        ]
-        if _ws_blocks:
-            _canvas_w, _canvas_h = 1280, 720
-            _grid_c, _grid_r = 24, 14
-            _cw, _ch = _canvas_w / _grid_c, _canvas_h / _grid_r
-            _grid = [[False] * _grid_c for _ in range(_grid_r)]
-            for _blk in _ws_blocks:
-                _bx, _by, _bw, _bh = _blk.bbox_px
-                for _r in range(_grid_r):
-                    _ry = _r * _ch
-                    if _by + _bh <= _ry or _by >= _ry + _ch:
-                        continue
-                    for _c in range(_grid_c):
-                        _cx = _c * _cw
-                        if _bx + _bw <= _cx or _bx >= _cx + _cw:
-                            continue
-                        _grid[_r][_c] = True
-            _mid_r, _mid_c = _grid_r // 2, _grid_c // 2
-            _qf = {}
-            for _qn, _rr, _cr in [
-                ("TL", range(0, _mid_r), range(0, _mid_c)),
-                ("TR", range(0, _mid_r), range(_mid_c, _grid_c)),
-                ("BL", range(_mid_r, _grid_r), range(0, _mid_c)),
-                ("BR", range(_mid_r, _grid_r), range(_mid_c, _grid_c)),
-            ]:
-                _cells = sum(1 for r in _rr for c in _cr if _grid[r][c])
-                _total = len(list(_rr)) * len(list(_cr))
-                _qf[_qn] = round(100 * _cells / max(1, _total))
+        # Reuse the exact structured measurement rendered in SPACE MAP.
+        _qf = {}
+        if self._needs_spatial_distribution(self._current_issues):
+            from .html_spatial_state import measure_space_occupancy
+            _space_measurement = measure_space_occupancy(t1_state.blocks)
+            _qf = _space_measurement["quadrant_fill"]
+            if not _space_measurement["significant_block_count"]:
+                _qf = {}
+
+        if self._needs_spatial_distribution(self._current_issues) and _qf:
             _max_q = max(_qf.values())
             _min_q = min(_qf.values())
             _sparse = [k for k, v in _qf.items() if v < 40]
             _dense = [k for k, v in _qf.items() if v >= 55]
 
-            qf_line = "\nQuadrant fill: " + " | ".join(f"{k}={v}%" for k, v in _qf.items())
             if _max_q >= 55 and _min_q < 40 and _sparse and _dense:
-                qf_line += (
-                    f"\n  ⚠ UNDERSIZED ELEMENTS: {', '.join(_sparse)} region(s) "
-                    f"only {', '.join(f'{_qf[q]}%' for q in _sparse)} filled. "
-                    f"Stretch images/tables/text blocks in these areas via CSS "
-                    f"(increase width/height). Do NOT add decorative filler."
+                lines.append(
+                    f"\nSPACE BALANCE SIGNAL: {', '.join(_sparse)} region(s) only "
+                    f"{', '.join(f'{_qf[q]}%' for q in _sparse)} filled. This is "
+                    f"supporting evidence, not a repair task unless the original "
+                    f"VLM issue identifies density or whitespace imbalance."
                 )
-            lines.append(qf_line)
 
         # Detailed diff: which issues were fixed, which are new
-        t0_state = getattr(state, '_t0_html_state', None)
-        if t0_state and t1_state:
+        if t0_state and t1_state and targeted_categories:
             t0_ovlp = {(min(a,b),max(a,b)) for a,b,_ in t0_state.overlap_pairs}
             t1_ovlp = {(min(a,b),max(a,b)) for a,b,_ in t1_state.overlap_pairs}
             t0_oob = set(t0_state.oob_blocks)
@@ -2431,40 +5329,40 @@ class AgentRepair:
             if diff_parts:
                 lines.append("\nDiff vs baseline: " + " | ".join(diff_parts))
 
-        # Coverage delta vs T0
+        # Coverage delta vs T0 is measurement only. Bounding-box occupancy does
+        # not establish whether whitespace is intentional or whether the focal
+        # hierarchy improved; the VLM issue brief and render preview own that
+        # judgment.
         t0_cov = getattr(state, '_t0_space_coverage', None)
-        if t0_cov is not None:
+        if (
+            self._needs_spatial_distribution(self._current_issues)
+            and t0_cov is not None
+        ):
             import re as _re
             _cov_m = _re.search(r"Coverage: (\d+)%", compact)
             if _cov_m:
                 cur_cov = int(_cov_m.group(1))
                 cov_delta = cur_cov - t0_cov
-                if cur_cov < 50:
+                if abs(cov_delta) >= 5:
                     lines.append(
-                        f"\n🚨 LOW COVERAGE: {cur_cov}% — the slide looks "
-                        f"sparse and unfinished. Enlarge content containers, "
-                        f"increase font sizes, or redistribute elements to "
-                        f"fill the empty areas. Target ≥55%."
+                        f"\nCoverage measurement: {cov_delta:+d}pp vs original "
+                        f"({t0_cov}% → {cur_cov}%). This is not a pass/fail target; "
+                        f"judge the full render against the diagnosed compositional "
+                        f"failure."
                     )
-                elif cov_delta <= -20:
+                elif cur_cov < 50:
                     lines.append(
-                        f"\n🚨 COVERAGE DROP: {cov_delta:+d}pp ({t0_cov}% → {cur_cov}%). "
-                        f"Your edits removed a large amount of content. This "
-                        f"will likely be flagged as density_imbalance or "
-                        f"missing content. Consider rollback if content was "
-                        f"deleted unintentionally."
+                        f"\nBaseline-aware coverage: {cur_cov}% (original "
+                        f"{t0_cov}%). Low absolute coverage is not a repair task "
+                        f"unless the original VLM issue identifies density or "
+                        f"whitespace imbalance."
                     )
-                elif cov_delta <= -15:
-                    lines.append(
-                        f"\n🚨 COVERAGE DROP: {cov_delta:+d}pp ({t0_cov}% → {cur_cov}%). "
-                        f"Your edits created visible empty space. Expand "
-                        f"containers or increase fonts to compensate."
-                    )
-                elif cov_delta <= -5:
-                    lines.append(
-                        f"\n⚠ Coverage change: {cov_delta:+d}pp vs original "
-                        f"({t0_cov}% → {cur_cov}%)."
-                    )
+
+        closure_reminder = self._build_composition_closure_verify_reminder(
+            self._current_issues,
+        )
+        if closure_reminder:
+            lines.append(closure_reminder)
 
         # Broken image guidance — prevent agent from wasting tool budget on path guessing
         if t1_state and t1_state.broken_images:
@@ -2505,22 +5403,55 @@ class AgentRepair:
                     reverse=True,
                 )
                 if t0_fonts and t1_fonts:
+                    dashboard_role_calibration = self._looks_like_table_dashboard_pressure(state)
                     t0_median = t0_fonts[len(t0_fonts) // 2]
                     t1_median = t1_fonts[len(t1_fonts) // 2]
                     if t1_median < t0_median - 2:
-                        lines.append(
-                            f"\n⚠ FONT DEGRADATION: median body font "
-                            f"{t0_median:.0f}px → {t1_median:.0f}px. "
-                            f"Consider restructuring (remove a section) "
-                            f"instead of shrinking fonts."
-                        )
+                        if dashboard_role_calibration:
+                            lines.append(
+                                f"\nDASHBOARD ROLE-SCALE CHECK: median text scale "
+                                f"changed {t0_median:.0f}px → {t1_median:.0f}px. "
+                                "This can be appropriate when the reduction is "
+                                "concentrated in repeated table rows, ranking rows, "
+                                "and summary support copy. Confirm that title, KPI, "
+                                "card identities, and interpretation notes retain a "
+                                "clear hierarchy; do not enlarge dense support roles "
+                                "solely to restore the median."
+                            )
+                        else:
+                            lines.append(
+                                f"\n⚠ FONT DEGRADATION: median body font "
+                                f"{t0_median:.0f}px → {t1_median:.0f}px. "
+                                f"Consider restructuring instead of shrinking fonts."
+                            )
+                    t0_below_14 = [f for f in t0_fonts if f < 14]
                     below_14 = [f for f in t1_fonts if f < 14]
-                    if below_14:
+                    explicit_typography_target = any(
+                        issue.issue_type == "typography_error"
+                        for issue in self._current_issues
+                    )
+                    newly_small = max(0, len(below_14) - len(t0_below_14))
+                    if below_14 and dashboard_role_calibration and newly_small:
                         lines.append(
-                            f"🚨 {len(below_14)} text element(s) below "
-                            f"14px minimum — will look unreadable on "
-                            f"projection. Increase font or remove content "
-                            f"to make room."
+                            f"ℹ Dense dashboard support scale: {len(below_14)} text "
+                            f"element(s) are below 14px ({newly_small} introduced). "
+                            "Small repeated data/support roles are allowed when they "
+                            "remain readable and the focal/card hierarchy is intact; "
+                            "treat this as inspection context, not an instruction to "
+                            "inflate table or rail rows."
+                        )
+                    elif below_14 and (newly_small or explicit_typography_target):
+                        lines.append(
+                            f"🚨 {len(below_14)} text element(s) below 14px "
+                            f"({newly_small} introduced by this repair). Increase "
+                            f"font or reflow the existing content; do not delete or "
+                            f"condense text unless a content issue explicitly requires it."
+                        )
+                    elif below_14:
+                        lines.append(
+                            f"ℹ Baseline contains {len(below_14)} text element(s) "
+                            "below 14px. This repair did not introduce them; treat this "
+                            "as context, not an instruction to alter unrelated content."
                         )
 
             # Word retention — surfaced as a SEMANTIC prompt, not a verdict.
@@ -2566,7 +5497,7 @@ class AgentRepair:
         # Text diff summary: show what text changed vs original
         if state.current_code != state.original_code:
             diff_summary = self._text_diff_summary(
-                state.original_code, state.current_code,
+                state.original_code, state.current_code, state=state,
             )
             if diff_summary:
                 lines.append("")
@@ -2577,25 +5508,26 @@ class AgentRepair:
                     import re
                     m = re.search(r'Added words \((\d+)\)', diff_summary)
                     n_added = int(m.group(1)) if m else 0
-                    if n_added >= 5:
-                        lines.append(
-                            "\n💡 You added significant new text. Before submitting, "
-                            "use search_source to verify any new claims, numbers, "
-                            "or technical terms are supported by the paper. "
-                            "Fabricated content is a critical issue."
-                        )
+                    guidance = self._text_diff_source_guidance(state, n_added)
+                    if guidance:
+                        lines.append(guidance)
 
         # NOTE: Density-target and coverage-drop feedback removed.
-        # The bbox-union "coverage %" metric did not correlate with
-        # the visual-judge's density assessment (contiguous empty
-        # regions).  It gave a premature "✓ Target met" in 8/10
-        # density repairs, causing the agent to stop early.
+        # The bbox-union "coverage %" metric does not correlate with
+        # visual-density assessment (contiguous empty regions) and
+        # causes premature stopping.
         # The agent should rely on the issue's planned_fix and
         # verify_layout's spatial checks (overlap/overflow/OOB)
         # instead of a misleading numeric target.
 
         # Step verification reminder: show current step's expected outcome
         # so the agent self-checks against the LAYOUT ANCHOR data.
+        dashboard_next_note = str(
+            getattr(state, "_dashboard_next_strategy_note", "") or ""
+        )
+        if dashboard_next_note:
+            lines.append("\n" + dashboard_next_note)
+
         if state.plan_steps:
             current_step = next(
                 (s for s in state.plan_steps if s.status == "in_progress"),
@@ -2620,21 +5552,425 @@ class AgentRepair:
             "t1_total": compact_issues,
             "delta_total": compact_delta,
         }
+        state.last_verify_revision = state.layout_revision
+        state.last_verify_stale_reason = ""
 
-        # Track last verified clean checkpoint for loop-timeout rollback
-        if compact_delta <= 0:
+        safe_checkpoint_valid = (
+            compression_ok
+            and not raw_css_crop_hints
+        )
+        if visual_only_repair:
+            scope_ok, scope_reason = validate_visual_repair_scope(
+                state.original_code,
+                state.current_code,
+                allow_image_replacement=any(
+                    issue.issue_type in {"raw_figure", "raw_table", "svg_visual_defect"}
+                    for issue in self._current_issues
+                ),
+                allow_text_formatting_change=any(
+                    issue.issue_type == "formatting_error"
+                    for issue in self._current_issues
+                ),
+                allow_text_content_change=issues_allow_visible_text_change(
+                    self._current_issues
+                ),
+            )
+            safe_checkpoint_valid = safe_checkpoint_valid and scope_ok
+            if not scope_ok:
+                state._last_verify_scope_failed = True
+                lines.append(
+                    f"CHECKPOINT INVALID: visual-only repair scope changed: {scope_reason}."
+                )
+
+        # Preserve content/media/scope-safe intermediate checkpoints even while
+        # the named target still has measurable residuals. Final summary/submit
+        # gates remain responsible for blocking unresolved objective visibility
+        # failures; checkpointing must not erase a coherent multi-edit chain.
+        if safe_checkpoint_valid:
+            state.latest_safe_verified_code = state.current_code
+            state.latest_safe_verified_revision = state.layout_revision
+
+        checkpoint_valid = (
+            regression_total == 0
+            and safe_checkpoint_valid
+            and sig_total == 0
+        )
+        if compact_delta <= 0 and checkpoint_valid:
             state.last_verified_code = state.current_code
 
-        # Track BEST verified state by fewest FILTERED (SSOT) issues. This is what
-        # submit and the loop-timeout rollback fall back to, so a late drift to a
-        # worse state can't ship — directly countering the "trajectory luck" where
-        # the same input reached 4→0 one run and 4→3 another. Reuses sig_total
-        # computed above (no extra render).
-        if state.best_verified_issues is None or sig_total < state.best_verified_issues:
+        # Track BEST verified state — save any checkpoint that improves on the
+        # previous best, even if residual issues remain. A state with 3 issues
+        # is strictly better than the original with 23 issues; discarding it
+        # because it's "not perfect" means the agent's work is wasted.
+        if safe_checkpoint_valid and targeted_categories and targeted_measurement_seen and (
+            state.best_verified_issues is None
+            or sig_total < state.best_verified_issues
+        ):
             state.best_verified_issues = sig_total
             state.best_verified_code = state.current_code
 
-        return "\n".join(lines), False
+        # ── Overflow budget summary (clear actionable signal) ──
+        if t1_state is not None:
+            _overflow_px = compute_overflow_px(t1_state.blocks)
+            _max_bottom = max(
+                (b.bbox_px[1] + b.bbox_px[3] for b in t1_state.blocks),
+                default=720,
+            )
+            # Stall detection: if overflow hasn't decreased, agent needs stronger compression
+            _prev_overflow = getattr(state, '_last_verified_overflow_px', 0)
+            _overflow_stalled = (
+                _overflow_px > 20
+                and _prev_overflow > 20
+                and _overflow_px >= _prev_overflow - 5
+            )
+            state._last_verified_overflow_px = _overflow_px
+
+            # Compute style match for spatial info (used by multiple branches below)
+            import re as _re
+            _style_match = _re.search(r'<style>(.*?)</style>', state.current_code or '', _re.DOTALL)
+
+            if _overflow_px > 0:
+                # Find containers where true content exceeds declared height
+                _container_hints = []
+                for blk in t1_state.blocks:
+                    true_sh = getattr(blk, 'true_scroll_h_px', 0) or 0
+                    client_h = getattr(blk, 'client_h_px', 0) or 0
+                    if true_sh > client_h + 10 and client_h > 50:
+                        css = blk.css_selector or blk.var_name
+                        _container_hints.append(
+                            (true_sh - client_h, css, client_h, true_sh)
+                        )
+                _container_hints.sort(reverse=True)
+
+                # Find top-level regions and their heights
+                _region_heights = []
+                for blk in t1_state.blocks:
+                    x, y, w, h = blk.bbox_px
+                    css = blk.css_selector or blk.var_name
+                    dom_depth = (getattr(blk, 'dom_path', '') or '').count('/')
+                    if h > 80 and dom_depth <= 4 and w > 400:
+                        _region_heights.append((h, y, css))
+                _region_heights.sort(key=lambda x: x[1])
+
+                _ratio_msg = ""
+                if _style_match and _overflow_px > 10:
+                    _css = _style_match.group(1)
+                    _body = state.current_code[state.current_code.find('<body'):]
+
+                    # Compute rendered vertical spacing (CSS value × element count)
+                    _rendered_spacing = 0
+                    # Find each CSS class with vertical spacing
+                    for _cls_m in _re.finditer(r'\.([a-z][\w-]*)\s*\{([^}]*)\}', _css):
+                        _cls_name = _cls_m.group(1)
+                        _rules = _cls_m.group(2)
+                        # Sum vertical spacing in this class
+                        _vert = 0
+                        for _sp_m in _re.finditer(r'(?:padding-top|padding-bottom|margin-top|margin-bottom)\s*:\s*(\d+)px', _rules):
+                            _vert += int(_sp_m.group(1))
+                        for _sp_m in _re.finditer(r'(?:padding|margin)\s*:\s*(\d+)px\s+\d+px\s+(\d+)px', _rules):
+                            _vert += int(_sp_m.group(1)) + int(_sp_m.group(2))
+                        for _sp_m in _re.finditer(r'gap\s*:\s*(\d+)px', _rules):
+                            _vert += int(_sp_m.group(1))
+                        if _vert > 0:
+                            # Count how many DOM elements use this class
+                            _count = max(1, len(_re.findall(rf'class="[^"]*{_cls_name}[^"]*"', _body)))
+                            _rendered_spacing += _vert * _count
+
+                    # Also add non-class rules (element selectors)
+                    _rendered_spacing = max(_rendered_spacing, 100)  # floor
+
+                    if _rendered_spacing > 0:
+                        _ratio = _overflow_px / _rendered_spacing
+                        _pct = int(_ratio * 100)
+                        # Build leverage-based guidance instead of fixed tiers
+                        _lev_items = []
+                        # Check if this is an absolute-layout slide
+                        _abs_count = _css.lower().count('position:absolute') + _css.lower().count('position: absolute')
+                        _is_absolute_layout = _abs_count >= 8
+
+                        for _cls_m2 in _re.finditer(r'\.([a-z][\w-]*)\s*\{([^}]*)\}', _css):
+                            _cn = _cls_m2.group(1)
+                            _rl = _cls_m2.group(2)
+                            _v = 0
+                            # Standard spacing properties
+                            for _sp2 in _re.finditer(r'(padding|margin|gap)[^:]*:\s*([^;]+)', _rl):
+                                _nums = _re.findall(r'(\d+)px', _sp2.group(2))
+                                if _nums:
+                                    _v = max(_v, max(int(n) for n in _nums))
+                            # For absolute layouts, also consider top/height/font-size
+                            if _is_absolute_layout:
+                                for _sp2 in _re.finditer(r'(top|height|font-size)\s*:\s*(\d+)px', _rl):
+                                    _prop = _sp2.group(1)
+                                    _val = int(_sp2.group(2))
+                                    if _prop == 'top' and _val > 100:
+                                        _v = max(_v, _val // 10)  # top values are movable
+                                    elif _prop == 'height' and _val > 50:
+                                        _v = max(_v, _val // 5)  # height is shrinkable
+                                    elif _prop == 'font-size' and _val > 14:
+                                        _v = max(_v, _val)
+                            if _v >= 8:
+                                _ec = max(1, len(_re.findall(rf'class="[^"]*\b{_cn}\b[^"]*"', _body)))
+                                _lev_items.append((f'.{_cn}', _v, _ec, _v * _ec))
+                        for _tg in ('td', 'th', 'li'):
+                            _tg_m = _re.search(rf'(?:^|\n)\s*{_tg}\s*\{{([^}}]+)\}}', _css)
+                            if _tg_m:
+                                _ec = max(1, len(_re.findall(rf'<{_tg}\b', _body)))
+                                _v = 0
+                                for _sp2 in _re.finditer(r'(padding|margin)[^:]*:\s*([^;]+)', _tg_m.group(1)):
+                                    _nums = _re.findall(r'(\d+)px', _sp2.group(2))
+                                    if _nums:
+                                        _v = max(_v, max(int(n) for n in _nums))
+                                if _v >= 6 and _ec >= 2:
+                                    _lev_items.append((_tg, _v, _ec, _v * _ec))
+                        _lev_items.sort(key=lambda x: -x[3])
+                        _top3 = _lev_items[:3]
+                        if _top3:
+                            _lev_str = "; ".join(
+                                f"{s}({v}px×{c}={p})" for s, v, c, p in _top3
+                            )
+                            _tier = f"highest leverage: {_lev_str}"
+                        elif _ratio < 0.30:
+                            _tier = "moderate compression needed"
+                        else:
+                            _tier = "aggressive compression needed"
+                        _ratio_msg = (
+                            f"\n  RATIO: overflow/total_spacing = {_pct}% → {_tier}"
+                        )
+
+                _details = ""
+                if _container_hints:
+                    _hint_lines = []
+                    for _surplus, css, ch, tsh in _container_hints[:6]:
+                        # Find the block to get position info
+                        _blk_pos = ""
+                        for _blk in t1_state.blocks:
+                            _sel = _blk.css_selector or _blk.var_name
+                            if _sel == css:
+                                _bx, _by, _bw, _bh = _blk.bbox_px
+                                _blk_pos = f" at ({int(_bx)}, {int(_by)}, {int(_bw)}×{int(_bh)}px)"
+                                break
+                        _hint_lines.append(
+                            f"  {css}{_blk_pos}: needs {tsh:.0f}px, "
+                            f"has {ch:.0f}px → compress {tsh-ch:.0f}px within THIS container"
+                        )
+                    _details = (
+                        "\nPer-container overflow (fix each independently):\n"
+                        + "\n".join(_hint_lines)
+                        + "\n  → Compress content INSIDE each container to fit. "
+                        "Do NOT uniformly shrink everything."
+                    )
+                elif _region_heights and _overflow_px > 30:
+                    _region_lines = [
+                        f"  {css}: y={y:.0f}px, height={h:.0f}px"
+                        for h, y, css in _region_heights[:6]
+                    ]
+                    _total_h = sum(h for h, _, _ in _region_heights)
+                    _details = (
+                        f"\nRegion heights (total ~{_total_h:.0f}px, "
+                        f"need to fit in 720px, reduce by {_overflow_px}px):\n"
+                        + "\n".join(_region_lines)
+                    )
+
+                _stall_msg = ""
+                if _overflow_stalled:
+                    _stall_msg = (
+                        " STALLED: overflow has not decreased in consecutive verifications."
+                    )
+
+                # Show which elements extend past canvas (all layout types)
+                _element_overflow_details = ""
+                if _overflow_px > 5 and t1_state:
+                    _overflowing = []
+                    for _blk in t1_state.blocks:
+                        _bx, _by, _bw, _bh = _blk.bbox_px
+                        _bottom = _by + _bh
+                        if _bottom > 720 and _bh > 10 and _bh < 700 and _bw > 30:
+                            _sel = getattr(_blk, 'css_selector', '') or getattr(_blk, 'var_name', '') or getattr(_blk, 'tag', '?')
+                            _sel = _sel[:30]
+                            _excess = int(_bottom - 720)
+                            _overflowing.append((_sel, int(_by), int(_bh), _excess))
+                    if _overflowing:
+                        _overflowing.sort(key=lambda x: -x[3])
+                        _ov_lines = [
+                            f"  {sel}: top={y}px height={h}px → bottom={y+h}px ({exc}px past canvas)"
+                            for sel, y, h, exc in _overflowing[:8]
+                        ]
+                        _element_overflow_details = (
+                            "\nElements extending past 720px canvas:\n"
+                            + "\n".join(_ov_lines)
+                        )
+
+                _deficit_msg = (
+                    f"\n⚠️ OVERFLOW REMAINING: content extends to "
+                    f"{int(_max_bottom)}px, which is {_overflow_px}px past "
+                    f"the 720px canvas."
+                    f"\n  DEFICIT: ~{_overflow_px}px to save."
+                    f"{_ratio_msg}{_stall_msg}{_details}"
+                    f"{_element_overflow_details}"
+                )
+                lines.append(_deficit_msg)
+                logger.info(
+                    "Slide %d verify: DEFICIT=%dpx, %s",
+                    state.slide_id, _overflow_px,
+                    _ratio_msg.strip() if _ratio_msg else "no leverage data",
+                )
+            elif sig_total > 0:
+                # Canvas fits but internal clip/overlap remains
+                _clip_count = len(
+                    targeted_sig.get("clipped", [])
+                    + targeted_sig.get("canvas_truncation", [])
+                )
+                _overlap_count = len(
+                    targeted_sig.get("overlap", [])
+                    + targeted_sig.get("occlusion", [])
+                )
+                _oob_count = len(targeted_sig.get("out_of_bounds", []))
+                _text_ovf_count = len(targeted_sig.get("text_overflow", []))
+                if _clip_count + _overlap_count + _oob_count + _text_ovf_count > 0:
+                    # Build overlap details for absolute-layout slides
+                    _overlap_detail = ""
+                    if _overlap_count > 0 and _style_match if "_style_match" in dir() else _re.search(r"<style>(.*?)</style>", state.current_code, _re.DOTALL):
+                        _abs_c = (
+                            state.current_code.lower().count("position:absolute")
+                            + state.current_code.lower().count("position: absolute")
+                        )
+                        if _abs_c >= 6 and hasattr(t1_state, 'overlap_pairs'):
+                            _seen = set()
+                            _ov_items = []
+                            for a_id, b_id, _area in t1_state.overlap_pairs[:8]:
+                                key = (a_id, b_id)
+                                if key not in _seen:
+                                    _seen.add(key)
+                                    _a = next((b for b in t1_state.blocks if b.block_id == a_id), None)
+                                    _b = next((b for b in t1_state.blocks if b.block_id == b_id), None)
+                                    if _a and _b:
+                                        _a_sel = (_a.css_selector or _a.var_name or "")[:25]
+                                        _b_sel = (_b.css_selector or _b.var_name or "")[:25]
+                                        _ax, _ay, _aw, _ah = _a.bbox_px
+                                        _bx, _by, _bw, _bh = _b.bbox_px
+                                        _ov_items.append(
+                                            f"  {_a_sel}({int(_ax)},{int(_ay)} {int(_aw)}x{int(_ah)}) ↔ "
+                                            f"{_b_sel}({int(_bx)},{int(_by)} {int(_bw)}x{int(_bh)})"
+                                        )
+                            if _ov_items:
+                                _overlap_detail = "\nOverlapping element pairs:\n" + "\n".join(_ov_items[:6])
+
+                    lines.append(
+                        f"\n⚠️ {sig_total} SPATIAL ISSUES REMAIN: "
+                        f"{_overlap_count} overlaps, {_clip_count} clipped, "
+                        f"{_oob_count} out-of-bounds, {_text_ovf_count} text overflow."
+                        f"{_overlap_detail}"
+                    )
+                else:
+                    lines.append(
+                        "\n✅ All content fits within 720px canvas. "
+                        "No spatial overflow remaining."
+                    )
+            elif sig_total == 0:
+                lines.append(
+                    "\n✅ All content fits within 720px canvas. "
+                    "No spatial overflow remaining."
+                )
+
+            # Container utilization: pure facts about fixed-height containers
+            if _style_match:
+                try:
+                    from playwright.sync_api import sync_playwright as _sync_pw
+                    _pw = _sync_pw().start()
+                    _br = _pw.chromium.launch()
+                    _pg = _br.new_page(viewport={"width": 1280, "height": 720})
+                    _pg.set_content(state.current_code)
+                    _util = _pg.evaluate('''() => {
+                        const results = [];
+                        const all = document.querySelectorAll('*');
+                        for (const el of all) {
+                            const style = getComputedStyle(el);
+                            const h = el.getBoundingClientRect().height;
+                            if (h > 50 && h < 650 && style.height.includes('px')) {
+                                const origH = el.style.height;
+                                const origMinH = el.style.minHeight;
+                                const origOvf = el.style.overflow;
+                                el.style.height = 'auto';
+                                el.style.minHeight = '0';
+                                el.style.overflow = 'visible';
+                                const contentH = el.scrollHeight;
+                                el.style.height = origH;
+                                el.style.minHeight = origMinH;
+                                el.style.overflow = origOvf;
+                                const unused = Math.round(h - contentH);
+                                if (Math.abs(unused) > 10) {
+                                    const cls = el.className
+                                        ? '.' + el.className.split(' ')[0]
+                                        : el.tagName.toLowerCase();
+                                    results.push({
+                                        sel: cls,
+                                        containerH: Math.round(h),
+                                        contentH,
+                                        unused
+                                    });
+                                }
+                            }
+                        }
+                        return results.sort((a,b) => b.unused - a.unused).slice(0, 6);
+                    }''')
+                    _br.close()
+                    _pw.stop()
+                    if _util:
+                        _util_lines = []
+                        for w in _util:
+                            if w['unused'] > 0:
+                                _util_lines.append(
+                                    f"  {w['sel']}: height={w['containerH']}px, "
+                                    f"content={w['contentH']}px, "
+                                    f"unused={w['unused']}px"
+                                )
+                            else:
+                                _util_lines.append(
+                                    f"  {w['sel']}: height={w['containerH']}px, "
+                                    f"content={w['contentH']}px, "
+                                    f"overflow={-w['unused']}px"
+                                )
+                        if _util_lines:
+                            lines.append(
+                                "\nCONTAINER UTILIZATION "
+                                "(fixed-height containers vs actual content):\n"
+                                + "\n".join(_util_lines)
+                            )
+                except Exception:
+                    pass
+
+        result_text = "\n".join(lines)
+        if self._enable_render_preview:
+            encoded = self._render_slide_to_base64(state.current_code, state)
+            if encoded:
+                state.latest_visual_checkpoint_code = state.current_code
+                state.latest_visual_checkpoint_revision = state.layout_revision
+                state.latest_visual_checkpoint_hard_valid = safe_checkpoint_valid
+                state.latest_visual_checkpoint_targeted_issues = sig_total
+                return ([
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{encoded}",
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": (
+                            result_text
+                            + "\n\nVISUAL VERIFICATION: the image above is the exact "
+                            "revision measured by this verify_layout call. Judge the "
+                            "original issue from the rendered composition first, using "
+                            "detector findings as localized evidence rather than an "
+                            "automatic score. Continue the current edit chain when the "
+                            "remaining problem has a clear same-region closure; roll back "
+                            "when content, media, roles, or an unrelated region is visibly "
+                            "damaged."
+                        ),
+                    },
+                ], False)
+
+        return result_text, False
 
     # ── Meta-content / text-diff / alignment checks ──────────────
 
@@ -2694,7 +6030,7 @@ class AgentRepair:
                 warnings.append(f'{label}: "...{context}..."')
         return warnings
 
-    def _text_diff_summary(self, original: str, current: str) -> str:
+    def _text_diff_summary(self, original: str, current: str, state=None) -> str:
         """Compare visible text before/after and summarize changes."""
         orig_text = self._extract_visible_text(original)
         curr_text = self._extract_visible_text(current)
@@ -2726,87 +6062,496 @@ class AgentRepair:
             pct = retained * 100 // len(orig_words)
             lines.append(f"  Word retention: {pct}% ({retained}/{len(orig_words)})")
 
+        # Inject rollback learning context
+        if hasattr(state, 'rollback_history') and state.rollback_history:
+            lines.append(
+                "\nPREVIOUS FAILED ATTEMPTS (avoid repeating these mistakes):"
+            )
+            for j, reason in enumerate(state.rollback_history, 1):
+                lines.append(f"  {j}. {reason}")
+
         return "\n".join(lines)
 
     @staticmethod
-    def _check_alignment(state) -> list[str]:
-        """Check alignment consistency among sibling-like elements."""
-        warnings = []
-        blocks = state.blocks
-        if len(blocks) < 3:
-            return warnings
+    def _text_diff_source_guidance(state: AgentState, added_words: int) -> str:
+        """Explain when visible-text edits need external source lookup.
 
-        # Group blocks by shape_type (excluding title)
-        from collections import defaultdict
-        by_type = defaultdict(list)
-        for b in blocks:
-            if b.shape_type != "title":
-                by_type[b.shape_type].append(b)
-
-        for stype, group in by_type.items():
-            if len(group) < 2:
-                continue
-            # Check if blocks at similar y have inconsistent x-starts
-            # Sort by y, find rows (blocks within 0.3" of each other)
-            group_sorted = sorted(group, key=lambda b: b.y)
-            rows = []
-            current_row = [group_sorted[0]]
-            for b in group_sorted[1:]:
-                if abs(b.y - current_row[0].y) < 0.3:
-                    current_row.append(b)
-                else:
-                    if len(current_row) >= 2:
-                        rows.append(current_row)
-                    current_row = [b]
-            if len(current_row) >= 2:
-                rows.append(current_row)
-
-            # Check columns: blocks at similar x should have consistent widths
-            for row in rows:
-                widths = [b.w for b in row]
-                if max(widths) - min(widths) > 0.5:
-                    names = [b.var_name or b.block_id for b in row]
-                    parts = [f"{n}={w:.1f}in" for n, w in zip(names, widths)]
-                    warnings.append(
-                        f"Row of {len(row)} {stype}s has inconsistent widths: "
-                        + ", ".join(parts)
-                    )
-
-            # Check columns: blocks stacked vertically with same x
-            cols = []
-            x_sorted = sorted(group, key=lambda b: b.x)
-            current_col = [x_sorted[0]]
-            for b in x_sorted[1:]:
-                if abs(b.x - current_col[0].x) < 0.3:
-                    current_col.append(b)
-                else:
-                    if len(current_col) >= 2:
-                        cols.append(current_col)
-                    current_col = [b]
-            if len(current_col) >= 2:
-                cols.append(current_col)
-
-            for col in cols:
-                # Check vertical spacing consistency
-                col_sorted = sorted(col, key=lambda b: b.y)
-                if len(col_sorted) >= 3:
-                    gaps = []
-                    for j in range(len(col_sorted) - 1):
-                        gap = col_sorted[j + 1].y - (col_sorted[j].y + col_sorted[j].h)
-                        gaps.append(gap)
-                    if gaps and max(gaps) - min(gaps) > 0.3:
-                        gap_strs = [f"{g:.2f}in" for g in gaps]
-                        warnings.append(
-                            f"Column of {len(col_sorted)} {stype}s has uneven "
-                            f"vertical spacing: gaps " + ", ".join(gap_strs)
-                        )
-
-        return warnings[:3]  # Cap to avoid noise
+        Existing visible support copy is sufficient grounding for an explicitly
+        authorized meaning-preserving shortening. Source lookup is needed only
+        when an edit adds or changes factual content beyond that visible copy.
+        """
+        if added_words < 5:
+            return ""
+        if getattr(state, "allow_support_copy_compression", False):
+            return (
+                "\nℹ AUTHORIZED SUPPORT-COPY CALIBRATION: existing visible "
+                "support text is the semantic source for a meaning-preserving "
+                "shortening. Do not call search_source merely because concise "
+                "wording uses different tokens. Search only if you add or change "
+                "a factual proposition, number, named entity, technical term, or "
+                "claim beyond what the original visible text states."
+            )
+        return (
+            "\n💡 You added significant new text. Before submitting, use "
+            "search_source to verify any new claims, numbers, or technical terms "
+            "are supported by the paper. Fabricated content is a critical issue."
+        )
 
     @staticmethod
     def _is_html_code(code: str) -> bool:
         """Check if code is HTML (vs python-pptx)."""
         return "<!DOCTYPE" in code or "<html" in code or ("<head" in code and "<style" in code)
+
+    @staticmethod
+    def _spatial_regression_policy_message(
+        regression_total: int,
+        hard_quality_failure: str = "",
+    ) -> str:
+        """Return agent-facing policy for spatial regressions.
+
+        Spatial regressions need issue-level interpretation before submission,
+        but they are not automatically a signal to roll back. During a body,
+        table, or card reflow the first edit can create a same-cluster
+        intermediate state that the next edit should close. Text loss and
+        unrelated damage are different: those should be rolled back or
+        explicitly reversed.
+        """
+        if hard_quality_failure:
+            return (
+                f"REGRESSION CHECK: {regression_total} new deterministic "
+                "regression(s) vs baseline. These were introduced by the "
+                "current edits and must be fixed before submit.\n"
+                "INVALID INTERMEDIATE CHECKPOINT: a hard repair-quality "
+                f"failure is also present ({hard_quality_failure}). Do not "
+                "continue a same-cluster closure chain or design a new repair "
+                "from this checkpoint. Restore a checkpoint without that hard "
+                "failure first, verify the restored code, then continue from "
+                "the cleanest useful state."
+            )
+
+        return (
+            f"REGRESSION CHECK: {regression_total} new deterministic "
+            "regression(s) vs baseline. They appeared after the current edits and "
+            "require issue-level judgment before submit; the count alone does not "
+            "make the checkpoint worse.\n"
+            "CHECKPOINT NEEDS INTERPRETATION: compare each named measurement with "
+            "the original issue, owning region, and current revision evidence. "
+            "NEW OVERLAP and NEW CLIPPED findings are real spatial defects — "
+            "fix them before marking the plan step as done. "
+            "Roll back when source text, media, hierarchy, or information-bearing roles "
+            "were damaged, an unrelated region regressed, or the current "
+            "repair family has no credible information-preserving closure path. "
+            "If this verify result also contains SHIPMENT GATE FAILED or "
+            "CHECKPOINT INVALID, that hard quality failure takes precedence and "
+            "the invalid checkpoint must be restored before continuing."
+        )
+
+    @staticmethod
+    def _representative_spatial_regressions(
+        regressions: dict[str, list[tuple[str, object]]],
+        *,
+        max_per_group: int = 6,
+        max_total: int = 18,
+    ) -> tuple[list[tuple[str, str, object]], dict[str, int]]:
+        """Keep regression feedback causal without flooding the agent.
+
+        Nested HTML structures can produce dozens of pairwise findings from one
+        unfinished allocation. Preserve the full counts and regression signature,
+        but show a bounded set of concrete examples from every detector group.
+        """
+        shown: list[tuple[str, str, object]] = []
+        omitted: dict[str, int] = {}
+        for group, items in regressions.items():
+            group_limit = min(max_per_group, max_total - len(shown))
+            selected = items[:max(0, group_limit)]
+            shown.extend((group, kind, payload) for kind, payload in selected)
+            remaining = len(items) - len(selected)
+            if remaining:
+                omitted[group] = remaining
+            if len(shown) >= max_total:
+                for later_group, later_items in list(regressions.items())[
+                    list(regressions).index(group) + 1:
+                ]:
+                    if later_items:
+                        omitted[later_group] = len(later_items)
+                break
+        return shown, omitted
+
+    @staticmethod
+    def _changed_css_properties_from_edits(edits: list[dict]) -> set[str]:
+        """Best-effort list of CSS properties actually changed by edits."""
+        def declarations_by_property(css: str) -> dict[str, Counter[str]]:
+            cleaned = re.sub(r"/\*.*?\*/", "", str(css or ""), flags=re.DOTALL)
+            declarations: dict[str, Counter[str]] = {}
+            for match in re.finditer(
+                r"(?:^|[;{])\s*([a-zA-Z-]+)\s*:\s*([^;{}]+)",
+                cleaned,
+            ):
+                prop = match.group(1).lower()
+                value = re.sub(r"\s+", " ", match.group(2).strip())
+                if not value:
+                    continue
+                declarations.setdefault(prop, Counter())[value] += 1
+            return declarations
+
+        props: set[str] = set()
+        for edit in edits:
+            old_props = declarations_by_property(str(edit.get("search", "")))
+            new_props = declarations_by_property(str(edit.get("replace", "")))
+            for prop in set(old_props) | set(new_props):
+                if old_props.get(prop, Counter()) != new_props.get(prop, Counter()):
+                    props.add(prop)
+        return props
+
+    @staticmethod
+    def _html_edit_blob(edits: list[dict]) -> str:
+        """Concatenate edit snippets for lightweight selector heuristics."""
+        parts: list[str] = []
+        for edit in edits:
+            parts.append(str(edit.get("search", "")))
+            parts.append(str(edit.get("replace", "")))
+            parts.append(str(edit.get("insert_after", "")))
+        return "\n".join(parts).lower()
+
+    @staticmethod
+    def _edit_scope_labels(edits: list[dict], *, limit: int = 16) -> list[str]:
+        """Best-effort semantic scope labels for a CSS/HTML edit batch."""
+        labels: list[str] = []
+        seen: set[str] = set()
+
+        def add(label: str) -> None:
+            if label and label not in seen and len(labels) < limit:
+                seen.add(label)
+                labels.append(label)
+
+        for edit in edits:
+            blob = "\n".join((
+                str(edit.get("search", "")),
+                str(edit.get("replace", "")),
+                str(edit.get("insert_after", "")),
+            ))
+            for _, class_value in re.findall(
+                r"class\s*=\s*(['\"])(.*?)\1",
+                blob,
+                flags=re.IGNORECASE | re.DOTALL,
+            ):
+                for name in re.split(r"\s+", class_value.strip()):
+                    if re.fullmatch(r"[A-Za-z_][\w-]*", name):
+                        add(f".{name}")
+            for name in re.findall(r"\.([A-Za-z_][\w-]*)", blob):
+                add(f".{name}")
+            for name in re.findall(r"#([A-Za-z_][\w-]*)", blob):
+                add(f"#{name}")
+            for tag in re.findall(
+                r"(?:^|[,{>+~\s])(table|thead|tbody|tr|th|td|svg|img|figure)(?=[\s.{:#>+~,{]|$)",
+                blob,
+                flags=re.IGNORECASE | re.MULTILINE,
+            ):
+                add(tag.lower())
+        return labels
+
+    @staticmethod
+    def _mentions_class_or_selector(blob: str, name: str) -> bool:
+        """Return whether an edit blob mentions a CSS class/selector name."""
+        escaped = re.escape(name)
+        return bool(
+            re.search(rf"(?<![\w-])\.{escaped}(?![\w-])", blob)
+            or re.search(rf"class\s*=\s*['\"][^'\"]*\b{escaped}\b", blob)
+        )
+
+    @classmethod
+    def _looks_like_table_dashboard_pressure(cls, state: AgentState) -> bool:
+        from .dashboard_heuristics import looks_like_table_dashboard_pressure
+        return looks_like_table_dashboard_pressure(state)
+
+    @classmethod
+    def _looks_like_table_dashboard_pressure_from(
+        cls,
+        code: str,
+        issue_types: set[str],
+    ) -> bool:
+        from .dashboard_heuristics import looks_like_table_dashboard_pressure_from
+        return looks_like_table_dashboard_pressure_from(code, issue_types)
+
+    @staticmethod
+    def _support_compression_role_regressions(
+        before_code: str,
+        after_code: str,
+    ) -> list[str]:
+        """Find support-compression edits that delete information roles."""
+        try:
+            from bs4 import BeautifulSoup
+
+            before = BeautifulSoup(before_code, "html.parser")
+            after = BeautifulSoup(after_code, "html.parser")
+        except Exception:
+            return []
+
+        regressions: list[str] = []
+        for selector, label in ((".metric", "metric item"), (".kpi", "KPI item")):
+            before_count = len(before.select(selector))
+            after_count = len(after.select(selector))
+            if after_count < before_count:
+                regressions.append(
+                    f"{label} count {before_count}->{after_count}"
+                )
+
+        # Copy compression can shorten prose inside a terminal support branch,
+        # but it cannot dissolve a distinct takeaway/conclusion branch into a
+        # metric note. Match semantic class families rather than one project
+        # selector so a branch may be rewrapped or renamed without false failure.
+        support_stems = ("finding", "takeaway", "conclusion", "recommendation")
+
+        def semantic_support_count(soup) -> int:
+            return sum(
+                1
+                for element in soup.find_all(class_=True)
+                if any(
+                    stem in str(class_name).lower()
+                    for class_name in (element.get("class") or [])
+                    for stem in support_stems
+                )
+            )
+
+        before_support = semantic_support_count(before)
+        after_support = semantic_support_count(after)
+        if after_support < before_support:
+            regressions.append(
+                "terminal findings/takeaway branch count "
+                f"{before_support}->{after_support}"
+            )
+        return regressions
+
+    @staticmethod
+    def _dashboard_measured_spatial_state(
+        state: AgentState,
+        *,
+        allow_previous_revision: bool = False,
+    ):
+        from .dashboard_heuristics import dashboard_measured_spatial_state
+        return dashboard_measured_spatial_state(state, allow_previous_revision=allow_previous_revision)
+
+    @staticmethod
+    def _dashboard_descendant_extent_measurements(spatial_state) -> list[dict]:
+        from .dashboard_heuristics import dashboard_descendant_extent_measurements
+        return dashboard_descendant_extent_measurements(spatial_state)
+
+    @classmethod
+    def _dashboard_descendant_plan_note(
+        cls,
+        steps: list[PlanStep],
+        state: AgentState,
+        planning_context: str = "",
+    ) -> str:
+        from .dashboard_heuristics import dashboard_descendant_plan_note
+        return dashboard_descendant_plan_note(steps, state, planning_context)
+
+    @classmethod
+    def _dashboard_parent_descendant_patch_warning(
+        cls,
+        state: AgentState,
+        edit_blob: str,
+    ) -> str:
+        from .dashboard_heuristics import dashboard_parent_descendant_patch_warning
+        return dashboard_parent_descendant_patch_warning(state, edit_blob)
+
+    @classmethod
+    def _dashboard_repeated_owner_budget_warning(
+        cls,
+        state: AgentState,
+        css: str,
+    ) -> str:
+        from .dashboard_heuristics import dashboard_repeated_owner_budget_warning
+        return dashboard_repeated_owner_budget_warning(state, css)
+
+    @classmethod
+    def _dashboard_terminal_support_patch_warning(
+        cls,
+        state: AgentState,
+        css: str,
+    ) -> str:
+        from .dashboard_heuristics import dashboard_terminal_support_patch_warning
+        return dashboard_terminal_support_patch_warning(state, css)
+
+    @classmethod
+    def _names_role_demand_calibration(cls, text: str) -> bool:
+        """Return whether a plan names a concrete same-topology fit hypothesis.
+
+        A repeated-card repair can be falsifiable without inventing a new DOM
+        topology. Coordinated calibration of the focal, repeated-detail, and
+        support roles is a real allocation hypothesis when the plan names the
+        roles it will change instead of merely promising that everything fits.
+        """
+        low = str(text or "").lower()
+        names_calibration = any(
+            term in low
+            for term in (
+                "recalibrate", "calibrate", "compact", "tighten", "reduce",
+                "shorten", "condense", "role rhythm", "copy calibration",
+            )
+        )
+        role_groups = (
+            ("score", "focal", "kpi", "value scale", "value size"),
+            ("metric", "detail row", "repeated row", "row rhythm"),
+            (
+                "support copy", "explanatory copy", "finding", "takeaway",
+                "support rhythm", "terminal support",
+            ),
+        )
+        named_groups = sum(
+            any(term in low for term in group)
+            for group in role_groups
+        )
+        return names_calibration and named_groups >= 2
+
+    @classmethod
+    def _dashboard_plan_implementation_warning(
+        cls,
+        state: AgentState,
+        *,
+        action_text: str = "",
+        cluster_complete: bool = True,
+    ) -> str:
+        from .dashboard_heuristics import dashboard_plan_implementation_warning
+        return dashboard_plan_implementation_warning(state, action_text=action_text, cluster_complete=cluster_complete)
+
+    @classmethod
+    def _edit_cluster_execution_coverage_note(
+        cls,
+        state: AgentState,
+        *,
+        before_code: str,
+        after_code: str,
+        action_text: str,
+        cluster_complete: bool,
+    ) -> str:
+        from .dashboard_heuristics import edit_cluster_execution_coverage_note
+        return edit_cluster_execution_coverage_note(state, before_code=before_code, after_code=after_code, action_text=action_text, cluster_complete=cluster_complete)
+
+    @classmethod
+    def _dashboard_variable_track_patch_warning(
+        cls,
+        state: AgentState,
+        css: str,
+    ) -> str:
+        from .dashboard_heuristics import dashboard_variable_track_patch_warning
+        return dashboard_variable_track_patch_warning(state, css)
+
+    @classmethod
+    def _dashboard_pending_coupled_compression_note(
+        cls,
+        state: AgentState,
+        spatial_state,
+    ) -> str:
+        from .dashboard_heuristics import dashboard_pending_coupled_compression_note
+        return dashboard_pending_coupled_compression_note(state, spatial_state)
+
+    @classmethod
+    def _dashboard_support_copy_checkpoint_note(
+        cls,
+        state: AgentState,
+        before_code: str,
+        after_code: str,
+        *,
+        cluster_complete: bool,
+    ) -> str:
+        from .dashboard_heuristics import dashboard_support_copy_checkpoint_note
+        return dashboard_support_copy_checkpoint_note(state, before_code, after_code, cluster_complete=cluster_complete)
+
+    @classmethod
+    def _dashboard_coupled_cluster_guidance(
+        cls, code: str = "", *, preview_enabled: bool = False,
+    ) -> str:
+        from .dashboard_heuristics import dashboard_coupled_cluster_guidance
+        return dashboard_coupled_cluster_guidance(code, preview_enabled=preview_enabled)
+
+    @staticmethod
+    def _dashboard_measurement_context(spatial_text: str) -> str:
+        from .dashboard_heuristics import dashboard_measurement_context
+        return dashboard_measurement_context(spatial_text)
+
+    @classmethod
+    def _dashboard_decision_summary(
+        cls,
+        state: AgentState,
+        spatial_state,
+    ) -> str:
+        from .dashboard_heuristics import dashboard_decision_summary
+        return dashboard_decision_summary(state, spatial_state)
+
+    @staticmethod
+    def _dashboard_allocation_map(spatial_state) -> str:
+        from .dashboard_heuristics import dashboard_allocation_map
+        return dashboard_allocation_map(spatial_state)
+
+    @staticmethod
+    def _dashboard_fit_magnitude_cue(spatial_text: str) -> str:
+        from .dashboard_heuristics import dashboard_fit_magnitude_cue
+        return dashboard_fit_magnitude_cue(spatial_text)
+
+    @classmethod
+    def _dashboard_local_first_html_edit_message(
+        cls,
+        edits: list[dict],
+        state: AgentState,
+    ) -> str | None:
+        from .dashboard_heuristics import dashboard_local_first_html_edit_message
+        return dashboard_local_first_html_edit_message(edits, state)
+
+    @classmethod
+    def _dashboard_table_outer_frame_warning_from_edits(
+        cls,
+        edits: list[dict],
+        state: AgentState,
+    ) -> str:
+        from .dashboard_heuristics import dashboard_table_outer_frame_warning_from_edits
+        return dashboard_table_outer_frame_warning_from_edits(edits, state)
+
+    @classmethod
+    def _dashboard_coupled_cluster_warning_from_edits(
+        cls,
+        edits: list[dict],
+        state: AgentState,
+    ) -> str:
+        from .dashboard_heuristics import dashboard_coupled_cluster_warning_from_edits
+        return dashboard_coupled_cluster_warning_from_edits(edits, state)
+
+    @classmethod
+    def _broad_structural_html_edit_message(
+        cls,
+        edits: list[dict],
+        state: AgentState,
+    ) -> str | None:
+        """Return a non-blocking debuggability warning for broad HTML edits."""
+        if len(edits) <= 6 or not cls._is_html_code(state.current_code):
+            return None
+        spatial_issue_types = set(getattr(state, "issue_types", set())) - {"low_contrast"}
+        if not (spatial_issue_types & STRUCTURAL_ISSUE_TYPES):
+            return None
+        changed_props = cls._changed_css_properties_from_edits(edits)
+        structural_props = {
+            "display", "position", "grid-template-columns",
+            "grid-template-rows", "grid-template-areas", "grid-area",
+            "flex", "flex-direction", "justify-content", "align-items",
+            "gap", "row-gap", "column-gap", "width", "height",
+            "min-width", "min-height", "max-width", "max-height",
+            "padding", "padding-top", "padding-right", "padding-bottom",
+            "padding-left", "margin", "margin-top", "margin-right",
+            "margin-bottom", "margin-left", "top", "right", "bottom",
+            "left", "font-size", "line-height", "overflow",
+        }
+        changed_structural = sorted(changed_props & structural_props)
+        if not changed_structural:
+            return None
+        shown = ", ".join(changed_structural[:8])
+        return (
+            "\n\nBROAD EDIT ADVISORY: this accepted checkpoint changes several "
+            f"geometry/typography properties ({shown}). Keep the causal hypothesis "
+            "explicit and verify immediately so useful and harmful changes can be "
+            "distinguished. A broad edit is appropriate when one coherent reflow "
+            "requires it; unrelated changes are easier to diagnose as separate "
+            "checkpoints. This is guidance, not a request to undo the edit."
+        )
 
     def _verify_pptx_layout(self, code: str, slide_id: int, state: AgentState) -> dict:
         """Verify layout for python-pptx code."""
@@ -2911,17 +6656,117 @@ class AgentRepair:
         self, action: dict, state: AgentState,
     ) -> tuple[str, bool]:
         """Undo last N edits."""
-        steps = action.get("steps", 1)
-        steps = max(1, min(steps, len(state.checkpoints) - 1))
-
         if len(state.checkpoints) <= 1:
             return "Nothing to rollback — already at original code.", False
 
-        state.checkpoints = state.checkpoints[:-steps]
-        state.current_code = state.checkpoints[-1]
+        self._normalize_checkpoint_metadata(state)
+
+        # Check if rollback would lose overflow progress
+        _current_overflow = getattr(state, '_last_verified_overflow_px', 0)
+        rollback_scope = str(action.get("scope", "") or "").lower()
+        if rollback_scope == "cluster":
+            target_code = (
+                state.active_cluster_start_code
+                if state.pending_edit_cluster and state.active_cluster_start_code is not None
+                else state.last_cluster_start_code
+            )
+            if target_code is None:
+                return "No recorded edit-cluster boundary is available to rollback.", False
+            target_index = next(
+                (
+                    index for index in range(len(state.checkpoints) - 1, -1, -1)
+                    if state.checkpoints[index] == target_code
+                ),
+                -1,
+            )
+            if target_index < 0:
+                return "The recorded edit-cluster start is no longer in rollback history.", False
+            steps = len(state.checkpoints) - target_index
+        else:
+            steps = action.get("steps", 1)
+            steps = max(1, min(steps, len(state.checkpoints) - 1))
+            target_index = len(state.checkpoints) - steps
+
+        hard_repair_quality_failure = bool(
+            getattr(state, "_last_verify_visual_compression_failed", False)
+            or getattr(state, "_last_verify_scope_failed", False)
+        )
+
+        # Block rollback ONLY when it would lose overflow progress AND the
+        # target is the original code. Rolling back to an intermediate checkpoint
+        # (e.g., a verified KPI-only state) is always allowed — the agent needs
+        # freedom to try different repair strategies from partial-progress states.
+        #
+        # Successful repair trajectories show the pattern:
+        #   1. Fix region A (KPI) → checkpoint
+        #   2. Try fixing region B (body) → fails → rollback to A checkpoint
+        #   3. Try different strategy for B → succeeds
+        # Blocking rollback to intermediate checkpoints prevents this pattern.
+        _target_code = state.checkpoints[target_index]
+        _t0_overflow = getattr(state, '_t0_overflow_px', 0)
+        _target_is_original = (_target_code == state.original_code)
+        if (
+            _target_is_original
+            and _current_overflow > 20
+            and _current_overflow < _t0_overflow * 0.7
+            and not hard_repair_quality_failure
+        ):
+            # Only block rollback to ORIGINAL when real progress exists.
+            # Rolling back to intermediate checkpoints is always allowed.
+            return (
+                f"ROLLBACK BLOCKED: you would lose all progress (overflow reduced "
+                f"from {_t0_overflow:.0f}px to {_current_overflow:.0f}px). "
+                f"Roll back to a more recent checkpoint instead, or continue "
+                f"editing from the current state."
+            ), False
+
+        state.current_code = state.checkpoints[target_index]
+        restored_label = state.checkpoint_labels[target_index]
+
+        # Record rollback context so future edits can learn from failures
+        _rollback_reason = str(action.get("reasoning", action.get("reason", "")) or "")[:200]
+        if _rollback_reason:
+            state.rollback_history.append(_rollback_reason)
+            # Keep only last 3 to avoid context bloat
+            if len(state.rollback_history) > 3:
+                state.rollback_history = state.rollback_history[-3:]
+        if target_index < len(state.checkpoint_text_loss):
+            state.cumulative_words_lost = state.checkpoint_text_loss[target_index]
+        else:
+            state.cumulative_words_lost = len(
+                _meaningful_visible_words_lost(state.original_code, state.current_code)
+            )
+        state.checkpoints = state.checkpoints[:target_index]
+        state.checkpoint_text_loss = state.checkpoint_text_loss[:target_index]
+        state.checkpoint_labels = state.checkpoint_labels[:target_index]
+        state.current_checkpoint_label = restored_label
+        state.pending_edit_cluster = False
+        state.pending_edit_scopes = []
+        state.active_cluster_start_code = None
+        state.active_cluster_start_text_loss = 0
+        state.active_cluster_start_label = ""
+        self._invalidate_verify_after_code_change(state, "rollback changed code")
+        hard_failure_followup = ""
+        if hard_repair_quality_failure:
+            hard_failure_followup = (
+                " This rollback left a hard-quality-failure checkpoint. "
+                "Verify the restored checkpoint before any new edit. If the "
+                "same hard failure is still reported, rollback another step "
+                "instead of branching a new plan from that state."
+            )
         return (
-            f"Rolled back {steps} step(s). "
-            f"{len(state.checkpoints) - 1} checkpoint(s) remaining."
+            f"Rolled back {steps} step(s)"
+            + (" to the start of the last edit cluster" if rollback_scope == "cluster" else "")
+            + f". Restored checkpoint: {restored_label}. "
+            f"{len(state.checkpoints) - 1} checkpoint(s) remaining. "
+            "Previous verify_layout feedback is now stale; call verify_layout "
+            "before marking a plan step done or submitting. ROLLBACK DEPTH CHECK: "
+            "a restored historical checkpoint is not automatically the clean "
+            "boundary before an abandoned strategy. If verification shows that "
+            "the rejected topology, hidden content, or its spatial damage is still "
+            "present, roll back farther or replace that strategy's patch before "
+            "branching into a new plan."
+            f"{hard_failure_followup}"
         ), True
 
     def _tool_delete_shape(
@@ -2948,9 +6793,34 @@ class AgentRepair:
                 f"Deletion reverted — there may be remaining references."
             ), False
 
-        state.checkpoints.append(state.current_code)
         prev_code = state.current_code
+        projected_text_loss = state.cumulative_words_lost
+        allows_content_change = (
+            bool(state.issue_types & CONTENT_ACCURACY_ISSUE_TYPES)
+            or state.allow_visible_text_change
+        )
+        if self._is_html_code(new_code) and not allows_content_change:
+            dropped_high_value = _dropped_high_value_tokens(prev_code, new_code, limit=10)
+            if dropped_high_value:
+                shown = ", ".join(f'"{token}"' for token in dropped_high_value)
+                return (
+                    f"Deletion rejected because '{var_name}' contains value-bearing content: {shown}. "
+                    "Relocate or restyle the element instead."
+                ), False
+            ordinary_lost = _meaningful_visible_words_lost(prev_code, new_code)
+            projected_text_loss += len(ordinary_lost)
+            if ordinary_lost and projected_text_loss > state.text_loss_budget:
+                return (
+                    f"Deletion rejected: visible-text loss budget would be {projected_text_loss}/"
+                    f"{state.text_loss_budget}. Preserve or atomically relocate the "
+                    "element, then retry; later DOM reflow remains allowed."
+                ), False
+
+        state.checkpoints.append(state.current_code)
+        state.checkpoint_text_loss.append(state.cumulative_words_lost)
         state.current_code = new_code
+        state.cumulative_words_lost = projected_text_loss
+        self._invalidate_verify_after_code_change(state, "delete_shape changed code")
         # Immediate high-value-deletion warning (same rationale as apply_edits):
         # deleting a shape to clear an overlap can take benchmark numbers / model
         # names with it. Name them now so the agent can reconsider relocating.
@@ -3127,7 +6997,7 @@ class AgentRepair:
         new_spatial = extract_slide_state(state.slide_id, new_code)
         if new_spatial and new_spatial.overlap_pairs:
             overlap_desc = "; ".join(
-                f"{a}↔{b}" for a, b in new_spatial.overlap_pairs[:5]
+                f"{a}↔{b}" for a, b, *_ in new_spatial.overlap_pairs[:5]
             )
             return (
                 f"Reflow created {len(new_spatial.overlap_pairs)} overlap(s): {overlap_desc}. "
@@ -3137,7 +7007,9 @@ class AgentRepair:
 
         # Success — commit changes
         state.checkpoints.append(state.current_code)
+        state.checkpoint_text_loss.append(state.cumulative_words_lost)
         state.current_code = new_code
+        self._invalidate_verify_after_code_change(state, "reflow changed code")
 
         # Format feedback
         lines = [
@@ -3154,6 +7026,176 @@ class AgentRepair:
                     f"  {b.var_name}: x={b.x:.2f} y={b.y:.2f} w={b.w:.2f} h={b.h:.2f}"
                 )
         return "\n".join(lines), True
+
+    @classmethod
+    def _dashboard_coupled_plan_notes(
+        cls,
+        steps: list[PlanStep],
+        state: AgentState,
+        summary: str = "",
+    ) -> list[str]:
+        from .dashboard_heuristics import dashboard_coupled_plan_notes
+        return dashboard_coupled_plan_notes(steps, state, summary)
+
+    @classmethod
+    def _is_recoverable_dashboard_dominant_compression(
+        cls,
+        state: AgentState,
+        compression_reason: str,
+    ) -> bool:
+        from .dashboard_heuristics import is_recoverable_dashboard_dominant_compression
+        return is_recoverable_dashboard_dominant_compression(state, compression_reason)
+
+    @staticmethod
+    def _strategy_fit_notes_for_step_text(step_text: str, step_idx: int) -> list[str]:
+        """Return non-blocking feedback for mismatched repair-family plans."""
+        low = (step_text or "").lower()
+        notes: list[str] = []
+        compression_terms = (
+            "tighten", "shrink", "reduce", "smaller", "compact",
+            "condense", "font-size", "line-height", "padding", "margin",
+            "gap", "height budget", "spacing",
+        )
+        destructive_terms = (
+            "delete row", "delete rows", "remove row", "remove rows",
+            "hide row", "hide rows", "drop row", "drop rows",
+            "only visible rows", "currently visible rows",
+        )
+        topology_terms = (
+            "grid-template", "grid area", "grid-area", "track", "tracks",
+            "stack", "regroup", "group", "move whole", "semantic",
+            "two-zone", "band", "placement", "rebuild", "container",
+            "column", "columns",
+        )
+        shared_support_terms = (
+            "shared support band", "shared takeaway band", "shared note band",
+            "support row below", "takeaway row below", "notes row below",
+            "detach support", "detach takeaway", "move each card's",
+            "move each card’s",
+        )
+        continuation_terms = (
+            "continuation", "continued table", "split table",
+            "split the table", "table segment", "table segments",
+        )
+        horizontal_reflow_terms = (
+            "side-by-side", "side by side", "horizontalize", "horizontal layout",
+            "horizontal grid", "two-column", "two column", "multi-column",
+            "multiple columns", "split into columns", "grid columns",
+            "column grid", "across the card", "across each card",
+        )
+        text_heavy_role_terms = (
+            "metric", "support", "finding", "takeaway", "explanation",
+            "interpretation", "note", "caption", "copy", "text block",
+        )
+        table_representation_terms = (
+            "table representation", "representation problem",
+            "readability itself", "table itself", "row/header",
+            "header relationship", "every row", "all rows",
+            "rendered text order", "reading order",
+        )
+
+        says_reflow = any(
+            marker in low
+            for marker in ("regional reflow", "body recompose", "recompose")
+        )
+        looks_like_compression = any(term in low for term in compression_terms)
+        names_topology = any(term in low for term in topology_terms)
+        if says_reflow and looks_like_compression and not names_topology:
+            notes.append(
+                f"Step {step_idx} is labeled reflow/recompose but mostly "
+                "describes size/spacing compression. If that is the intended "
+                "first move, relabel it local-fit/dashboard-fit; otherwise "
+                "make the first edit change real region topology: tracks, "
+                "grid areas, stacking, grouping, or whole-container placement."
+            )
+        if any(term in low for term in shared_support_terms):
+            notes.append(
+                f"Step {step_idx} detaches per-card support into a shared lower "
+                "region. That region consumes body height while shortening every "
+                "peer card, so do not infer extra capacity from the shorter cards "
+                "alone. Compare the total peer-card-plus-support demand and the "
+                "card-to-support reading relationship with reserving a terminal "
+                "support zone inside each card before committing to this topology."
+            )
+        if (
+            any(term in low for term in horizontal_reflow_terms)
+            and any(term in low for term in text_heavy_role_terms)
+        ):
+            notes.append(
+                f"Step {step_idx} places text-heavy metrics/support/takeaways "
+                "side by side. Before committing, compare each item's actual "
+                "available line width, resulting wrapping, and the region's total "
+                "vertical demand with the current arrangement. A parent region "
+                "spanning more card width does not mean each child becomes wider; "
+                "multiple tracks may narrow every text item and increase height. "
+                "Use the horizontal reflow when it improves the reading path and "
+                "fit; otherwise preserve or revise the stack. This is diagnostic "
+                "feedback, not a prohibition on columns."
+            )
+        if (
+            says_reflow
+            and any(term in low for term in ("table", "dashboard", "ranking", "summary"))
+            and any(term in low for term in ("slide", "header", "footer", "content grid", "body grid", "whole"))
+            and "same-topology" not in low
+        ):
+            notes.append(
+                f"Step {step_idx} proposes whole-slide/body-grid reflow for a "
+                "dashboard/table problem. Confirm from the render whether the "
+                "existing topology and reading path are still coherent. If so, "
+                "role-aware calibration is one lower-cost option; if not, the "
+                "proposed reflow may be appropriate. This note does not impose "
+                "a local-first ordering."
+            )
+        if "dashboard-fit" in low and any(
+            marker in low
+            for marker in ("body recompose", "regen", "delete", "remove rows")
+        ):
+            notes.append(
+                f"Step {step_idx} is labeled dashboard-fit but mentions a "
+                "larger/destructive strategy. Keep dashboard-fit local and "
+                "reversible, or relabel the step before editing."
+            )
+        if (
+            "dashboard-fit" in low
+            and re.search(r"\btable\b", low)
+            and not any(
+                term in low
+                for term in (
+                    "notes", "right rail", "right-rail", "ranking", "summary",
+                    "hero", "kpi", "sibling", "cluster", "card rhythm",
+                )
+            )
+        ):
+            notes.append(
+                f"Step {step_idx} describes dashboard-fit as a table-only repair. "
+                "Check whether nearby notes/cards or a KPI/summary rail compete "
+                "for the same body space. Keep the edit local when evidence shows "
+                "an isolated table defect; otherwise carry the shared-pressure "
+                "hypothesis into the next edit and verification."
+            )
+        if any(term in low for term in destructive_terms):
+            notes.append(
+                f"Step {step_idx} mentions removing or keeping only visible "
+                "table rows. For B-family spatial repairs, clipped or hidden "
+                "HTML/source rows are still protected content. Prefer giving "
+                "the table a different region, recalibrating the existing "
+                "table/card tracks, or moving support cards into real tracks."
+            )
+        if any(term in low for term in continuation_terms) and not any(
+            term in low for term in table_representation_terms
+        ):
+            notes.append(
+                f"Step {step_idx} proposes a continuation/split-table strategy. "
+                "That is a table-representation change, not a generic stronger "
+                "layout strategy after a short slot or failed fit pass. Use it "
+                "only when the table representation/readability itself is the "
+                "diagnosed problem and the plan preserves every row, header "
+                "relationship, and meaning-dependent row sequence. Otherwise prefer "
+                "same-topology track calibration, grid-area placement of whole "
+                "semantic units, or moving the table/support regions into "
+                "real visible tracks."
+            )
+        return notes
 
     def _tool_plan(
         self, action: dict, state: AgentState,
@@ -3181,16 +7223,7 @@ class AgentRepair:
                 "'action', 'type' (content/structural), and 'risk' fields."
             ), False
 
-        replacing = state.has_plan
-        if replacing:
-            logger.info("Agent slide %d: plan replaced", state.slide_id)
-
-        state.has_plan = True
-        # Record clean checkpoint at plan time
-        state.clean_checkpoint_idx = len(state.checkpoints) - 1
-
-        # Store steps as PlanStep objects
-        state.plan_steps = []
+        candidate_steps: list[PlanStep] = []
         for s in steps:
             if isinstance(s, dict):
                 text = s.get("action", s.get("text", str(s)))
@@ -3200,12 +7233,40 @@ class AgentRepair:
                 text = str(s)
                 expected = ""
                 criterion = ""
-            state.plan_steps.append(PlanStep(text=text, expected_outcome=expected, verify_criterion=criterion))
+            candidate_steps.append(
+                PlanStep(
+                    text=text,
+                    expected_outcome=expected,
+                    verify_criterion=criterion,
+                )
+            )
+
+        summary = plan.get("summary", "")
+        dashboard_plan_notes = self._dashboard_coupled_plan_notes(
+            candidate_steps, state, summary,
+        )
+        descendant_plan_note = self._dashboard_descendant_plan_note(
+            candidate_steps,
+            state,
+            " ".join((str(summary or ""), str(action.get("reasoning", "") or ""))),
+        )
+        if descendant_plan_note:
+            dashboard_plan_notes.append(descendant_plan_note)
+
+        replacing = state.has_plan
+        if replacing:
+            logger.info("Agent slide %d: plan replaced", state.slide_id)
+
+        state.has_plan = True
+        # Record clean checkpoint at plan time
+        state.clean_checkpoint_idx = len(state.checkpoints) - 1
+
+        # Store steps as PlanStep objects
+        state.plan_steps = candidate_steps
         # Auto-mark first step as in_progress
         if state.plan_steps:
             state.plan_steps[0].status = "in_progress"
 
-        summary = plan.get("summary", "")
         state.plan_summary = summary
         skip = plan.get("skip", [])
         checkpoint_strategy = plan.get("checkpoint_strategy", "")
@@ -3225,11 +7286,31 @@ class AgentRepair:
             )
         if checkpoint_strategy:
             feedback_parts.append(f"Checkpoint strategy: {checkpoint_strategy}")
+        if dashboard_plan_notes:
+            feedback_parts.append(
+                "DASHBOARD STRATEGY NOTE:\n"
+                + "\n".join(f"- {note}" for note in dashboard_plan_notes)
+            )
+
+        strategy_fit_notes: list[str] = []
+        for step_idx, step in enumerate(state.plan_steps, 1):
+            strategy_fit_notes.extend(
+                self._strategy_fit_notes_for_step_text(step.text, step_idx)
+            )
+        if strategy_fit_notes:
+            feedback_parts.append(
+                "PLAN-FAMILY FIT NOTE:\n"
+                + "\n".join(f"- {note}" for note in strategy_fit_notes)
+            )
 
         feedback_parts.append(
-            "Now execute your plan step by step. "
-            "Call update_plan to mark steps as done/skipped as you go. "
-            "Start with step 1."
+            "Now execute the plan in causal order. Checkpoints follow shared spatial "
+            "causes, not merely slide membership: one coherent edit may advance "
+            "several steps only when they share an owning region or allocation. Keep "
+            "an independent localized defect in its own verified checkpoint so a "
+            "later broad reflow or rollback cannot erase that success. Call "
+            "update_plan as evidence makes a checkpoint genuinely complete or changes "
+            "the strategy."
         )
         # Append current progress
         feedback_parts.append(self._format_plan_progress(state))
@@ -3286,8 +7367,10 @@ class AgentRepair:
                 {"step": 1, "status": "done"},
                 {"step": 3, "status": "skipped", "reason": "..."},
                 {"add": "New step text"},
+                {"add": {"action": "New step", "expected_outcome": "...", "verify_criterion": "..."}},
                 {"step": 2, "text": "Revised step description"}
-            ]
+            ],
+            "new_steps": [{"action": "Structured replacement step", "expected_outcome": "...", "verify_criterion": "..."}]
         }
         """
         if not state.plan_steps:
@@ -3296,16 +7379,39 @@ class AgentRepair:
                 "create a repair plan."
             ), False
 
-        updates = action.get("updates")
-        if not updates or not isinstance(updates, list):
+        raw_updates = action.get("updates")
+        new_steps = action.get("new_steps")
+        if raw_updates is not None and not isinstance(raw_updates, list):
             return (
-                "Invalid update_plan format. Provide an 'updates' list. "
+                "Invalid update_plan format. 'updates' must be a list."
+            ), False
+        if new_steps is not None and not isinstance(new_steps, list):
+            return (
+                "Invalid update_plan format. 'new_steps' must be a list."
+            ), False
+        updates = list(raw_updates or [])
+        updates.extend({"add": step} for step in (new_steps or []))
+        if not updates:
+            return (
+                "Invalid update_plan format. Provide an 'updates' list or "
+                "a 'new_steps' list. "
                 "Each entry: {\"step\": N, \"status\": \"done\"} or "
                 "{\"add\": \"new step text\"}."
             ), False
 
         VALID_STATUSES = {"done", "skipped", "in_progress", "pending"}
         results = []
+        marked_done_steps: list[int] = []
+        marked_skipped_steps: list[int] = []
+        strategy_text_changed = False
+        has_replacement_update = any(
+            isinstance(upd, dict)
+            and (
+                "add" in upd
+                or (isinstance(upd.get("text"), str) and bool(upd.get("text", "").strip()))
+            )
+            for upd in updates
+        )
         for upd in updates:
             if not isinstance(upd, dict):
                 results.append(f"Skipped non-dict entry: {upd}")
@@ -3313,8 +7419,24 @@ class AgentRepair:
 
             # Add new step
             if "add" in upd:
-                text = str(upd["add"])
-                state.plan_steps.append(PlanStep(text=text))
+                added = upd["add"]
+                if isinstance(added, dict):
+                    text = str(added.get("action", added.get("text", ""))).strip()
+                    expected = str(added.get("expected_outcome", "") or "")
+                    criterion = str(added.get("verify_criterion", "") or "")
+                else:
+                    text = str(added).strip()
+                    expected = ""
+                    criterion = ""
+                if not text:
+                    results.append("Skipped empty replacement step.")
+                    continue
+                state.plan_steps.append(PlanStep(
+                    text=text,
+                    expected_outcome=expected,
+                    verify_criterion=criterion,
+                ))
+                strategy_text_changed = True
                 results.append(
                     f"Added step {len(state.plan_steps)}: {text}"
                 )
@@ -3347,14 +7469,50 @@ class AgentRepair:
                         f"Use: {', '.join(sorted(VALID_STATUSES))}."
                     )
                     continue
+                if (
+                    new_status == "skipped"
+                    and not self._has_current_verify(state)
+                    and getattr(state, "last_verify_stale_reason", "")
+                ):
+                    results.append(
+                        f"Step {step_num}: skip not applied because the current "
+                        "checkpoint has not been measured by verify_layout after "
+                        f"{state.last_verify_stale_reason}. Call verify_layout "
+                        "first, then either continue this target or add a "
+                        "replacement step with a different repair family."
+                    )
+                    continue
+                if new_status == "skipped" and not has_replacement_update:
+                    residual_total = int(
+                        getattr(state, "_last_verify_targeted_residual_total", 0) or 0
+                    )
+                    core_terms = (
+                        "table", "body", "cluster", "reflow", "dashboard",
+                        "calibration", "fit", "overflow", "overlap",
+                        "out-of-bounds", "lower", "footer",
+                    )
+                    if residual_total and any(term in ps.text.lower() for term in core_terms):
+                        results.append(
+                            f"Step {step_num}: skip not applied because the latest "
+                            f"verify_layout still has {residual_total} targeted "
+                            "residual finding(s) and this update does not add or "
+                            "revise a replacement step for the same target. Add a "
+                            "replacement step with a different credible repair "
+                            "family, or keep this step in progress."
+                        )
+                        continue
                 ps.status = new_status
                 changed.append(f"status={new_status}")
+                if new_status == "done":
+                    marked_done_steps.append(step_num)
                 if new_status == "skipped":
                     ps.skip_reason = upd.get("reason", "")
+                    marked_skipped_steps.append(step_num)
             # Text update
             new_text = upd.get("text")
             if new_text and isinstance(new_text, str):
                 ps.text = new_text
+                strategy_text_changed = True
                 changed.append("text updated")
 
             if changed:
@@ -3363,6 +7521,115 @@ class AgentRepair:
                 )
 
         feedback = "\n".join(results) if results else "No changes applied."
+        if strategy_text_changed:
+            strategy_fit_notes: list[str] = []
+            for step_idx, step in enumerate(state.plan_steps, 1):
+                strategy_fit_notes.extend(
+                    self._strategy_fit_notes_for_step_text(step.text, step_idx)
+                )
+            if strategy_fit_notes:
+                feedback += (
+                    "\n\nPLAN-FAMILY FIT NOTE:\n"
+                    + "\n".join(f"- {note}" for note in strategy_fit_notes)
+                )
+            dashboard_plan_notes = self._dashboard_coupled_plan_notes(
+                state.plan_steps, state, getattr(state, "plan_summary", ""),
+            )
+            if dashboard_plan_notes:
+                feedback += (
+                    "\n\nDASHBOARD PLAN COUPLING NOTE:\n"
+                    + "\n".join(f"- {note}" for note in dashboard_plan_notes)
+                )
+        if marked_done_steps:
+            verify_notes: list[str] = []
+            has_current_verify = self._has_current_verify(state)
+            if state.current_code != state.original_code and not has_current_verify:
+                stale_reason = state.last_verify_stale_reason or "latest code change"
+                verify_notes.append(
+                    "there is no current verify_layout after the latest code "
+                    f"change ({stale_reason})"
+                )
+            elif getattr(state, "_last_verify_text_signal", False):
+                verify_notes.append(
+                    "the last verify_layout reported a visible-text change advisory"
+                )
+            if has_current_verify:
+                regression_total = getattr(
+                    state, "_last_verify_spatial_regression_total", 0,
+                )
+                if regression_total:
+                    verify_notes.append(
+                        f"the last verify_layout reported {regression_total} new "
+                        "deterministic regression(s) vs baseline"
+                    )
+                residual_total = getattr(
+                    state, "_last_verify_targeted_residual_total", 0,
+                )
+                if residual_total:
+                    verify_notes.append(
+                        f"{residual_total} targeted residual finding(s) remain in "
+                        "the last verify_layout measurement"
+                    )
+            if verify_notes:
+                feedback += (
+                    "\n\nVERIFY-AWARE PLAN NOTE: Step(s) "
+                    + ", ".join(str(n) for n in marked_done_steps)
+                    + " were marked done, but "
+                    + "; ".join(verify_notes)
+                    + ". This is not a hard gate. If those findings belong to "
+                    "later steps, continue; otherwise do not treat count "
+                    "reduction or an applied edit as completion. A step is done "
+                    "only when its verify_criterion and the original issue "
+                    "evidence are actually satisfied."
+                )
+                if self._looks_like_table_dashboard_pressure(state):
+                    feedback += (
+                        " For a subregion in a shared fixed-canvas pressure chain, "
+                        "local improvement is provisional until the neighboring roles "
+                        "and frame coexist coherently. Keep that subregion available "
+                        "for later calibration instead of treating done as frozen "
+                        "geometry."
+                    )
+        if marked_skipped_steps:
+            verify_notes: list[str] = []
+            has_current_verify = self._has_current_verify(state)
+            if state.current_code != state.original_code and not has_current_verify:
+                stale_reason = state.last_verify_stale_reason or "latest code change"
+                verify_notes.append(
+                    "the current code has not been measured by verify_layout "
+                    f"after {stale_reason}"
+                )
+            if has_current_verify:
+                residual_total = getattr(
+                    state, "_last_verify_targeted_residual_total", 0,
+                )
+                regression_total = getattr(
+                    state, "_last_verify_spatial_regression_total", 0,
+                )
+                if residual_total:
+                    verify_notes.append(
+                        f"{residual_total} targeted residual finding(s) remain"
+                    )
+                if regression_total:
+                    verify_notes.append(
+                        f"{regression_total} new deterministic regression(s) remain"
+                    )
+                if getattr(state, "_last_verify_text_signal", False):
+                    verify_notes.append("a visible-text change advisory remains")
+            if verify_notes:
+                feedback += (
+                    "\n\nSKIPPED CORE TARGET NOTE: Step(s) "
+                    + ", ".join(str(n) for n in marked_skipped_steps)
+                    + " were marked skipped while "
+                    + "; ".join(verify_notes)
+                    + ". Skipping means a step is no longer applicable, not "
+                    "that the original body/table/card/figure cluster can be "
+                    "abandoned after one failed strategy. If the same cluster "
+                    "still appears in verify_layout, add a replacement step that "
+                    "uses a different information-preserving family: same-topology "
+                    "track calibration, grid-area reflow, regrouped support cards, "
+                    "body recompose, or source-preserving media adaptation."
+                )
         feedback += "\n" + self._format_plan_progress(state)
         return feedback, False
 
@@ -3428,8 +7695,679 @@ class AgentRepair:
         result += f"\n\n[Search calls remaining: {remaining}/{self.MAX_SEARCH_CALLS}]"
         return result, False
 
+    @staticmethod
+    def _generated_asset_dir(state: AgentState) -> Path:
+        """Return the directory where repair-created image assets should live."""
+        if state._run_dir:
+            return Path(state._run_dir) / f"turn_{state._turn_index:02d}" / "generated_assets"
+        return Path(state.case_dir) / "repair_assets"
+
+    @staticmethod
+    def _html_asset_base_dirs(
+        case_dir: str,
+        run_dir: str | None = None,
+        turn_index: int | None = None,
+    ) -> list[Path]:
+        """Directories used by verify_layout to resolve local image assets."""
+        dirs: list[Path] = []
+
+        def add(path: Path) -> None:
+            try:
+                resolved = path.resolve()
+            except OSError:
+                return
+            if resolved not in dirs:
+                dirs.append(resolved)
+
+        case_path = Path(case_dir)
+        add(case_path)
+        add(case_path / "images")
+        add(case_path / "source_pack" / "figures")
+        add(case_path / "source_pack" / "tables")
+        add(case_path / "source_pack" / "screenshots")
+        if run_dir:
+            run_path = Path(run_dir)
+            if turn_index is not None:
+                add(run_path / f"turn_{turn_index:02d}" / "generated_assets")
+            for asset_dir in sorted(run_path.glob("turn_*/generated_assets")):
+                add(asset_dir)
+        return dirs
+
+    @staticmethod
+    def _safe_asset_name(
+        raw_name: str,
+        fallback: str,
+        allowed_exts: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".webp"),
+    ) -> str:
+        """Normalize a user/model-supplied filename for generated assets."""
+        safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw_name.strip()).strip("._")
+        if not safe_name:
+            safe_name = fallback
+        if not safe_name.lower().endswith(allowed_exts):
+            safe_name += allowed_exts[0]
+        return safe_name
+
+    @staticmethod
+    def _svg_local_tag(tag: str) -> str:
+        from .svg_repair import svg_local_tag
+        return svg_local_tag(tag)
+
+    @classmethod
+    def _svg_visible_texts(cls, svg: str) -> list[str]:
+        from .svg_repair import svg_visible_texts
+        return svg_visible_texts(svg)
+
+    @staticmethod
+    def _svg_text_identity(text: str) -> str:
+        from .svg_repair import svg_text_identity
+        return svg_text_identity(text)
+
+    @staticmethod
+    def _svg_canvas_signature(svg: str) -> tuple[str, str, str] | None:
+        from .svg_repair import svg_canvas_signature
+        return svg_canvas_signature(svg)
+
+    def _target_svg_asset_paths(self, state: AgentState) -> list[Path]:
+        """Resolve external SVG assets named by current svg_visual_defect issues."""
+        try:
+            from .html_spatial_state import _resolve_local_img_src
+        except Exception:
+            return []
+
+        issue_hints = set()
+        for issue in self._current_issues:
+            if issue.issue_type != "svg_visual_defect":
+                continue
+            evidence = getattr(issue, "evidence", None)
+            for value in (
+                getattr(evidence, "description", ""),
+                getattr(issue, "planned_fix", ""),
+                *list(getattr(evidence, "object_refs", []) or []),
+            ):
+                if isinstance(value, str) and value.strip():
+                    issue_hints.add(value.lower())
+
+        asset_base_dirs = self._html_asset_base_dirs(
+            state.case_dir,
+            getattr(state, "_run_dir", None),
+            getattr(state, "_turn_index", None),
+        )
+        paths: list[Path] = []
+        for src in re.findall(
+            r'<img\s[^>]*src=["\']([^"\']+\.svg(?:[#?][^"\']*)?)["\']',
+            state.original_code,
+            flags=re.IGNORECASE,
+        ):
+            resolved = _resolve_local_img_src(
+                src,
+                html_base_dir=Path(state.case_dir),
+                asset_base_dirs=asset_base_dirs,
+            )
+            if not resolved:
+                continue
+            asset_tokens = (src.lower(), resolved.name.lower(), str(resolved).lower())
+            if issue_hints and not any(
+                token in hint or hint in token
+                for hint in issue_hints
+                for token in asset_tokens
+                if token
+            ):
+                continue
+            if resolved not in paths:
+                paths.append(resolved)
+        return paths
+
+    def _validate_svg_asset_repair_fidelity(
+        self,
+        svg: str,
+        state: AgentState,
+    ) -> str | None:
+        """Reject external-SVG repairs that redraw instead of preserving content."""
+        issue_types = set(getattr(state, "issue_types", set()) or set())
+        if issue_types != {"svg_visual_defect"}:
+            return None
+        target_paths = self._target_svg_asset_paths(state)
+        if not target_paths:
+            return None
+        try:
+            original_svg = target_paths[0].read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            return None
+
+        original_canvas = self._svg_canvas_signature(original_svg)
+        new_canvas = self._svg_canvas_signature(svg)
+        if original_canvas and new_canvas and original_canvas != new_canvas:
+            return (
+                "SVG repair changed the asset canvas/viewBox. Preserve the original "
+                f"viewBox/width/height {original_canvas}; fix only local label geometry."
+            )
+
+        original_texts = self._svg_visible_texts(original_svg)
+        new_texts = self._svg_visible_texts(svg)
+        original_blob = "".join(
+            self._svg_text_identity(text) for text in original_texts
+        )
+        new_blob = "".join(self._svg_text_identity(text) for text in new_texts)
+        missing = [
+            text for text in original_texts
+            if self._svg_text_identity(text)
+            and self._svg_text_identity(text) not in new_blob
+        ]
+        added = [
+            text for text in new_texts
+            if self._svg_text_identity(text)
+            and self._svg_text_identity(text) not in original_blob
+        ]
+        if missing:
+            shown = "; ".join(missing[:5])
+            return (
+                "SVG repair dropped original visible SVG text. Preserve every "
+                f"non-target label/caption exactly; missing: {shown}"
+            )
+        if added:
+            shown = "; ".join(added[:5])
+            return (
+                "SVG repair added new visible SVG text. For svg_visual_defect, "
+                f"wrap or reposition existing labels only; added: {shown}"
+            )
+        return None
+
+    @staticmethod
+    def _existing_image_paths_for_state(state: AgentState, limit: int = 12) -> list[Path]:
+        """Return useful local image paths for tool error messages."""
+        paths: list[Path] = []
+
+        def add(path: Path | None) -> None:
+            if path is None:
+                return
+            try:
+                resolved = path.expanduser().resolve()
+            except OSError:
+                return
+            if resolved.exists() and resolved.is_file() and resolved not in paths:
+                paths.append(resolved)
+
+        for src in re.findall(
+            r"<img\b[^>]*\bsrc\s*=\s*['\"]([^'\"]+)['\"]",
+            state.current_code,
+            flags=re.IGNORECASE,
+        ):
+            add(AgentRepair._resolve_image_src_path(src, state))
+
+        case_dir = Path(state.case_dir).resolve()
+        for base in (
+            case_dir / "source_pack" / "figures",
+            case_dir / "source_pack" / "tables",
+            case_dir / "source_pack" / "screenshots",
+            case_dir / "images",
+        ):
+            if not base.exists():
+                continue
+            for suffix in ("*.png", "*.jpg", "*.jpeg", "*.webp"):
+                for path in sorted(base.glob(suffix)):
+                    add(path)
+
+        if state._run_dir:
+            run_dir = Path(state._run_dir)
+            for path in sorted(run_dir.glob("turn_*/generated_assets/*")):
+                if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}:
+                    add(path)
+
+        return paths[:limit]
+
+    @staticmethod
+    def _svg_text_width_estimate(text: str, font_size: float) -> float:
+        from .svg_repair import svg_text_width_estimate
+        return svg_text_width_estimate(text, font_size)
+
+    @staticmethod
+    def _svg_attr_float(el: ET.Element, name: str, default: float | None = None) -> float | None:
+        from .svg_repair import svg_attr_float
+        return svg_attr_float(el, name, default)
+
+    @staticmethod
+    def _svg_tag(el: ET.Element) -> str:
+        from .svg_repair import svg_tag
+        return svg_tag(el)
+
+    @classmethod
+    def _svg_text_fit_warning(cls, svg: str) -> str | None:
+        from .svg_repair import svg_text_fit_warning
+        return svg_text_fit_warning(svg)
+
+    def _tool_create_svg_asset(self, action: dict, state: AgentState) -> tuple[str, bool]:
+        """Create a constrained SVG asset for presentation-adapted figure repairs."""
+        svg = action.get("svg") or action.get("content") or ""
+        if not isinstance(svg, str) or not svg.strip():
+            return "create_svg_asset failed: provide an SVG string in `svg`.", False
+        svg = svg.strip()
+        if not re.match(r"^<svg\b", svg, re.IGNORECASE):
+            return "create_svg_asset failed: SVG content must start with <svg>.", False
+        if re.search(r"<\s*(?:script|foreignObject)\b|\son[a-z]+\s*=", svg, re.IGNORECASE):
+            return (
+                "create_svg_asset failed: SVG may not contain script, "
+                "foreignObject, or event-handler attributes."
+            ), False
+        if "xmlns=" not in svg[:250].lower():
+            svg = re.sub(
+                r"^<svg\b",
+                '<svg xmlns="http://www.w3.org/2000/svg"',
+                svg,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+        fit_warning = self._svg_text_fit_warning(svg)
+        if fit_warning:
+            return f"create_svg_asset failed: {fit_warning}", False
+        fidelity_warning = self._validate_svg_asset_repair_fidelity(svg, state)
+        if fidelity_warning:
+            return f"create_svg_asset failed: {fidelity_warning}", False
+        safe_name = self._safe_asset_name(
+            str(action.get("output_name") or "slide_figure_summary.svg"),
+            "slide_figure_summary.svg",
+            allowed_exts=(".svg",),
+        )
+        out_dir = self._generated_asset_dir(state)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / safe_name
+        try:
+            out_path.write_text(svg, encoding="utf-8")
+        except Exception as exc:
+            return f"create_svg_asset failed while writing {out_path}: {exc}", False
+        turn_local_ref = f"../generated_assets/{safe_name}" if state._run_dir else str(out_path)
+        return (
+            f"create_svg_asset ok: {out_path}. Use `{turn_local_ref}` as the "
+            "target raw-figure <img src> so the slide HTML stays turn-local; "
+            "keep object-fit:contain, then call verify_layout and render_preview."
+        ), False
+
+    @staticmethod
+    def _raw_figure_dense_slot_edit_warning(state: AgentState, edit_diff: str) -> str | None:
+        """Block B17 fixes that steal space from dense adjacent text columns."""
+        if not (state.issue_types & {"raw_figure", "raw_table"}):
+            return None
+        if not AgentRepair._is_html_code(state.current_code):
+            return None
+        if len(_visible_text_tokens(state.current_code)) <= 240:
+            return None
+        if not edit_diff:
+            return None
+
+        guarded_block = re.compile(
+            r"\.(?:left|right|figure-wrap)\s*\{[^}]*\b(?:width|height|flex|grid|padding|margin)\s*:",
+            re.IGNORECASE | re.DOTALL,
+        )
+        if not guarded_block.search(edit_diff):
+            return None
+        return (
+            "EDIT BLOCKED: this dense slide has a raw_figure/raw_table issue, "
+            "but the edit changes the left/right column or figure container size. "
+            "Do not fix B17 by widening the figure slot or narrowing adjacent text. "
+            "If the planned_fix authorizes a changed figure source, prefer a real "
+            "crop/recomposition of the original source image inside the existing media "
+            "slot. For quantitative charts/plots, do not escape this layout constraint "
+            "by replacing a clean original chart with a hand-drawn SVG approximation; "
+            "regenerate only from exact data or preserve the original image and mark "
+            "the remaining layout limitation honestly. "
+            "Handle separate B13/B04 issues with small targeted edits after the asset "
+            "passes verify_layout and render_preview."
+        )
+
+    @staticmethod
+    def _resolve_image_src_path(src: str, state: AgentState) -> Path | None:
+        """Resolve an HTML image src to an existing local path."""
+        if not src:
+            return None
+        raw = src.strip()
+        if raw.startswith("file://"):
+            raw = raw[7:]
+        if raw.startswith("data:") or re.match(r"https?://", raw):
+            return None
+
+        candidate = Path(raw).expanduser()
+        candidates = []
+        case_dir = Path(state.case_dir).resolve()
+        if candidate.is_absolute():
+            candidates.append(candidate)
+            parts = candidate.parts
+            if "source_pack" in parts:
+                idx = parts.index("source_pack")
+                candidates.append(case_dir / Path(*parts[idx:]))
+            if "generated_assets" in parts and state._run_dir:
+                idx = parts.index("generated_assets")
+                for turn_dir in sorted(Path(state._run_dir).glob("turn_*")):
+                    candidates.append(turn_dir / Path(*parts[idx:]))
+        else:
+            candidates.extend([
+                Path.cwd() / candidate,
+                case_dir / candidate,
+                case_dir.parent / candidate,
+                case_dir.parent.parent / candidate,
+            ])
+            parts = candidate.parts
+            if "source_pack" in parts:
+                idx = parts.index("source_pack")
+                candidates.append(case_dir / Path(*parts[idx:]))
+            if "generated_assets" in parts and state._run_dir:
+                idx = parts.index("generated_assets")
+                for turn_dir in sorted(Path(state._run_dir).glob("turn_*")):
+                    candidates.append(turn_dir / Path(*parts[idx:]))
+        if candidate.name:
+            for base in (
+                case_dir / "source_pack" / "figures",
+                case_dir / "source_pack" / "tables",
+                case_dir / "source_pack" / "screenshots",
+                case_dir / "images",
+            ):
+                candidates.append(base / candidate.name)
+            if state._run_dir:
+                candidates.extend(Path(state._run_dir).glob(f"turn_*/generated_assets/{candidate.name}"))
+        for path in candidates:
+            try:
+                resolved = path.resolve()
+            except OSError:
+                continue
+            if resolved.exists() and resolved.is_file():
+                return resolved
+        return None
+
+    @staticmethod
+    def _parse_crop_bbox(action: dict, img_size: tuple[int, int]) -> tuple[int, int, int, int] | None:
+        """Parse a crop bbox as pixel left/top/right/bottom, clamped to image."""
+        width, height = img_size
+        bbox_pct = action.get("bbox_pct")
+        if bbox_pct is not None:
+            if isinstance(bbox_pct, dict):
+                if {"left", "top", "right", "bottom"} <= set(bbox_pct):
+                    values = [
+                        bbox_pct["left"], bbox_pct["top"],
+                        bbox_pct["right"], bbox_pct["bottom"],
+                    ]
+                elif {"x", "y", "width", "height"} <= set(bbox_pct):
+                    x = float(bbox_pct["x"])
+                    y = float(bbox_pct["y"])
+                    values = [x, y, x + float(bbox_pct["width"]), y + float(bbox_pct["height"])]
+                else:
+                    return None
+            elif isinstance(bbox_pct, list | tuple) and len(bbox_pct) == 4:
+                values = list(bbox_pct)
+            else:
+                return None
+            nums = [float(value) for value in values]
+            # Accept either fractions [0, 1] or percentages [0, 100].
+            if any(abs(value) > 1 for value in nums):
+                nums = [value / 100 for value in nums]
+            left, top, right, bottom = nums
+            bbox = [left * width, top * height, right * width, bottom * height]
+        else:
+            bbox = action.get("bbox_px", action.get("bbox"))
+        if isinstance(bbox, dict):
+            if {"left", "top", "right", "bottom"} <= set(bbox):
+                left = float(bbox["left"])
+                top = float(bbox["top"])
+                right = float(bbox["right"])
+                bottom = float(bbox["bottom"])
+            elif {"x", "y", "width", "height"} <= set(bbox):
+                left = float(bbox["x"])
+                top = float(bbox["y"])
+                right = left + float(bbox["width"])
+                bottom = top + float(bbox["height"])
+            else:
+                return None
+        elif isinstance(bbox, list | tuple) and len(bbox) == 4:
+            left, top, right, bottom = (float(value) for value in bbox)
+        else:
+            return None
+
+        left_i = max(0, min(width, int(round(left))))
+        top_i = max(0, min(height, int(round(top))))
+        right_i = max(0, min(width, int(round(right))))
+        bottom_i = max(0, min(height, int(round(bottom))))
+        if right_i <= left_i or bottom_i <= top_i:
+            return None
+        return left_i, top_i, right_i, bottom_i
+
+    @classmethod
+    def _parse_crop_bboxes(
+        cls,
+        action: dict,
+        img_size: tuple[int, int],
+    ) -> list[tuple[int, int, int, int]] | None:
+        """Parse one or more crop boxes from compose_image_grid input."""
+        raw_bboxes = None
+        pct_mode = False
+        if action.get("bboxes_pct") is not None:
+            raw_bboxes = action.get("bboxes_pct")
+            pct_mode = True
+        elif action.get("bboxes_px") is not None:
+            raw_bboxes = action.get("bboxes_px")
+        elif action.get("bboxes") is not None:
+            raw_bboxes = action.get("bboxes")
+        elif action.get("panels") is not None:
+            raw_bboxes = []
+            for panel in action.get("panels") or []:
+                if not isinstance(panel, dict):
+                    return None
+                if panel.get("bbox_pct") is not None:
+                    raw_bboxes.append({"bbox_pct": panel.get("bbox_pct")})
+                elif panel.get("bbox_px") is not None:
+                    raw_bboxes.append(panel.get("bbox_px"))
+                elif panel.get("bbox") is not None:
+                    raw_bboxes.append(panel.get("bbox"))
+                else:
+                    return None
+        if not isinstance(raw_bboxes, list | tuple) or not raw_bboxes:
+            return None
+
+        bboxes: list[tuple[int, int, int, int]] = []
+        for raw_bbox in raw_bboxes:
+            if isinstance(raw_bbox, dict) and "bbox_pct" in raw_bbox:
+                bbox = cls._parse_crop_bbox({"bbox_pct": raw_bbox["bbox_pct"]}, img_size)
+            elif pct_mode:
+                bbox = cls._parse_crop_bbox({"bbox_pct": raw_bbox}, img_size)
+            else:
+                bbox = cls._parse_crop_bbox({"bbox_px": raw_bbox}, img_size)
+            if bbox is None:
+                return None
+            bboxes.append(bbox)
+        return bboxes
+
+    def _tool_crop_image(self, action: dict, state: AgentState) -> tuple[str, bool]:
+        """Create a real cropped image asset from a local source image."""
+        src = str(action.get("src", "")).strip()
+        source_path = self._resolve_image_src_path(src, state)
+        if source_path is None:
+            available = self._existing_image_paths_for_state(state)
+            available_text = "\n".join(f"- {path}" for path in available) or "- none found"
+            return (
+                "crop_image failed: provide a local src path from an existing "
+                "<img>, e.g. cases/.../source_pack/figures/fig.png. Remote or "
+                "data URLs are not supported. Available local image candidates:\n"
+                f"{available_text}",
+                False,
+            )
+
+        try:
+            from PIL import Image
+        except Exception as exc:
+            return f"crop_image failed: Pillow is unavailable ({exc}).", False
+
+        try:
+            with Image.open(source_path) as img:
+                bbox = self._parse_crop_bbox(action, img.size)
+                if bbox is None:
+                    return (
+                        "crop_image failed: bbox_px must be [left, top, right, "
+                        "bottom] pixels, bbox_pct must be [left, top, right, "
+                        "bottom] as fractions/percentages, or use {x,y,width,height}. "
+                        f"Source image size is {img.size[0]}x{img.size[1]}px.",
+                        False,
+                    )
+                cropped = img.crop(bbox)
+                if cropped.mode not in {"RGB", "RGBA"}:
+                    cropped = cropped.convert("RGBA")
+        except Exception as exc:
+            return f"crop_image failed while reading {source_path}: {exc}", False
+
+        safe_name = self._safe_asset_name(
+            str(action.get("output_name", "")),
+            f"slide_{state.slide_id:02d}_figure_excerpt_{len(state.checkpoints)}.png",
+        )
+
+        out_dir = self._generated_asset_dir(state)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = (out_dir / safe_name).resolve()
+        try:
+            cropped.save(out_path)
+        except Exception as exc:
+            return f"crop_image failed while writing {out_path}: {exc}", False
+
+        left, top, right, bottom = bbox
+        return (
+            f"Cropped image saved to {out_path} ({cropped.width}x{cropped.height}px) "
+            f"from {source_path} bbox [{left}, {top}, {right}, {bottom}].\n"
+            "Next: replace the target <img src> with this path via apply_edits, "
+            "set the image CSS to object-fit: contain, then call verify_layout "
+            "and render_preview.",
+            False,
+        )
+
+    def _tool_compose_image_grid(self, action: dict, state: AgentState) -> tuple[str, bool]:
+        """Create a real multi-crop recomposed image asset from one source image."""
+        src = str(action.get("src", "")).strip()
+        source_path = self._resolve_image_src_path(src, state)
+        if source_path is None:
+            available = self._existing_image_paths_for_state(state)
+            available_text = "\n".join(f"- {path}" for path in available) or "- none found"
+            return (
+                "compose_image_grid failed: provide a local src path from an "
+                "existing <img> or source_pack image. Available local image "
+                f"candidates:\n{available_text}",
+                False,
+            )
+
+        try:
+            from PIL import Image, ImageColor, ImageDraw
+        except Exception as exc:
+            return f"compose_image_grid failed: Pillow is unavailable ({exc}).", False
+
+        try:
+            with Image.open(source_path) as img:
+                source = img.convert("RGBA")
+                bboxes = self._parse_crop_bboxes(action, source.size)
+                if not bboxes:
+                    return (
+                        "compose_image_grid failed: provide bboxes_px or "
+                        "bboxes_pct as a non-empty list of [left, top, right, "
+                        "bottom] boxes, or panels with bbox_px/bbox_pct. "
+                        f"Source image size is {source.width}x{source.height}px.",
+                        False,
+                    )
+                crops = [source.crop(bbox) for bbox in bboxes]
+        except Exception as exc:
+            return f"compose_image_grid failed while reading {source_path}: {exc}", False
+
+        raw_layout = str(action.get("layout", "grid")).strip().lower()
+        n = len(crops)
+        if raw_layout in {"vertical", "stack", "column"}:
+            columns = 1
+        elif raw_layout in {"horizontal", "row"}:
+            columns = n
+        else:
+            try:
+                columns = int(action.get("columns") or 0)
+            except (TypeError, ValueError):
+                columns = 0
+            if columns <= 0:
+                columns = max(1, min(n, int(n ** 0.5 + 0.999)))
+        columns = max(1, min(columns, n))
+        rows = (n + columns - 1) // columns
+
+        def _positive_int(name: str, default: int, min_value: int = 0) -> int:
+            try:
+                value = int(action.get(name, default))
+            except (TypeError, ValueError):
+                value = default
+            return max(min_value, value)
+
+        padding = _positive_int("padding_px", 24, 0)
+        gap = _positive_int("gap_px", 18, 0)
+        target_width = _positive_int("target_width_px", 1400, 320)
+        max_cell_width = max(1, (target_width - 2 * padding - gap * (columns - 1)) // columns)
+
+        scaled: list[Image.Image] = []
+        for crop in crops:
+            scale = min(1.0, max_cell_width / max(1, crop.width))
+            if scale < 1.0:
+                new_size = (
+                    max(1, int(round(crop.width * scale))),
+                    max(1, int(round(crop.height * scale))),
+                )
+                crop = crop.resize(new_size, Image.Resampling.LANCZOS)
+            scaled.append(crop)
+
+        cell_w = max(crop.width for crop in scaled)
+        row_heights = []
+        for row_idx in range(rows):
+            row = scaled[row_idx * columns:(row_idx + 1) * columns]
+            row_heights.append(max(crop.height for crop in row))
+        canvas_w = padding * 2 + columns * cell_w + gap * (columns - 1)
+        canvas_h = padding * 2 + sum(row_heights) + gap * (rows - 1)
+
+        background = str(action.get("background", "#ffffff"))
+        border = str(action.get("border", "#d5dde5"))
+        try:
+            bg_rgba = ImageColor.getcolor(background, "RGBA")
+            border_rgba = ImageColor.getcolor(border, "RGBA")
+        except ValueError:
+            bg_rgba = (255, 255, 255, 255)
+            border_rgba = (213, 221, 229, 255)
+
+        composed = Image.new("RGBA", (canvas_w, canvas_h), bg_rgba)
+        draw = ImageDraw.Draw(composed)
+        y = padding
+        for row_idx in range(rows):
+            row = scaled[row_idx * columns:(row_idx + 1) * columns]
+            row_h = row_heights[row_idx]
+            for col_idx, crop in enumerate(row):
+                x = padding + col_idx * (cell_w + gap) + max(0, (cell_w - crop.width) // 2)
+                yy = y + max(0, (row_h - crop.height) // 2)
+                composed.alpha_composite(crop, (x, yy))
+                draw.rectangle(
+                    [x, yy, x + crop.width - 1, yy + crop.height - 1],
+                    outline=border_rgba,
+                    width=1,
+                )
+            y += row_h + gap
+
+        safe_name = self._safe_asset_name(
+            str(action.get("output_name", "")),
+            f"slide_{state.slide_id:02d}_figure_grid_{len(state.checkpoints)}.png",
+        )
+        out_dir = self._generated_asset_dir(state)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = (out_dir / safe_name).resolve()
+        try:
+            composed.convert("RGB").save(out_path)
+        except Exception as exc:
+            return f"compose_image_grid failed while writing {out_path}: {exc}", False
+
+        bbox_text = "; ".join(
+            f"[{left}, {top}, {right}, {bottom}]"
+            for left, top, right, bottom in bboxes
+        )
+        return (
+            f"Composed image grid saved to {out_path} ({canvas_w}x{canvas_h}px) "
+            f"from {source_path}; panels={n}, layout={columns}x{rows}, "
+            f"bboxes={bbox_text}.\n"
+            "Next: replace the target <img src> with this path via apply_edits, "
+            "set the image CSS to object-fit: contain, keep the original media "
+            "slot/alt/ARIA semantics, then call verify_layout and render_preview.",
+            False,
+        )
+
     def _tool_generate_chart(self, action: dict, state) -> tuple[str, bool]:
-        """Generate a matplotlib chart from viz_data."""
+        """Generate a chart image from viz_data."""
         viz_data = action.get("viz_data", {})
         chart_type = viz_data.get("chart_type", "")
         if chart_type == "flowchart":
@@ -3507,6 +8445,7 @@ class AgentRepair:
             regen_note += "The previous version had these specific problems:\n"
 
             has_layout_issue = False
+            has_density_issue = False
             must_contain_phrases: list[str] = []
 
             for issue in self._current_issues:
@@ -3523,16 +8462,23 @@ class AgentRepair:
                     regen_note += f"  Fix: {fix[:200]}\n"
                 # Inject fix_detail if available
                 if issue.fix_detail and issue.fix_detail.correct_content:
-                    content = issue.fix_detail.correct_content[:300]
-                    regen_note += f"  MUST INCLUDE (source-verified by judge): {content}\n"
+                    content = normalize_correct_content_text(
+                        issue.fix_detail.correct_content,
+                    )[:300]
+                    if content:
+                        regen_note += f"  MUST INCLUDE (source-verified by judge): {content}\n"
                     # Only enforce must-contain for content accuracy issues;
                     # for density/layout issues, correct_content is often a
                     # repair instruction (e.g. "condense bullets") that won't
                     # appear verbatim in the new code.
-                    if issue.issue_type in CONTENT_ACCURACY_ISSUE_TYPES:
+                    if content and issue.issue_type in CONTENT_ACCURACY_ISSUE_TYPES:
                         must_contain_phrases.append(content)
                 if issue.issue_type == "layout_inappropriate":
                     has_layout_issue = True
+                if issue.issue_type in {
+                    "density_imbalance", "whitespace_imbalance",
+                }:
+                    has_density_issue = True
 
             # Layout guidance — suggest a DIFFERENT template
             if has_layout_issue:
@@ -3550,9 +8496,11 @@ class AgentRepair:
                     and issue.fix_detail.correct_content
                     and issue.resolved_at_turn is not None
                 ):
-                    must_contain_phrases.append(
-                        issue.fix_detail.correct_content[:200]
+                    content = normalize_correct_content_text(
+                        issue.fix_detail.correct_content,
                     )
+                    if content:
+                        must_contain_phrases.append(content[:200])
 
             if must_contain_phrases:
                 regen_note += "\n## MUST PRESERVE (from previous fixes):\n"
@@ -3565,17 +8513,9 @@ class AgentRepair:
                 self._extract_visible_text(state.current_code),
             ))
 
-            # For density_imbalance (whitespace), allow MORE words to fill space
-            has_density_issue = any(
-                i.issue_type in ("density_imbalance", "layout_inappropriate")
-                and i.status.value == "open"
-                for i in self._current_issues
-            )
-            if has_density_issue:
-                word_budget = max(current_words, 80)  # at least 80 words
-                word_budget = min(word_budget + 40, 180)  # allow up to 180
-            else:
-                word_budget = min(current_words + 20, 120)
+            # Layout regeneration does not authorize new content. Missing
+            # information is diagnosed and repaired by C-family issues.
+            word_budget = min(current_words + 20, 120)
 
             regen_note += (
                 f"\nHard constraints (EXCEEDING ANY WILL CAUSE REJECTION):\n"
@@ -3623,8 +8563,31 @@ class AgentRepair:
             )
 
             if accept:
+                projected_text_loss = state.cumulative_words_lost
+                allows_content_change = (
+                    bool(state.issue_types & CONTENT_ACCURACY_ISSUE_TYPES)
+                    or state.allow_visible_text_change
+                )
+                if self._is_html_code(new_code) and not allows_content_change:
+                    dropped_high_value = _dropped_high_value_tokens(state.current_code, new_code, limit=10)
+                    if dropped_high_value:
+                        return (
+                            "Regen rejected because it removed value-bearing content: "
+                            + ", ".join(dropped_high_value)
+                        ), False
+                    ordinary_lost = _meaningful_visible_words_lost(state.current_code, new_code)
+                    projected_text_loss += len(ordinary_lost)
+                    if ordinary_lost and projected_text_loss > state.text_loss_budget:
+                        return (
+                            "Regen rejected because cumulative visible-text loss would reach "
+                            f"{projected_text_loss}/{state.text_loss_budget}. Retry with all "
+                            "information-bearing content preserved; later DOM reflow remains allowed."
+                        ), False
                 state.checkpoints.append(state.current_code)
+                state.checkpoint_text_loss.append(state.cumulative_words_lost)
                 state.current_code = new_code
+                state.cumulative_words_lost = projected_text_loss
+                self._invalidate_verify_after_code_change(state, "regen_slide changed code")
                 old_n = old_spatial.get("total_issues", "?") if old_spatial else "?"
                 new_n = new_spatial.get("total_issues", "?") if new_spatial else "?"
                 return (
@@ -3674,15 +8637,20 @@ class AgentRepair:
         # Gate 2: word count — only reject extreme blowup
         old_words = len(re.findall(r'\b\w+\b', self._extract_visible_text(old_code)))
         new_words = len(re.findall(r'\b\w+\b', self._extract_visible_text(new_code)))
-        # When the slide has density_imbalance (too empty), MORE words is
-        # exactly what we want — skip word count gate entirely.
-        has_density_issue = any(
-            i.issue_type in ("density_imbalance",)
-            for i in self._current_issues
-            if hasattr(i, 'status') and i.status.value == "open"
-        )
-        if not has_density_issue and new_words > old_words + 50:
+        if new_words > old_words + 50:
             return False, f"word count increased too much ({old_words}→{new_words})"
+
+        has_content_issue = any(
+            i.issue_type in CONTENT_ACCURACY_ISSUE_TYPES
+            for i in self._current_issues
+            if hasattr(i, "status") and i.status.value == "open"
+        )
+        if not has_content_issue:
+            downgrade_ok, downgrade_reason = validate_repair_not_visual_downgrade(
+                old_code, new_code,
+            )
+            if not downgrade_ok:
+                return False, f"layout-only regen visual downgrade: {downgrade_reason}"
 
         # Gate 2b: layout-only regeneration must not rewrite the slide's
         # claims. In rich63 traces, regen fixed spatial geometry but introduced
@@ -3690,11 +8658,6 @@ class AgentRepair:
         # B-family/layout repairs, require the visible text and numeric claims
         # to stay close to the original; content corrections should use
         # search_source + targeted edits instead.
-        has_content_issue = any(
-            i.issue_type in CONTENT_ACCURACY_ISSUE_TYPES
-            for i in self._current_issues
-            if hasattr(i, "status") and i.status.value == "open"
-        )
         if not has_content_issue:
             old_text = self._extract_visible_text(old_code)
             new_text = self._extract_visible_text(new_code)
@@ -3781,7 +8744,16 @@ class AgentRepair:
             compiler = state.codegen_compiler
             if self._is_html_code(code):
                 from .html_spatial_state import extract_html_slide_state
-                spatial = extract_html_slide_state(state.slide_id, code)
+                spatial = extract_html_slide_state(
+                    state.slide_id,
+                    code,
+                    html_base_dir=Path(state.case_dir),
+                    asset_base_dirs=self._html_asset_base_dirs(
+                        state.case_dir,
+                        getattr(state, "_run_dir", None),
+                        getattr(state, "_turn_index", None),
+                    ),
+                )
             else:
                 spatial = extract_slide_state(state.slide_id, code)
 
@@ -3799,11 +8771,154 @@ class AgentRepair:
 
     def _tool_get_current_code(self, state: AgentState) -> tuple[str, bool]:
         """Return current code with line numbers."""
+        state.last_code_read_revision = state.layout_revision
         lines = state.current_code.split("\n")
         numbered = "\n".join(
             f"{i+1:4d}: {line}" for i, line in enumerate(lines)
         )
         return f"```python\n{numbered}\n```", False
+
+    def _measure_overflow_px(self, html_code: str, state: AgentState) -> float:
+        """Return how many px content extends past 720px canvas."""
+        if not self._is_html_code(html_code):
+            return 0
+        try:
+            html_state = extract_html_slide_state(
+                state.slide_id, html_code,
+                html_base_dir=Path(state.case_dir),
+            )
+            return compute_overflow_px(html_state.blocks)
+        except Exception:
+            return 0
+
+    def _tool_measure_space(self, state: AgentState) -> tuple[str, bool]:
+        """Return vertical space budget analysis for the current slide."""
+        if not self._is_html_code(state.current_code):
+            return "measure_space requires HTML code.", False
+        try:
+            html_state = extract_html_slide_state(
+                state.slide_id, state.current_code,
+                html_base_dir=Path(state.case_dir),
+            )
+        except Exception as exc:
+            return f"measure_space failed: {exc}", False
+
+        canvas_h = 720
+        # Find the max bottom edge of any content
+        max_bottom = 0
+        region_bottoms: dict[str, float] = {}
+        for block in html_state.blocks:
+            x, y, w, h = block.bbox_px
+            bottom = y + h
+            if bottom > max_bottom:
+                max_bottom = bottom
+            # Group by top-level region (first CSS class or var_name)
+            region = block.css_selector.split()[0] if block.css_selector else block.var_name
+            region = region.strip(".").split(":")[0][:20]
+            if region not in region_bottoms or bottom > region_bottoms[region]:
+                region_bottoms[region] = bottom
+
+        overflow = max(0, max_bottom - canvas_h)
+        # Find overflow:hidden containers
+        import re as _re
+        overflow_hidden_count = (
+            state.current_code.count("overflow:hidden")
+            + state.current_code.count("overflow: hidden")
+        )
+
+        lines = [
+            f"SPACE BUDGET: canvas={canvas_h}px, content reaches {max_bottom:.0f}px, "
+            f"overflow={overflow:.0f}px",
+        ]
+        if overflow > 0:
+            lines.append(
+                f"DEFICIT={overflow:.0f}px to save."
+            )
+        else:
+            lines.append("Content fits within canvas — no overflow to fix.")
+
+        if overflow_hidden_count:
+            lines.append(
+                f"Found {overflow_hidden_count} overflow:hidden declaration(s) — "
+                f"releasing these may immediately resolve clipped content."
+            )
+
+        # Show top regions by bottom edge
+        sorted_regions = sorted(
+            region_bottoms.items(), key=lambda x: -x[1],
+        )[:8]
+        lines.append("Regions by bottom edge (highest pressure first):")
+        for region, bottom in sorted_regions:
+            over = bottom - canvas_h
+            marker = f" ← {over:.0f}px past canvas" if over > 0 else ""
+            lines.append(f"  .{region}: bottom={bottom:.0f}px{marker}")
+
+        # CSS leverage analysis: which attributes can save the most space
+        if overflow > 0:
+            import re as _re2
+            _style_m = _re2.search(r'<style>(.*?)</style>', state.current_code, _re2.DOTALL)
+            if _style_m:
+                _css = _style_m.group(1)
+                _body = state.current_code[state.current_code.find('<body'):]
+                _leverage = []
+                # Check class selectors
+                for _cls_m in _re2.finditer(r'\.([a-z][\w-]*)\s*\{([^}]*)\}', _css):
+                    _cls_name = _cls_m.group(1)
+                    _rules = _cls_m.group(2)
+                    _count = max(1, len(_re2.findall(
+                        rf'class="[^"]*\b{_cls_name}\b[^"]*"', _body)))
+                    # Vertical spacing
+                    _vert = 0
+                    for _sp_m in _re2.finditer(
+                        r'(padding|margin|gap)[^:]*:\s*([^;]+)', _rules):
+                        _vals = _re2.findall(r'(\d+)px', _sp_m.group(2))
+                        if _vals:
+                            _vert = max(_vert, max(int(v) for v in _vals))
+                    if _vert >= 8 and _count >= 1:
+                        _leverage.append((f'.{_cls_name}', _vert, _count, _vert * _count))
+                # Check element selectors (td, th, li, p)
+                for _tag in ('td', 'th', 'li', 'tr'):
+                    _tag_m = _re2.search(
+                        rf'(?:^|\n)\s*{_tag}\s*\{{([^}}]+)\}}', _css)
+                    if _tag_m:
+                        _count = len(_re2.findall(rf'<{_tag}\b', _body))
+                        _rules = _tag_m.group(1)
+                        _vert = 0
+                        for _sp_m in _re2.finditer(
+                            r'(padding|margin|gap)[^:]*:\s*([^;]+)', _rules):
+                            _vals = _re2.findall(r'(\d+)px', _sp_m.group(2))
+                            if _vals:
+                                _vert = max(_vert, max(int(v) for v in _vals))
+                        if _vert >= 6 and _count >= 2:
+                            _leverage.append((_tag, _vert, _count, _vert * _count))
+
+                _leverage.sort(key=lambda x: -x[3])
+                if _leverage:
+                    lines.append(
+                        f"\nHIGHEST LEVERAGE targets (spacing × element_count):"
+                    )
+                    for _sel, _val, _cnt, _pot in _leverage[:6]:
+                        lines.append(
+                            f"  {_sel}: spacing={_val}px × {_cnt} elements"
+                            f" = {_pot}px potential savings"
+                        )
+                    lines.append(
+                        "Compress these first (to 4-8px for td/th, "
+                        "6-12px for containers). "
+                        "Total savings should equal ~overflow, not more."
+                    )
+
+                # For absolute-layout slides, also suggest coordinate adjustments
+                _abs_count = (
+                    _css.lower().count('position:absolute')
+                    + _css.lower().count('position: absolute')
+                )
+                if _abs_count >= 8 and overflow > 0:
+                    lines.append(
+                        f"\nLayout: {_abs_count} absolute-positioned elements."
+                    )
+
+        return "\n".join(lines), False
 
     def _summary_justifies_residuals(self, state: AgentState) -> bool:
         """True if the agent's repair summary genuinely flags a residual as
@@ -3811,31 +8926,451 @@ class AgentRepair:
 
         We do NOT want the bounded re-bounce to trap a slide whose remaining
         clips really have no room (the agent made the right call to stop). A
-        genuine justification looks like: a non-empty ``unresolved_concerns``
-        list, OR a self-assessment that explicitly names a residual as
-        structural / unavoidable / no-room. A bare "looks clean" assessment
-        (the V26 failure: "Final verification is clean on all targeted hard
-        defects" while 18 issues remained) does NOT count — that is exactly the
-        inattention we want to bounce.
+        genuine justification must do more than list remaining defects. It must
+        explicitly explain why no credible stronger strategy remains for the
+        named residuals. A bare ``unresolved_concerns`` list, or a statement
+        like "improved but still unresolved", means the agent noticed the
+        defects; it does not mean the loop should stop trying.
         """
         summary = getattr(state, "repair_summary", None)
         if not summary:
             return False
         concerns = summary.get("unresolved_concerns") or []
-        if isinstance(concerns, list) and any(str(c).strip() for c in concerns):
-            return True
+        if isinstance(concerns, str):
+            concern_text = concerns
+        elif isinstance(concerns, list):
+            concern_text = " ".join(str(c) for c in concerns)
+        else:
+            concern_text = str(concerns or "")
         text = " ".join([
             str(summary.get("self_assessment", "")),
             " ".join(str(x) for x in (summary.get("actions_taken") or [])),
+            concern_text,
         ]).lower()
         # Phrases that indicate the agent consciously judged a residual
-        # unfixable — not a generic "all clean" claim.
+        # unfixable after considering stronger strategies — not a generic
+        # "all clean" claim and not merely "there are unresolved concerns".
         STRUCTURAL_MARKERS = (
-            "structural", "no room", "cannot fit", "can't fit", "unavoidable",
-            "unfixable", "cannot be fixed", "can't be fixed", "no space left",
-            "fixed canvas", "inherent overflow", "irreducible", "must clip",
+            "no credible", "no safe", "no safer", "no viable",
+            "safely achievable", "cannot fit without", "can't fit without",
+            "cannot be fit without", "unavoidable", "unfixable",
+            "cannot be fixed", "can't be fixed", "no space left",
+            "zero room", "irreducible", "must clip",
+            "all viable", "all credible", "stronger strategy failed",
         )
-        return any(m in text for m in STRUCTURAL_MARKERS)
+        DESTRUCTIVE_ESCAPE_MARKERS = (
+            "would require deleting", "would require hiding",
+            "require deleting", "require hiding", "hiding/deleting",
+            "delete rows", "delete row", "deleting rows", "deleting row",
+            "remove rows", "remove row", "drop rows", "drop row",
+            "would require over-compressing", "over-compressing",
+        )
+        PRESERVING_STRATEGY_MARKERS = (
+            "information-preserving", "preserve all", "preserving all",
+            "real visible space", "same-topology", "track calibration",
+            "calibrated tracks", "grid-area", "grid area", "stable dom",
+            "regrouped support", "support cards", "body recompose",
+            "regional reflow", "semantic regroup", "source-preserving",
+        )
+        ATTEMPT_MARKERS = (
+            "considered", "tried", "attempted", "failed", "unsafe",
+            "would be unsafe", "rolled back", "rollback", "text regression",
+            "new clipping", "new deterministic regression",
+        )
+        has_structural_marker = any(m in text for m in STRUCTURAL_MARKERS)
+        has_destructive_escape = any(m in text for m in DESTRUCTIVE_ESCAPE_MARKERS)
+        if has_destructive_escape:
+            has_preserving_strategy = any(
+                m in text for m in PRESERVING_STRATEGY_MARKERS
+            )
+            has_attempt_context = any(m in text for m in ATTEMPT_MARKERS)
+            return (
+                has_structural_marker
+                and has_preserving_strategy
+                and has_attempt_context
+            )
+        return has_structural_marker
+
+    @staticmethod
+    def _composition_entry_text(entry) -> str:
+        if isinstance(entry, dict):
+            return " ".join(
+                str(value) for value in entry.values()
+                if value is not None
+            )
+        return str(entry or "")
+
+    @staticmethod
+    def _composition_entry_issue_id(entry) -> str:
+        if isinstance(entry, dict):
+            for key in ("issue_id", "id", "target_issue_id"):
+                value = str(entry.get(key, "")).strip()
+                if value:
+                    return value
+        return ""
+
+    @staticmethod
+    def _composition_entry_has_any_field(
+        entry: dict, fields: tuple[str, ...],
+    ) -> bool:
+        return any(str(entry.get(field, "")).strip() for field in fields)
+
+    @classmethod
+    def _composition_entry_verdict(cls, entry) -> str:
+        if isinstance(entry, dict):
+            for key in (
+                "verdict", "status", "result", "completion", "outcome",
+                "remaining_uncertainty",
+            ):
+                value = str(entry.get(key, "")).strip()
+                if value:
+                    return value
+        return ""
+
+    @classmethod
+    def _composition_entry_is_meaningful(cls, entry) -> bool:
+        text = re.sub(r"\s+", " ", cls._composition_entry_text(entry)).strip()
+        if isinstance(entry, dict):
+            has_failure = cls._composition_entry_has_any_field(
+                entry,
+                ("original_failure", "failure", "original_issue"),
+            )
+            has_evidence = cls._composition_entry_has_any_field(
+                entry,
+                (
+                    "current_spatial_evidence", "spatial_evidence",
+                    "current_render_evidence", "render_evidence", "evidence",
+                    "current_state",
+                ),
+            )
+            has_verdict = cls._composition_entry_has_any_field(
+                entry,
+                ("verdict", "status", "result", "remaining_uncertainty"),
+            )
+            return has_failure and has_evidence and has_verdict
+        return len(text) >= 80
+
+    @classmethod
+    def _composition_closure_entries_from_summary(cls, summary: dict) -> list:
+        closure = summary.get("composition_closure") if isinstance(summary, dict) else None
+        if isinstance(closure, list):
+            return closure
+        if isinstance(closure, dict):
+            if any(
+                key in closure
+                for key in (
+                    "issue_id", "original_failure", "current_spatial_evidence",
+                    "verdict",
+                )
+            ):
+                return [closure]
+            return [
+                {
+                    "issue_id": key,
+                    "current_spatial_evidence": value,
+                    "verdict": value,
+                }
+                for key, value in closure.items()
+            ]
+        if str(closure or "").strip():
+            return [str(closure)]
+        return []
+
+    @classmethod
+    def _meaningful_composition_entries(cls, state: AgentState) -> list:
+        summary = getattr(state, "repair_summary", None)
+        if not summary:
+            return []
+        entries = cls._composition_closure_entries_from_summary(summary)
+        return [entry for entry in entries if cls._composition_entry_is_meaningful(entry)]
+
+    @staticmethod
+    def _composition_summary_concerns(summary: dict) -> list[str]:
+        raw = summary.get("unresolved_concerns", []) if isinstance(summary, dict) else []
+        if isinstance(raw, str):
+            raw_items = [raw]
+        elif isinstance(raw, list):
+            raw_items = raw
+        else:
+            raw_items = [raw]
+        concerns: list[str] = []
+        for item in raw_items:
+            text = re.sub(r"\s+", " ", str(item or "")).strip()
+            if not text or text.lower() in {"none", "n/a", "na", "[]"}:
+                continue
+            concerns.append(text)
+        return concerns
+
+    @classmethod
+    def _summary_has_composition_closure(
+        cls, state: AgentState, issues: list[Issue] | None = None,
+    ) -> bool:
+        """Return whether the agent recorded composition self-assessment.
+
+        This is a traceability check, not the completion check. It accepts
+        specific uncertainty so the repair trace stays honest; successful
+        shipment is decided by _summary_has_resolved_composition_closure().
+        """
+        summary = getattr(state, "repair_summary", None)
+        if not summary:
+            return False
+        required = cls._composition_closure_issues(issues or [])
+        required_ids = {
+            str(issue.issue_id).strip()
+            for issue in required
+            if str(getattr(issue, "issue_id", "")).strip()
+        }
+        meaningful_entries = cls._meaningful_composition_entries(state)
+        if not meaningful_entries:
+            return False
+        if not required_ids:
+            return True
+
+        covered_ids = {
+            cls._composition_entry_issue_id(entry)
+            for entry in meaningful_entries
+        }
+        covered_ids.discard("")
+        if required_ids.issubset(covered_ids):
+            return True
+
+        # Text-only fallbacks are accepted only if they explicitly name every
+        # target issue id. This keeps older traces readable while still forcing
+        # issue-level self-assessment.
+        combined = " ".join(
+            cls._composition_entry_text(entry) for entry in meaningful_entries
+        )
+        return all(issue_id in combined for issue_id in required_ids)
+
+    @classmethod
+    def _composition_closure_unresolved_reasons(
+        cls, state: AgentState, issues: list[Issue] | None = None,
+    ) -> list[str]:
+        """Explain why a composition trace is not ready to ship.
+
+        This deliberately avoids geometric thresholds. It only checks whether
+        the agent's own structured assessment is internally compatible with a
+        completed repair.
+        """
+        if not cls._needs_composition_closure(issues or []):
+            return []
+        if not cls._summary_has_composition_closure(state, issues):
+            return ["composition self-assessment is missing or incomplete"]
+
+        summary = getattr(state, "repair_summary", None) or {}
+        concerns = cls._composition_summary_concerns(summary)
+        reasons: list[str] = []
+        if concerns:
+            reasons.append(
+                "unresolved_concerns is non-empty: " + "; ".join(concerns[:2])
+            )
+
+        confidence = str(summary.get("confidence", "")).strip().lower()
+        if confidence in {"low", "uncertain", "unresolved", "partial", "weak"}:
+            reasons.append(f"summary confidence is {confidence!r}")
+
+        required = cls._composition_closure_issues(issues or [])
+        required_ids = {
+            str(issue.issue_id).strip()
+            for issue in required
+            if str(getattr(issue, "issue_id", "")).strip()
+        }
+        entries = cls._meaningful_composition_entries(state)
+        entries_by_id = {
+            cls._composition_entry_issue_id(entry): entry
+            for entry in entries
+            if cls._composition_entry_issue_id(entry)
+        }
+        combined_entries = " ".join(cls._composition_entry_text(e) for e in entries)
+
+        unresolved_status = (
+            "uncertain", "unresolved", "partial", "weak", "failed", "fail",
+            "blocked", "not fixed", "not resolved", "not addressed",
+        )
+        resolved_status = (
+            "pass", "resolved", "fixed", "done", "complete", "completed",
+            "success", "succeeded", "addressed",
+        )
+        unresolved_patterns: tuple[tuple[str, str], ...] = (
+            (r"\bcannot claim\b|\bcan't claim\b", "assessment says it cannot claim success"),
+            (r"\bnot (?:a )?(?:definitive|confident|high-confidence) (?:composition |visual )?pass\b", "assessment disclaims a confident visual pass"),
+            (r"\b(?:only|merely) moderate\b|\bmoderate rather than\b|\bimprovement is moderate\b", "assessment says the improvement is only moderate"),
+            (r"\bweak improvement\b|\bweak repair\b", "assessment describes a weak repair"),
+            (r"\bnot (?:fully|visually|actually|definitively|confidently )?(?:resolved|fixed|addressed|handled|filled)\b", "assessment says the issue is not fully resolved"),
+            (r"\b(?:void|blank space|blank region|empty band)\s+(?:still\s+)?remains?\b", "assessment says the named void remains"),
+            (r"\bstill\s+(?:shows?\s+)?(?:the\s+)?(?:same\s+)?(?:lower|upper|left|right|corner|body)?\s*(?:void|blank space|blank region|empty band)\b", "assessment says the same blank region remains"),
+            (r"\bmay still read\b", "assessment says the result may still read as defective"),
+            (r"\bessentially unchanged\b|\bsame void\b", "assessment says the core spatial pattern is unchanged"),
+        )
+
+        def entries_for_issue(issue_id: str) -> list:
+            if issue_id and issue_id in entries_by_id:
+                return [entries_by_id[issue_id]]
+            if issue_id and issue_id in combined_entries:
+                return entries
+            return entries if not required_ids else []
+
+        for issue in required:
+            issue_id = str(getattr(issue, "issue_id", "")).strip()
+            matched_entries = entries_for_issue(issue_id)
+            if not matched_entries:
+                reasons.append(f"{issue_id or issue.issue_type}: no matching closure entry")
+                continue
+            for entry in matched_entries:
+                if not isinstance(entry, dict):
+                    reasons.append(
+                        f"{issue_id or 'composition issue'}: completion needs a structured closure entry"
+                    )
+                    continue
+                verdict = cls._composition_entry_verdict(entry).lower()
+                if any(marker in verdict for marker in unresolved_status):
+                    reasons.append(
+                        f"{issue_id or 'composition issue'} verdict is not resolved: {verdict!r}"
+                    )
+                elif not any(marker in verdict for marker in resolved_status):
+                    reasons.append(
+                        f"{issue_id or 'composition issue'} verdict is not pass/resolved: {verdict!r}"
+                    )
+                strategy = str(entry.get("chosen_strategy", "")).strip().lower()
+                if strategy in {"uncertain", "unknown", "none", "n/a"}:
+                    reasons.append(
+                        f"{issue_id or 'composition issue'} strategy is unresolved: {strategy!r}"
+                    )
+                assessment_text = " ".join(
+                    [
+                        cls._composition_entry_text(entry),
+                        str(summary.get("self_assessment", "")),
+                        " ".join(concerns),
+                    ]
+                ).lower()
+                assessment_text = re.sub(r"\s+", " ", assessment_text)
+                for pattern, reason in unresolved_patterns:
+                    if re.search(pattern, assessment_text):
+                        reasons.append(f"{issue_id or 'composition issue'}: {reason}")
+                        break
+
+                issue_context_parts = [
+                    str(getattr(issue, "issue_type", "")),
+                    str(getattr(issue, "sub_type", "")),
+                    str(getattr(issue, "planned_fix", "")),
+                    str(getattr(issue, "why_this_fails", "")),
+                ]
+                evidence = getattr(issue, "evidence", None)
+                if evidence is not None:
+                    issue_context_parts.append(str(getattr(evidence, "description", "")))
+                fix_detail = getattr(issue, "fix_detail", None)
+                if fix_detail is not None:
+                    issue_context_parts.extend([
+                        str(getattr(fix_detail, "target_location", "")),
+                        str(getattr(fix_detail, "correct_content", "")),
+                    ])
+                issue_context = re.sub(
+                    r"\s+", " ", " ".join(issue_context_parts).lower(),
+                )
+                if (
+                    str(getattr(issue, "issue_type", "")) in {"raw_figure", "raw_table"}
+                    and re.search(
+                        r"\b(chart|plot|axis|axes|legend|tick|curve|line chart|"
+                        r"training dynamics|validation accuracy|response length)\b",
+                        issue_context + " " + assessment_text,
+                    )
+                    and re.search(
+                        r"\b(redraw|svg summary|summary asset|generated svg|hand[- ]drawn)\b",
+                        strategy + " " + assessment_text,
+                    )
+                    and not re.search(
+                        r"\b(exact (?:source )?data|viz_data|generate_chart|"
+                        r"data extracted|source-preserving crop|crop/recomposition|"
+                        r"cropped/recomposed|original chart remains|preserv(?:e|ed) "
+                        r"the original chart)\b",
+                        assessment_text,
+                    )
+                ):
+                    reasons.append(
+                        f"{issue_id or 'composition issue'}: quantitative chart redraw lacks evidence-fidelity support"
+                    )
+
+                if (
+                    str(getattr(issue, "issue_type", "")) in {"raw_figure", "raw_table"}
+                    and re.search(
+                        r"\b(?:rendered\s+)?(?:chart|figure|image|media)?\s*slot\s+(?:is|now|renders|became)|"
+                        r"\bouter\s+(?:bbox|box|slot)|\b(?:img|image)\s+bbox\b",
+                        assessment_text,
+                    )
+                    and not re.search(
+                        r"\b(rendered image content|content rect|image content rect|"
+                        r"letterbox|letterboxing)\b",
+                        assessment_text,
+                    )
+                ):
+                    reasons.append(
+                        f"{issue_id or 'composition issue'}: raw-figure closure cites outer slot/bbox without rendered content-rect evidence"
+                    )
+
+        return list(dict.fromkeys(reasons))
+
+    @classmethod
+    def _summary_has_resolved_composition_closure(
+        cls, state: AgentState, issues: list[Issue] | None = None,
+    ) -> bool:
+        return not cls._composition_closure_unresolved_reasons(state, issues)
+
+    @classmethod
+    def _composition_closure_block_message(
+        cls, state: AgentState, issues: list[Issue], *, for_submit: bool,
+    ) -> str:
+        labels = cls._composition_issue_labels(issues, limit=6)
+        summary = getattr(state, "repair_summary", None) or {}
+        closure = summary.get("composition_closure") if isinstance(summary, dict) else None
+        if not summary or not closure:
+            headline = "SUBMIT BLOCKED" if for_submit else "Repair summary recorded"
+            body = (
+                "composition self-assessment is missing. Call submit_repair_summary with "
+                "one structured `composition_closure` entry per target issue."
+            )
+        else:
+            headline = "SUBMIT BLOCKED" if for_submit else "Repair summary recorded"
+            body = (
+                "composition self-assessment is incomplete. Each entry must name "
+                "the original failure, cite current LAYOUT ANCHOR / RELATION MAP / "
+                "SPACE MAP or render evidence, and give a verdict or remaining "
+                "uncertainty. Unresolved verdicts are allowed as honest trace, "
+                "but they are not completed repairs."
+            )
+        issue_list = "\n".join(f"  - {label}" for label in labels)
+        return (
+            f"{headline}: {body}\n"
+            "This is a traceability requirement. Use spatial/render evidence to "
+            "explain your judgment; if the judgment is uncertain or unresolved, "
+            "continue with a stronger credible strategy before submitting.\n"
+            f"{issue_list}"
+        )
+
+    @classmethod
+    def _composition_completion_block_message(
+        cls, state: AgentState, issues: list[Issue], *, for_submit: bool,
+    ) -> str:
+        labels = cls._composition_issue_labels(issues, limit=6)
+        reasons = cls._composition_closure_unresolved_reasons(state, issues)
+        headline = "SUBMIT BLOCKED" if for_submit else "Repair summary recorded"
+        issue_list = "\n".join(f"  - {label}" for label in labels)
+        reason_list = "\n".join(f"  - {reason}" for reason in reasons[:5])
+        return (
+            f"{headline}: the composition self-assessment does not support "
+            "calling this repair complete yet. Specific uncertainty is good "
+            "traceability, but it is not a successful composition repair.\n"
+            f"Why it is not ready:\n{reason_list}\n"
+            "Continue with a stronger body-composition strategy when one is "
+            "credible: reflow existing elements, regroup the body, recompose/crop "
+            "the source asset, or use an exact-data redraw/summary asset only when "
+            "that preserves source fidelity. "
+            "Do not fill a void with footer/source/caption movement, decorative "
+            "frames, or stretched empty containers. After editing, call "
+            "verify_layout/render_preview as appropriate, then record a new "
+            "composition_closure whose verdict and concerns match the actual "
+            "result.\n"
+            f"Targets:\n{issue_list}"
+        )
 
     def _tool_submit_repair_summary(
         self, action: dict, state: AgentState, slide_id: int,
@@ -3853,6 +9388,7 @@ class AgentRepair:
             "issues_targeted": action.get("issues_targeted", []),
             "actions_taken": action.get("actions_taken", []),
             "self_assessment": action.get("self_assessment", ""),
+            "composition_closure": action.get("composition_closure", []),
             "confidence": action.get("confidence", "medium"),
             "unresolved_concerns": action.get("unresolved_concerns", []),
         }
@@ -3878,7 +9414,96 @@ class AgentRepair:
         # Store on state for immediate access
         state.repair_summary = summary_data
 
-        return "✅ Repair summary recorded. You may now call submit.", False
+        if (
+            self._needs_composition_closure(self._current_issues)
+            and not self._summary_has_composition_closure(state, self._current_issues)
+        ):
+            return (
+                self._composition_closure_block_message(
+                    state, self._current_issues, for_submit=False,
+                ),
+                False,
+            )
+
+        if self._needs_composition_closure(self._current_issues):
+            completion_reasons = self._composition_closure_unresolved_reasons(
+                state, self._current_issues,
+            )
+            if completion_reasons:
+                return (
+                    self._composition_completion_block_message(
+                        state, self._current_issues, for_submit=False,
+                    ),
+                    False,
+                )
+
+        if state.current_code != state.original_code and not self._has_current_verify(state):
+            stale_reason = state.last_verify_stale_reason or "latest code change"
+            return (
+                "Repair summary recorded, but the current code has not been "
+                "measured by verify_layout after "
+                f"{stale_reason}. Do not infer completion from an older "
+                "measurement. Call verify_layout on this checkpoint, compare "
+                "the spatial evidence with the original issue, then update the "
+                "summary if the evidence changed.",
+                False,
+            )
+
+        residual_total = int(
+            getattr(state, "_last_verify_targeted_residual_total", 0) or 0
+        )
+        residual_counts = getattr(
+            state, "last_verify_targeted_residual_counts", {},
+        ) or {}
+        hard_target_residuals = {
+            category: count
+            for category, count in residual_counts.items()
+            if category in COMPOSITION_TARGET_HARD_SPATIAL_CATEGORIES
+            and count
+        }
+        # Allow submit when residual count is small and the repair made
+        # substantial progress.  Don't block a 79→4 or 25→3 result.
+        baseline_spatial = getattr(state, "_t0_compact_issues", 0) or 0
+        total_residual = sum(hard_target_residuals.values())
+        if baseline_spatial > 8 and total_residual <= max(4, baseline_spatial * 0.10):
+            hard_target_residuals = {}  # accept: substantial improvement
+        elif total_residual <= 3 and baseline_spatial >= total_residual * 3:
+            hard_target_residuals = {}  # accept: small absolute residual with clear improvement
+        elif total_residual <= 6 and baseline_spatial > 0:
+            hard_target_residuals = {}  # accept: small absolute residual is normal
+        if hard_target_residuals:
+            details = ", ".join(
+                f"{category}={count}"
+                for category, count in sorted(hard_target_residuals.items())
+            )
+            return (
+                "Repair summary recorded, but the latest verify_layout still "
+                "finds protected content clipped, covered, overflowing, or "
+                "outside the canvas in the issue's named region "
+                f"({details}). This is an objective visibility failure, not an "
+                "aesthetic warning that can be justified away in the summary. "
+                "Continue the current structural repair or choose a different "
+                "layout strategy, then verify this exact revision again.",
+                False,
+            )
+        if residual_total > 0 and not self._summary_justifies_residuals(state):
+            return (
+                "Repair summary recorded, but the latest verify_layout still "
+                f"shows {residual_total} target-category residual measurement(s), "
+                "and the summary does not yet establish closure. Compare them with "
+                "the original issue and current revision evidence. If they share the same "
+                "spatial cause, continue or change direction based on the evidence; "
+                "if they are genuinely outside scope, identify why. Preserve all "
+                "information-bearing content and do not hide or delete it to make a "
+                "measurement disappear.",
+                False,
+            )
+
+        return (
+            "✅ Repair summary recorded. You may now call submit; the summary "
+            "is consistent with the current completion assessment.",
+            False,
+        )
 
     def _render_slide_to_base64(
         self, code: str, state: AgentState,
@@ -3893,14 +9518,13 @@ class AgentRepair:
         import tempfile
 
         if self._is_html_code(code):
+            backend = None
             try:
                 from ...render_backends.playwright_backend import PlaywrightRenderBackend
                 backend = PlaywrightRenderBackend()
                 with tempfile.TemporaryDirectory() as tmpdir:
-                    html_path = Path(tmpdir) / "slide.html"
                     png_path = Path(tmpdir) / "slide.png"
-                    html_path.write_text(code, encoding="utf-8")
-                    success = backend.render_html_to_png(str(html_path), str(png_path))
+                    success = backend.render_html_to_png(code, str(png_path))
                     if success and png_path.exists():
                         with open(png_path, "rb") as f:
                             return base64.b64encode(f.read()).decode()
@@ -3908,6 +9532,9 @@ class AgentRepair:
             except Exception as e:
                 logger.debug("HTML render_preview error: %s", str(e)[:200])
                 return None
+            finally:
+                if backend is not None:
+                    backend.close()
 
         try:
             from pptx import Presentation
@@ -3960,48 +9587,62 @@ class AgentRepair:
             logger.debug("render_preview error: %s", str(e)[:200])
             return None
 
+    def _tool_render_preview(self, state: AgentState) -> tuple[list[dict] | str, bool]:
+        """Return the current rendered slide as multimodal repair feedback."""
+        encoded = self._render_slide_to_base64(state.current_code, state)
+        if not encoded:
+            return (
+                "Current slide render failed. Use verify_layout to inspect "
+                "compile and spatial results before continuing.",
+                False,
+            )
+        state.latest_visual_checkpoint_code = state.current_code
+        state.latest_visual_checkpoint_revision = getattr(
+            state, "layout_revision", 0,
+        )
+        if (
+            getattr(state, "last_verify_result", None) is not None
+            and getattr(state, "last_verify_revision", -1)
+            == getattr(state, "layout_revision", 0)
+        ):
+            state.latest_visual_checkpoint_hard_valid = bool(
+                state.latest_safe_verified_code == state.current_code
+                and state.latest_safe_verified_revision
+                == getattr(state, "layout_revision", 0)
+            )
+            state.latest_visual_checkpoint_targeted_issues = getattr(
+                state, "_last_verify_targeted_residual_total", None,
+            )
+        return ([
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{encoded}",
+                },
+            },
+            {
+                "type": "text",
+                "text": (
+                    "Above is the current slide after your edits. Inspect the "
+                    "reported target and the surrounding region. For SVG work, "
+                    "check source/target boundaries, final shaft direction, "
+                    "marker scale, label clearance, clipping, and whether "
+                    "non-target graph roles remain unchanged. For raw figure "
+                    "or raw table work, check that the intended subject remains "
+                    "complete, no panel/row/axis is cut off, labels used by the "
+                    "slide are readable, and existing adjacent text or source-image "
+                    "labels guide the viewer to the claimed finding. Do not add "
+                    "new visible callout text for B-family raw figure/table work. "
+                    "If any check fails, edit "
+                    "again before completing the plan step."
+                ),
+            },
+        ], False)
+
     @staticmethod
     def _extract_fill_colors(code: str) -> dict[str, tuple[int, int, int]]:
-        """Extract fill colors for shape variables from code.
-
-        Looks for patterns like:
-            var_name.fill.fore_color.rgb = RGBColor(R, G, B)
-        or
-            var_name.fill.fore_color.rgb = RGBColor(*theme_colors["key"])
-
-        Returns {var_name: (R, G, B)}.
-        """
-        result: dict[str, tuple[int, int, int]] = {}
-
-        # Direct RGBColor(r, g, b) pattern
-        for m in re.finditer(
-            r'(\w+)\.fill\.fore_color\.rgb\s*=\s*RGBColor\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-            code,
-        ):
-            var = m.group(1)
-            rgb = (int(m.group(2)), int(m.group(3)), int(m.group(4)))
-            result[var] = rgb
-
-        # RGBColor(*theme_colors["key"]) pattern — resolve from theme dict
-        theme_dict: dict[str, tuple[int, int, int]] = {}
-        for m in re.finditer(
-            r'"(\w+)"\s*:\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-            code,
-        ):
-            theme_dict[m.group(1)] = (
-                int(m.group(2)), int(m.group(3)), int(m.group(4)),
-            )
-
-        for m in re.finditer(
-            r'(\w+)\.fill\.fore_color\.rgb\s*=\s*RGBColor\(\s*\*\s*theme_colors\[\s*"(\w+)"\s*\]\s*\)',
-            code,
-        ):
-            var = m.group(1)
-            key = m.group(2)
-            if key in theme_dict:
-                result[var] = theme_dict[key]
-
-        return result
+        from .contrast_utils import extract_fill_colors
+        return extract_fill_colors(code)
 
     def _check_color_contrast(
         self,
@@ -4009,292 +9650,26 @@ class AgentRepair:
         fill_colors: dict[str, tuple[int, int, int]],
         code: str,
     ) -> list[str]:
-        """Detect dark-on-dark or low contrast text/background combos using WCAG contrast ratios.
-
-        Returns list of human-readable warnings.
-        """
-        warnings: list[str] = []
-
-        # Extract background color from slide.background.fill or
-        # full-slide background shapes (common pattern: a rectangle
-        # covering the entire slide used as a dark hero background).
-        bg_brightness = 0.95  # default: assume light
-        bg_luminance = 0.95  # default background luminance
-
-        # Helper: resolve theme_colors dict from code
-        theme_dict: dict[str, tuple[int, int, int]] = {}
-        for m in re.finditer(
-            r'"(\w+)"\s*:\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-            code,
-        ):
-            theme_dict[m.group(1)] = (
-                int(m.group(2)), int(m.group(3)), int(m.group(4)),
-            )
-
-        # Pattern 1: slide.background.fill
-        bg_match = re.search(
-            r'bg_fill\.fore_color\.rgb\s*=\s*RGBColor\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-            code,
-        )
-        if not bg_match:
-            # Check theme_colors pattern for background
-            bg_match = re.search(
-                r'bg_fill\.fore_color\.rgb\s*=\s*RGBColor\(\s*\*\s*theme_colors\[\s*"(\w+)"\s*\]\s*\)',
-                code,
-            )
-            if bg_match:
-                key = bg_match.group(1)
-                if key in theme_dict:
-                    r, g, b = theme_dict[key]
-                    bg_brightness = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-                    bg_luminance = self._calculate_luminance(r, g, b)
-        elif bg_match:
-            r, g, b = int(bg_match.group(1)), int(bg_match.group(2)), int(bg_match.group(3))
-            bg_brightness = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-            bg_luminance = self._calculate_luminance(r, g, b)
-
-        # Pattern 2: full-slide background shape (e.g. bg = slide.shapes.add_shape(...RECTANGLE...0, 0, prs.slide_width, prs.slide_height))
-        # These cover the entire slide and set the effective background color.
-        if bg_brightness > 0.9:  # Only override if no explicit bg_fill found
-            # Look for shapes at position (0, 0) with slide dimensions
-            bg_shape_match = re.search(
-                r'(\w+)\s*=\s*slide\.shapes\.add_shape\(\s*MSO_SHAPE\.\w+\s*,\s*0\s*,\s*0\s*,\s*prs\.slide_width\s*,\s*prs\.slide_height\s*\)',
-                code,
-            )
-            if bg_shape_match:
-                bg_var = bg_shape_match.group(1)
-                # Find the fill color for this shape
-                fill_match = re.search(
-                    rf'{bg_var}\.fill\.fore_color\.rgb\s*=\s*RGBColor\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-                    code,
-                )
-                if fill_match:
-                    r, g, b = int(fill_match.group(1)), int(fill_match.group(2)), int(fill_match.group(3))
-                    bg_brightness = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-                    bg_luminance = self._calculate_luminance(r, g, b)
-                else:
-                    # Check theme_colors pattern
-                    fill_theme_match = re.search(
-                        rf'{bg_var}\.fill\.fore_color\.rgb\s*=\s*RGBColor\(\s*\*\s*theme_colors\[\s*"(\w+)"\s*\]\s*\)',
-                        code,
-                    )
-                    if fill_theme_match:
-                        key = fill_theme_match.group(1)
-                        if key in theme_dict:
-                            r, g, b = theme_dict[key]
-                            bg_brightness = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-                            bg_luminance = self._calculate_luminance(r, g, b)
-
-        bg_is_dark = bg_brightness < 0.4
-        bg_is_explicit = bg_brightness != 0.95  # True if we found actual bg
-
-        # Extract text colors for each text element
-        for b in blocks:
-            if b.text_chars == 0:
-                continue
-
-            has_fill = b.var_name in fill_colors
-
-            # Determine the element's fill brightness and luminance
-            elem_brightness = 0.95
-            elem_luminance = 0.95
-            if has_fill:
-                r, g, bb = fill_colors[b.var_name]
-                elem_brightness = (0.299 * r + 0.587 * g + 0.114 * bb) / 255
-                elem_luminance = self._calculate_luminance(r, g, bb)
-
-            # Find text color for this element
-            text_brightness = self._extract_text_brightness(code, b.var_name)
-            text_rgb = self._extract_text_rgb(code, b.var_name)
-            text_luminance = self._calculate_luminance(*text_rgb)
-
-            # Fill-based contrast check — ONLY for elements with explicit fills.
-            # Textboxes without fills are transparent; their contrast depends on
-            # whatever is behind them (slide background), handled below.
-            if has_fill:
-                contrast_ratio = self._calculate_contrast_ratio(text_luminance, elem_luminance)
-
-                # WCAG AA minimum is 3:1 for large text, 4.5:1 for normal text
-                # For simplicity, we use 3:1 as the threshold for CRITICAL issues
-                if contrast_ratio < 3.0:
-                    warnings.append(
-                        f"  {b.var_name}: CRITICAL contrast — ratio {contrast_ratio:.1f}:1 "
-                        f"(text brightness={text_brightness:.2f}, fill brightness="
-                        f"{elem_brightness:.2f})"
-                    )
-                # Keep original brightness-based checks for backward compatibility
-                elif elem_brightness < 0.4 and text_brightness < 0.5:
-                    warnings.append(
-                        f"  {b.var_name}: low contrast — text brightness="
-                        f"{text_brightness:.2f}, fill brightness="
-                        f"{elem_brightness:.2f}"
-                    )
-                # Check: light text on light fill
-                elif elem_brightness > 0.7 and text_brightness > 0.7:
-                    warnings.append(
-                        f"  {b.var_name}: low contrast — text brightness="
-                        f"{text_brightness:.2f}, fill brightness="
-                        f"{elem_brightness:.2f}"
-                    )
-
-            # For textboxes sitting on slide background (no fill of their own)
-            if not has_fill and b.shape_type == "textbox":
-                contrast_ratio = self._calculate_contrast_ratio(text_luminance, bg_luminance)
-
-                if contrast_ratio < 3.0:
-                    warnings.append(
-                        f"  {b.var_name}: CRITICAL contrast — ratio {contrast_ratio:.1f}:1 "
-                        f"(text brightness={text_brightness:.2f} on bg brightness="
-                        f"{bg_brightness:.2f})"
-                    )
-                elif bg_is_dark and text_brightness < 0.5:
-                    warnings.append(
-                        f"  {b.var_name}: low contrast — text brightness="
-                        f"{text_brightness:.2f} on bg brightness="
-                        f"{bg_brightness:.2f}"
-                    )
-                elif bg_is_explicit and not bg_is_dark and text_brightness > 0.8:
-                    # Only flag light-on-light when we KNOW the background
-                    # is light (not just assuming the default).  Textboxes
-                    # without fills may sit on colored shapes underneath.
-                    warnings.append(
-                        f"  {b.var_name}: low contrast — text brightness="
-                        f"{text_brightness:.2f} on bg brightness="
-                        f"{bg_brightness:.2f}"
-                    )
-
-        return warnings
+        from .contrast_utils import check_color_contrast
+        return check_color_contrast(blocks, fill_colors, code)
 
     def _calculate_luminance(self, r: int, g: int, b: int) -> float:
-        """Calculate relative luminance using WCAG formula.
-
-        L = 0.2126 * R' + 0.7152 * G' + 0.0722 * B'
-        where R' = (R/255)^2.2 (simplified sRGB)
-        """
-        r_norm = (r / 255) ** 2.2
-        g_norm = (g / 255) ** 2.2
-        b_norm = (b / 255) ** 2.2
-        return 0.2126 * r_norm + 0.7152 * g_norm + 0.0722 * b_norm
+        from .contrast_utils import calculate_luminance
+        return calculate_luminance(r, g, b)
 
     def _calculate_contrast_ratio(self, lum1: float, lum2: float) -> float:
-        """Calculate WCAG contrast ratio between two luminance values.
-
-        Contrast ratio = (L_lighter + 0.05) / (L_darker + 0.05)
-        """
-        lighter = max(lum1, lum2)
-        darker = min(lum1, lum2)
-        return (lighter + 0.05) / (darker + 0.05)
+        from .contrast_utils import calculate_contrast_ratio
+        return calculate_contrast_ratio(lum1, lum2)
 
     def _extract_text_rgb(self, code: str, var_name: str) -> tuple[int, int, int]:
-        """Extract text RGB color for a given element.
-
-        Returns RGB tuple, defaults to (50, 50, 50) for dark text.
-        """
-        var_pos = code.find(var_name)
-        if var_pos < 0:
-            return (50, 50, 50)  # Default: dark text
-
-        window = code[var_pos:var_pos + 2000]
-
-        # 1. Check for theme-based text color FIRST
-        m = re.search(
-            r'\.font\.color\.rgb\s*=\s*RGBColor\(\s*\*\s*theme_colors\[\s*"(\w+)"\s*\]\s*\)',
-            window,
-        )
-        if m:
-            theme_dict: dict[str, tuple[int, int, int]] = {}
-            for tm in re.finditer(
-                r'"(\w+)"\s*:\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-                code,
-            ):
-                theme_dict[tm.group(1)] = (
-                    int(tm.group(2)), int(tm.group(3)), int(tm.group(4)),
-                )
-            key = m.group(1)
-            if key in theme_dict:
-                return theme_dict[key]
-
-        # 2. Check for literal RGBColor(r, g, b) font color in the window
-        m = re.search(
-            r'\.font\.color\.rgb\s*=\s*RGBColor\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-            window,
-        )
-        if m:
-            return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
-
-        # 3. Check for set_text_style helper with color parameter
-        m = re.search(
-            r'set_text_style\s*\([^)]*RGBColor\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-            window,
-        )
-        if m:
-            return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
-
-        # Default: dark text
-        return (50, 50, 50)
+        from .contrast_utils import extract_text_rgb
+        return extract_text_rgb(code, var_name)
 
     def _extract_text_brightness(
         self, code: str, var_name: str,
     ) -> float:
-        """Extract text color brightness for a given element.
-
-        Searches for font.color.rgb assignments near the variable's
-        text frame setup using a bounded window to avoid cross-element
-        contamination (e.g., matching a font color from a completely
-        different element that appears later in the code).
-        """
-        var_pos = code.find(var_name)
-        if var_pos < 0:
-            return 0.2  # Default: assume dark text
-
-        # Use a bounded window after the variable first appears.
-        # This avoids the cross-element contamination bug where a
-        # full-code regex like `var_name.*?font.color.rgb = RGBColor(R,G,B)`
-        # can span thousands of characters and match a font color from
-        # an entirely different element.
-        window = code[var_pos:var_pos + 2000]
-
-        # 1. Check for theme-based text color FIRST — this is the most
-        #    common pattern and prevents false matches from literal
-        #    RGBColor values on other elements.
-        m = re.search(
-            r'\.font\.color\.rgb\s*=\s*RGBColor\(\s*\*\s*theme_colors\[\s*"(\w+)"\s*\]\s*\)',
-            window,
-        )
-        if m:
-            theme_dict: dict[str, tuple[int, int, int]] = {}
-            for tm in re.finditer(
-                r'"(\w+)"\s*:\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-                code,
-            ):
-                theme_dict[tm.group(1)] = (
-                    int(tm.group(2)), int(tm.group(3)), int(tm.group(4)),
-                )
-            key = m.group(1)
-            if key in theme_dict:
-                r, g, b = theme_dict[key]
-                return (0.299 * r + 0.587 * g + 0.114 * b) / 255
-
-        # 2. Check for literal RGBColor(r, g, b) font color in the window
-        m = re.search(
-            r'\.font\.color\.rgb\s*=\s*RGBColor\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-            window,
-        )
-        if m:
-            r, g, b = int(m.group(1)), int(m.group(2)), int(m.group(3))
-            return (0.299 * r + 0.587 * g + 0.114 * b) / 255
-
-        # 3. Check for set_text_style helper with color parameter
-        m = re.search(
-            r'set_text_style\s*\([^)]*RGBColor\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-            window,
-        )
-        if m:
-            r, g, b = int(m.group(1)), int(m.group(2)), int(m.group(3))
-            return (0.299 * r + 0.587 * g + 0.114 * b) / 255
-
-        # Default: assume dark text (common for body text on light slides)
-        return 0.2
+        from .contrast_utils import extract_text_brightness
+        return extract_text_brightness(code, var_name)
 
     def _detect_whitespace_gaps(self, state) -> list[str]:
         """Detect large vertical gaps between elements.
@@ -4370,12 +9745,26 @@ class AgentRepair:
 
         # 1a. Text overflow regression — new overflow blocks
         # Use count_significant_issues to filter noise (≤8px, containers).
-        from .html_spatial_state import count_significant_issues as _csi
-        t0_sig_overflow = set(_csi(baseline).get("text_overflow", []))
-        t1_sig_overflow = set(_csi(current).get("text_overflow", []))
+        from .html_spatial_state import (
+            count_significant_issues as _csi,
+            stable_block_identity,
+            stable_pair_identity,
+        )
+        t0_sig_overflow = {
+            stable_block_identity(baseline, bid)
+            for bid in _csi(baseline).get("text_overflow", [])
+        }
+        t1_overflow_by_identity = {
+            stable_block_identity(current, bid): bid
+            for bid in _csi(current).get("text_overflow", [])
+        }
+        t1_sig_overflow = set(t1_overflow_by_identity)
         new_overflows = t1_sig_overflow - t0_sig_overflow
+        if len(t1_sig_overflow) < len(t0_sig_overflow):
+            new_overflows = set()
         if new_overflows:
-            for bid in new_overflows:
+            for identity in new_overflows:
+                bid = t1_overflow_by_identity[identity]
                 for b in current.blocks:
                     if b.block_id == bid:
                         issues.append(
@@ -4390,10 +9779,18 @@ class AgentRepair:
         # and verify_layout use). Without this, the aesthetic gate rejects
         # repairs where the agent correctly resolved a text↔text overlap
         # but a new rect↔label pair appeared from layout restructuring.
-        from .html_spatial_state import count_significant_issues as _csi
-        t0_sig_overlaps = set(_csi(baseline).get("overlap", []))
-        t1_sig_overlaps = set(_csi(current).get("overlap", []))
+        t0_sig_overlaps = {
+            stable_pair_identity(baseline, first, second)
+            for first, second in _csi(baseline).get("overlap", [])
+        }
+        t1_overlap_by_identity = {
+            stable_pair_identity(current, first, second): (first, second)
+            for first, second in _csi(current).get("overlap", [])
+        }
+        t1_sig_overlaps = set(t1_overlap_by_identity)
         new_sig_overlaps = t1_sig_overlaps - t0_sig_overlaps
+        if len(t1_sig_overlaps) < len(t0_sig_overlaps):
+            new_sig_overlaps = set()
         if new_sig_overlaps:
             # Look up readable names from the block list
             def _blk_name(bid):
@@ -4401,7 +9798,8 @@ class AgentRepair:
                     if b.block_id == bid or b.var_name == bid:
                         return bid
                 return bid
-            for a, b in new_sig_overlaps:
+            for pair_identity in new_sig_overlaps:
+                a, b = t1_overlap_by_identity[pair_identity]
                 # Find area from overlap_pairs
                 area = 0.0
                 for oa, ob, oarea in current.overlap_pairs:
@@ -4416,11 +9814,21 @@ class AgentRepair:
         # 1c. Out-of-bounds regression — elements pushed past slide edge
         # Use count_significant_issues (same SSOT as overlap check above)
         # to filter out ≤5px OOB that are noise, not real defects.
-        t0_sig_oob = set(_csi(baseline).get("out_of_bounds", []))
-        t1_sig_oob = set(_csi(current).get("out_of_bounds", []))
+        t0_sig_oob = {
+            stable_block_identity(baseline, bid)
+            for bid in _csi(baseline).get("out_of_bounds", [])
+        }
+        t1_oob_by_identity = {
+            stable_block_identity(current, bid): bid
+            for bid in _csi(current).get("out_of_bounds", [])
+        }
+        t1_sig_oob = set(t1_oob_by_identity)
         new_oob = t1_sig_oob - t0_sig_oob
+        if len(t1_sig_oob) < len(t0_sig_oob):
+            new_oob = set()
         if new_oob:
-            for bid in new_oob:
+            for identity in new_oob:
+                bid = t1_oob_by_identity[identity]
                 for b in current.blocks:
                     if b.block_id == bid:
                         bottom = b.y + b.h
@@ -4556,31 +9964,37 @@ class AgentRepair:
         except Exception:
             return ""
 
-        # Extract failures: submit bounces, verify regressions, auto-rollbacks
+        # Extract actual failure strings emitted by the repair loop. Keep the
+        # first diagnostic line for each event so the next turn receives useful
+        # strategy memory instead of an empty generic section.
         failures = []
+        markers = (
+            "SUBMIT BLOCKED", "RENDERED TEXT REGRESSION",
+            "VISIBLE TEXT CHANGE SIGNAL", "AUTO-ROLLBACK",
+            "Regen REJECTED", "REGEN REJECTED", "CHECKPOINT INVALID",
+            "AMBIGUOUS EDITS", "Compile error", "REGRESSION CHECK",
+            "STOPPING:", "loop timeout", "timed out",
+        )
         for msg in log_messages:
             content = msg.get("content", "")
             if not isinstance(content, str):
                 continue
-            # Submit bounces
-            if "SUBMIT BLOCKED" in content or "submit bounced" in content.lower():
-                # Extract the key info
-                lines = content.split("\n")
-                for line in lines[:5]:
-                    if "OVERFLOW" in line or "OVERLAP" in line or "OUT-OF-BOUNDS" in line or "NEAR OVERFLOW" in line:
-                        failures.append(f"Submit blocked: {line.strip()}")
-            # Auto-rollback
-            if "auto-rolled back" in content.lower():
-                failures.append(f"Edit rolled back: {content[:200]}")
-            # Verify regression
-            if "Regression:" in content and "more issues than baseline" in content:
-                failures.append(f"Verify regression: {content[:200]}")
+            lines = [line.strip() for line in content.splitlines() if line.strip()]
+            for index, line in enumerate(lines):
+                if any(marker.lower() in line.lower() for marker in markers):
+                    detail = " ".join(lines[index:index + 3])[:360]
+                    failures.append(detail)
+                    break
+            if "submit bounced" in content.lower() and not any(
+                "submit bounced" in failure.lower() for failure in failures
+            ):
+                failures.append(content[:360])
 
         if not failures:
             return ""
 
         # Cap at 10 most relevant failures
-        failures = failures[:10]
+        failures = list(dict.fromkeys(failures))[:10]
 
         ctx = "## Previous Repair Failures (Turn {prev})\n".format(prev=prev_turn)
         ctx += "The following repair attempts FAILED on this slide in the previous turn. "
@@ -4629,6 +10043,122 @@ class AgentRepair:
                 continue
         return None
 
+    @staticmethod
+    def _table_row_specs_for_issue(issue) -> tuple[str, ...]:
+        fd = getattr(issue, "fix_detail", None)
+        if not fd:
+            return ()
+        return extract_table_row_specs_from_correct_content(
+            getattr(fd, "correct_content", ""),
+        )
+
+    @classmethod
+    def _is_table_row_issue(cls, issue) -> bool:
+        fd = getattr(issue, "fix_detail", None)
+        action_type = (getattr(fd, "action_type", "") or "").lower()
+        target = (getattr(fd, "target_location", "") or "").lower()
+        text = cls._issue_cluster_text(issue)
+        if action_type == "add_data_row":
+            return True
+        return bool(cls._table_row_specs_for_issue(issue)) and (
+            "table" in target or "row" in target or "table" in text
+        )
+
+    @staticmethod
+    def _issue_cluster_text(issue) -> str:
+        evidence = getattr(issue, "evidence", None)
+        fix_detail = getattr(issue, "fix_detail", None)
+        return " ".join(
+            part for part in (
+                getattr(issue, "issue_type", ""),
+                getattr(issue, "rubric_id", ""),
+                getattr(evidence, "description", ""),
+                getattr(issue, "why_this_fails", ""),
+                getattr(issue, "planned_fix", ""),
+                getattr(fix_detail, "target_location", ""),
+                getattr(fix_detail, "correct_content", ""),
+            )
+            if isinstance(part, str) and part.strip()
+        ).lower()
+
+    @classmethod
+    def _issue_cluster_label(cls, issue) -> str:
+        text = cls._issue_cluster_text(issue)
+        issue_type = getattr(issue, "issue_type", "")
+        if issue_type == "svg_visual_defect" or any(
+            token in text for token in (
+                "svg", "diagram", "connector", "arrow", "node", "path",
+                "flowchart",
+            )
+        ):
+            return "svg/diagram region"
+        if any(token in text for token in (
+            "footer", "bottom", "source note", "source attribution",
+            "citation", "takeaway",
+        )):
+            return "footer/bottom region"
+        if any(token in text for token in (
+            "header", "title", "subtitle", "top bar", "top edge",
+        )):
+            return "header/title region"
+        if any(token in text for token in ("right column", "right panel", "right side")):
+            return "right column/panel"
+        if any(token in text for token in ("left column", "left panel", "left side")):
+            return "left column/panel"
+        if any(token in text for token in ("table", "row", "cell", "grid")):
+            return "table/grid region"
+        if any(token in text for token in ("image", "figure", "chart", "plot")):
+            return "figure/chart region"
+        if issue_type in {
+            "text_overflow", "out_of_bounds", "overlap",
+            "alignment_inconsistency", "low_contrast",
+        }:
+            return "shared layout conflict"
+        return issue_type or "miscellaneous"
+
+    @classmethod
+    def _build_issue_cluster_brief(cls, issues: list[Issue]) -> str:
+        if len(issues) < 2:
+            return ""
+
+        clusters: dict[str, list[Issue]] = {}
+        for issue in issues:
+            clusters.setdefault(cls._issue_cluster_label(issue), []).append(issue)
+
+        lines = [
+            "## Issue Cluster Brief",
+            "Group findings only when they share an owning region or spatial cause. "
+            "Make one coherent regional edit for that causal group, then verify it "
+            "before moving to an unrelated group.",
+            "Different clusters are separate checkpoints even when they occur on the "
+            "same slide. Do not fold a localized SVG/media defect into a risky body "
+            "reflow, and do not let rollback of one composition experiment erase an "
+            "independent verified repair.",
+            "When many B03/B04 hard defects point to the same lower/body/table/card area, infer a shared spatial-pressure problem. Do not plan a separate pixel nudge for each clipped block; choose a repair family for the cluster and make the first edit match that family.",
+        ]
+        for label, grouped in sorted(
+            clusters.items(), key=lambda item: (-len(item[1]), item[0]),
+        )[:6]:
+            issue_types = sorted({getattr(issue, "issue_type", "") for issue in grouped})
+            target_hints = []
+            for issue in grouped[:3]:
+                evidence = getattr(issue, "evidence", None)
+                fix_detail = getattr(issue, "fix_detail", None)
+                hint = (
+                    getattr(fix_detail, "target_location", "")
+                    or getattr(evidence, "description", "")
+                    or getattr(issue, "planned_fix", "")
+                )
+                hint = re.sub(r"\s+", " ", str(hint)).strip()
+                if hint:
+                    target_hints.append(hint[:90])
+            hint_text = "; ".join(target_hints) if target_hints else "no target hint"
+            lines.append(
+                f"- {label}: {len(grouped)} finding(s), types={', '.join(issue_types)}. "
+                f"Target hints: {hint_text}"
+            )
+        return "\n".join(lines)
+
     def _build_initial_message(
         self,
         code: str,
@@ -4650,6 +10180,24 @@ class AgentRepair:
         """Build the initial user message with all context."""
         parts = []
 
+        if self._enable_render_preview:
+            parts.append(
+                "## Verification Mode\n\n"
+                "Image preview is available in this run. Use `verify_layout` after "
+                "structural edits and call `render_preview` only when pixel-level "
+                "inspection is needed for SVG/image internals or visual topology.\n"
+            )
+        else:
+            parts.append(
+                "## Verification Mode\n\n"
+                "This run is intentionally text/spatial only: `render_preview` is "
+                "disabled and no slide image is available to you. Do not call it. "
+                "Use the issue evidence, current HTML/CSS, `LAYOUT ANCHOR`, "
+                "`RELATION MAP`, `SPACE MAP`, clipping/overlap details, and baseline "
+                "delta to diagnose and verify the current revision. Detector counts "
+                "are evidence, not a requirement to reach zero.\n"
+            )
+
         # 1. Content requirements (MUST/MUST NOT) — front-loaded
         if must_not:
             parts.append("## MUST NOT contain (remove or replace these):\n")
@@ -4663,6 +10211,32 @@ class AgentRepair:
         # 2. Content checklist
         if content_checklist:
             parts.append(content_checklist)
+            parts.append("")
+
+        cluster_brief = self._build_issue_cluster_brief(all_issues)
+        if cluster_brief:
+            parts.append(cluster_brief)
+            parts.append("")
+
+        issue_types = {
+            getattr(issue, "issue_type", "")
+            for issue in all_issues
+            if getattr(issue, "issue_type", "")
+        }
+        is_dashboard_pressure = self._looks_like_table_dashboard_pressure_from(
+            code, issue_types,
+        )
+        dashboard_guidance = (
+            self._dashboard_coupled_cluster_guidance(
+                code, preview_enabled=self._enable_render_preview,
+            )
+            if is_dashboard_pressure
+            else ""
+        )
+
+        composition_guidance = self._build_composition_closure_guidance(all_issues)
+        if composition_guidance:
+            parts.append(composition_guidance)
             parts.append("")
 
         # 3. Issues to fix — with code-line annotations
@@ -4679,29 +10253,95 @@ class AgentRepair:
             # For content accuracy issues, format as explicit edit command
             if issue.issue_type in CONTENT_ACCURACY_ISSUE_TYPES and fix:
                 fd = issue.fix_detail
-                correct_content = fd.correct_content if fd and fd.correct_content else ""
+                correct_content = (
+                    normalize_correct_content_text(fd.correct_content)
+                    if fd and fd.correct_content else ""
+                )
 
                 # Distinguish between INSERT (missing_*) and REPLACE (incorrect/fabricated)
                 is_missing = issue.issue_type.startswith("missing")
+                row_specs = self._table_row_specs_for_issue(issue)
+                is_table_row_insert = is_missing and self._is_table_row_issue(issue) and row_specs
+                placeholder_context = " ".join(
+                    part for part in (
+                        desc,
+                        fix,
+                        getattr(fd, "target_location", "") if fd else "",
+                        getattr(fd, "action_type", "") if fd else "",
+                    )
+                    if isinstance(part, str)
+                ).lower()
+                replaces_placeholder = is_missing and (
+                    "placeholder" in placeholder_context
+                    or "add:" in placeholder_context
+                    or "add-note" in placeholder_context
+                    or getattr(fd, "action_type", "") == "replace_text"
+                )
 
-                if correct_content and is_missing:
-                    # C-family missing issues: INSERT only, never replace existing text
+                if is_table_row_insert:
+                    rows_text = "\n".join(f"   - {row[:220]}" for row in row_specs)
                     fix_label = (
-                        "   🎯 MANDATORY INSERT — Add this text using apply_edits with insert_after:\n"
-                        f"   Text to INSERT: \"{correct_content[:300]}\"\n"
-                        "   ⚠️ CRITICAL: Do NOT replace or remove ANY existing text on this slide.\n"
-                        "   Find the most relevant existing element (a <ul>, <p>, or <div>) and\n"
-                        "   insert_after it. If adding to a list, insert a new <li>.\n"
-                        "   Every word currently on the slide MUST remain unchanged.\n"
+                        "   🎯 MANDATORY TABLE ROW INSERT — Add the missing "
+                        "source rows as real table structure, not prose:\n"
+                        f"{rows_text}\n"
+                        "   Use apply_edits to insert <tr>/<td> rows inside "
+                        "the existing <table>/<tbody>. Split each pipe-separated "
+                        "row into cells. Do NOT add a <p>, <div>, footer note, "
+                        "or visible editorial instruction sentence. "
+                        "If space is tight, reduce table font/padding or reflow "
+                        "the table region; do not move the row data into the "
+                        "top prose or footer. Original judge instruction: "
+                    )
+                elif correct_content and replaces_placeholder:
+                    # Missing-content issues sometimes arrive as placeholder
+                    # cleanup tasks. Treating these as pure insertions preserves
+                    # the placeholder and creates duplicate claims.
+                    fix_label = (
+                        "   🎯 MANDATORY PLACEHOLDER REPLACE — Replace the existing "
+                        "placeholder/add-note line with finalized content:\n"
+                        f"   Final text: \"{correct_content[:300]}\"\n"
+                        "   Remove only the placeholder marker/text (for example "
+                        "`Add:` or quoted instruction text). Preserve every other "
+                        "visible word on the slide. Do NOT add a second copy next "
+                        "to the placeholder.\n"
+                        "   Original judge instruction: "
+                    )
+                elif correct_content and is_missing:
+                    # C-family missing issues: include source content without
+                    # forcing append-only edits that overload dense slides.
+                    fix_label = (
+                        "   🎯 MANDATORY INCLUDE — Make this source-backed content visible:\n"
+                        f"   Required content: \"{correct_content[:300]}\"\n"
+                        "   Prefer replacing/merging the closest same-topic sentence, list item, or paragraph with a combined sentence that preserves existing source-backed facts. Append with insert_after only when there is clear space. Do NOT duplicate the same idea in multiple places. Preserve all existing numbers, model names, and claims unless the judge flags them as wrong.\n"
+                        "   Fixed-format budget: do NOT put long required content into a title, page header, full-width bottom bar, footer, or source note; merge longer qualifiers into body/interpretation text instead.\n"
                         "   Original judge instruction: "
                     )
                 elif correct_content:
                     # D/E-family: precise replacement of the WRONG phrase only
+                    target_label = _source_target_label(
+                        issue.issue_type, correct_content, limit=300,
+                    )
+                    split_context = " ".join(
+                        part for part in (fix, desc) if isinstance(part, str)
+                    )
+                    split_instruction = ""
+                    if re.search(
+                        r"\b(separate|split|distinct\s+bullets?|two\s+bullets?|separate\s+bullets?|separate\s+captions?)\b",
+                        split_context,
+                        re.IGNORECASE,
+                    ):
+                        split_instruction = (
+                            "   STRUCTURE REQUIREMENT: the judge asked for separated takeaways. "
+                            "Use separate existing/new sibling elements such as two <li> items or distinct captions; "
+                            "do NOT leave both claims inside one bullet, one sentence, or one semicolon-separated paragraph.\n"
+                        )
                     fix_label = (
-                        "   🎯 MANDATORY REPLACE — Find the WRONG phrase and swap it:\n"
-                        f"   Replace with: \"{correct_content[:300]}\"\n"
+                        "   🎯 MANDATORY REPLACE — Find the WRONG phrase and replace its meaning:\n"
+                        f"   {target_label}\n"
                         "   ⚠️ Change ONLY the specific wrong phrase described above.\n"
-                        "   Do NOT touch any surrounding text. One surgical edit.\n"
+                        f"{split_instruction}"
+                        "   Use the shortest faithful slide wording that fixes the issue; if the target container is dense, merge with or replace the closest same-topic bullet instead of adding a new long sentence.\n"
+                        "   Fixed-format budget: if the wrong phrase is in a title/header/footer/bottom bar and the source-backed correction is longer, keep that fixed region concise and put any longer qualifier into the closest body/interpretation sentence. Never replace a title with a paragraph or move a long correction into a footer.\n"
                         "   Original judge instruction: "
                     )
                 else:
@@ -4714,25 +10354,119 @@ class AgentRepair:
                     "   💡 SUGGESTED FIX (adapt wording as appropriate, "
                     "you may rephrase for better fit): "
                 )
-            elif issue.issue_type in ("text_overflow",):
-                fix_label = (
-                    "   🔧 FIX OVERFLOW — first try CSS: reduce font-size "
-                    "(e.g. 20px→16px, min 14px), reduce padding/margin, "
-                    "increase container height. Only condense text as "
-                    "last resort if CSS alone is insufficient: "
-                )
+            elif issue.issue_type in ("text_overflow", "overlap"):
+                if is_dashboard_pressure:
+                    # Check if the HTML has overflow:hidden that could be released
+                    _overflow_hidden_count = (
+                        code.count("overflow:hidden")
+                        + code.count("overflow: hidden")
+                        if code
+                        else 0
+                    )
+                    _overflow_hint = ""
+                    if _overflow_hidden_count >= 2:
+                        # Estimate total vertical spacing in CSS
+                        import re as _re2
+                        _total_spacing = sum(
+                            int(m.group(1))
+                            for m in _re2.finditer(r'(?:padding|margin|gap)\s*(?:-\w+)?\s*:\s*(\d+)px', code or '')
+                            if int(m.group(1)) >= 4
+                        )
+                        _overflow_hint = (
+                            f" This slide has {_overflow_hidden_count} "
+                            "overflow:hidden containers that act as boundaries. "
+                            "Compress content (font/padding/gap) to fit inside "
+                            "each container. Only release overflow:hidden on a "
+                            "specific container if compression alone cannot "
+                            "resolve its clipping."
+                        )
+                        if _total_spacing > 0:
+                            # The scrollHeight info is already in the spatial report
+                            # Just remind agent to calibrate compression to the overflow amount
+                            _overflow_hint += (
+                                f" Total vertical spacing in CSS: ~{_total_spacing}px. "
+                                f"Calibrate your reductions to cover the full overflow "
+                                f"amount shown in the spatial report above."
+                            )
+                    fix_label = (
+                        "   🔧 DASHBOARD FIT DIRECTION — preserve every visible "
+                        "string and diagnose whether the overflow is local or caused "
+                        "by several regions sharing one body constraint."
+                        + _overflow_hint
+                        + " Choose the actual targets "
+                        "and scale from the current render; no selector set or edit "
+                        "sequence is required. Suggested fix: "
+                    )
+                else:
+                    fix_label = (
+                        "   🔧 FIX OVERFLOW — use the rendered cause to choose among "
+                        "local sizing/spacing, a larger owning region, or surrounding "
+                        "layout reflow while preserving every visible string. Do not "
+                        "optimize toward a fixed font-size recipe: "
+                    )
             elif issue.issue_type in ("raw_figure", "raw_table"):
+                preview_instruction = (
+                    "For generated SVG/PNG summaries, inspect internal labels, "
+                    "annotations, cards, paths, and bounds in render_preview; revise "
+                    "or mark uncertain if they collide, clip, or become miniature "
+                    "academic panels. After any changed figure source or structural "
+                    "visual edit, call verify_layout and render_preview. "
+                    if self._enable_render_preview
+                    else
+                    "This run has no image preview. Do not call render_preview. Use "
+                    "verify_layout, image-content bounds, SVG text/shape diagnostics, "
+                    "and source fidelity checks, and limit claims to what those signals "
+                    "can establish. After any changed figure source or structural "
+                    "visual edit, call verify_layout. "
+                )
                 fix_label = (
-                    "   🚫 RAW SOURCE-FIGURE PROBLEM — resizing the container "
-                    "WILL NOT FIX THIS. The underlying <img src=\"...source_pack/...\"> "
-                    "shows a dense multi-panel paper figure with tiny legends/ticks. "
-                    "You MUST either: (a) `delete_shape` the <img> + `generate_chart` "
-                    "with viz_data extracted from this figure's caption/data to redraw "
-                    "ONE clean panel, or (b) crop to a single panel via "
-                    "`style=\"width:Wpx; height:Hpx; object-fit:none; "
-                    "object-position:-Xpx -Ypx;\"` to show just the most relevant subplot. "
-                    "Simply enlarging the container leaves the same dense figure and "
-                    "the issue persists next turn. Suggested fix: "
+                    "   RAW SOURCE-FIGURE ADAPTATION — treat the judge's planned_fix as "
+                    "a starting hypothesis, then choose the repair family that the current "
+                    "render and spatial evidence support. First decide whether local frame, "
+                    "size, or placement changes can make the source figure useful without "
+                    "crowding protected text. If not, prefer a real source crop/recomposition "
+                    "before any replacement. For quantitative charts/plots, preserve the "
+                    "original chart or regenerate only from exact source data; do not use a "
+                    "hand-drawn SVG summary that approximates curves, axes, legends, tick "
+                    "values, or measured relationships. If the chart is good evidence and the "
+                    "remaining failure is lower/side whitespace or awkward body composition, "
+                    "repair that as layout reflow or mark the B17 result uncertain rather than "
+                    "downgrading the chart. Use source-grounded SVG summary assets only for "
+                    "conceptual diagrams, intrinsically unreadable structures, or explicitly "
+                    "authorized presentation summaries. Do not automatically replace a visually "
+                    "acceptable figure just because some internal labels are small. CSS-only image-window crops "
+                    "such as object-view-box, object-fit:cover/none, negative offsets, "
+                    "clip-path, or overflow-hidden enlarged images are NOT an acceptable "
+                    "final repair. Preserve the existing media slot, alt/ARIA semantics, "
+                    "and all visible slide text; labels inside generated assets must be "
+                    "source-grounded and presentation-readable. "
+                    f"{preview_instruction}"
+                    "Suggested fix: "
+                )
+            elif issue.issue_type == "svg_visual_defect":
+                fix_label = (
+                    "   🔧 FIX SVG ASSET — the rendered image slot can fit while "
+                    "text inside the referenced SVG asset is still clipped or crowded. "
+                    "Do NOT solve this by enlarging the outer slide image box. Recreate "
+                    "or update the SVG internals: split long labels with <tspan>, widen "
+                    "only the local label shape, or reduce only the local SVG label font "
+                    "while keeping it readable. If the SVG is referenced through "
+                    "<img src>, use `create_svg_asset`, replace only that target img src "
+                    "with the returned path, keep the same media slot and alt/ARIA "
+                    "semantics, then call verify_layout. Suggested fix: "
+                )
+            elif (
+                getattr(issue.fix_detail, "action_type", "")
+                == "compress_support_copy"
+            ):
+                fix_label = (
+                    "   AUTHORIZED SUPPORT-COPY COMPRESSION — first repair the "
+                    "layout geometry. If the named explanatory copy still prevents "
+                    "a readable fixed-canvas composition, shorten only those "
+                    "support sentences or list items while preserving every factual "
+                    "distinction, number, metric, named entity, label, conclusion, "
+                    "and source attribution. Do not rewrite titles, KPI values, "
+                    "table data, chart labels, or unrelated text. Suggested fix: "
                 )
             elif issue.issue_type in STRUCTURAL_ISSUE_TYPES:
                 if self._is_html_code(code):
@@ -4786,62 +10520,132 @@ class AgentRepair:
                     '', fix,
                 )
 
-            # For alignment_inconsistency, prepend large-move guidance.
-            # Micro-nudges (20-40px) never fix alignment visually.
+            # For alignment_inconsistency, constrain edits to the peer relation
+            # and metric named by the judge. The required distance is contextual;
+            # a fixed minimum move or global equalization can damage hierarchy.
             if issue.issue_type == "alignment_inconsistency":
                 fix = (
-                    "[LARGE MOVES REQUIRED: alignment fixes need ≥80px "
-                    "adjustments. Snap columns to shared x-coordinates, "
-                    "equalize widths, or close gaps by ≥100px. Small "
-                    "nudges (20-40px) will not resolve this issue.] " + fix
+                    "[TARGETED ALIGNMENT: identify the logical peer group from "
+                    "the issue evidence and RELATION MAP, then change only the "
+                    "named anchor, edge, or gap by the smallest amount that "
+                    "removes the visible near-miss. Do not force unrelated "
+                    "elements to equal width, equal height, or shared alignment. "
+                    "Do not stretch table rows/cards or move caption/source/footer "
+                    "text to fake balance; if a local anchor fix harms rhythm or "
+                    "hierarchy, choose a body regroup/reflow instead.] "
+                    + fix
                 )
-
-            # For low_contrast issues, override any "dark fills + white text"
-            # prescription — force "darken text" direction only.
-            if issue.issue_type == "low_contrast":
-                import re as _re
-                # Replace "white text on dark fills" suggestions
-                fix = _re.sub(
-                    r'(?i)white text on (sufficiently )?dark fills?',
-                    'dark text (#2d2d2d) on the existing light background',
-                    fix,
-                )
-                fix = _re.sub(
-                    r'(?i)(use|set|add)\s+(a\s+)?dark(er)?\s+(fill|background)[^.;]*[.;]?',
-                    'darken the TEXT color instead (never darken backgrounds). ',
-                    fix,
-                )
-                # Remove "or white" as an alternative — forces dark text only.
-                # Catches: "darker neutral or white", "dark text or white text"
-                fix = _re.sub(
-                    r'(?i)\s+or\s+white\b[^.;]*',
-                    '',
-                    fix,
-                )
-                # If fix still suggests white/light text, override entirely.
-                # Catches: "to white with sufficient contrast", "set color to #fff"
-                if _re.search(r'(?i)\b(to|use|set)\s+(#[Ff]{3,6}|white)\b', fix):
+                align_context = " ".join([
+                    getattr(issue, "description", "") or "",
+                    getattr(issue, "why_this_fails", "") or "",
+                    fix or "",
+                ])
+                if re.search(
+                    r"(?i)(column rhythm|bottom[- ]edge|bottom alignment|extends lower|terminate|baseline|same bottom)",
+                    align_context,
+                ):
                     fix = (
-                        'Darken the text color to #2d2d2d (dark neutral). '
-                        'NEVER use white text on a light/tinted background.'
+                        "[COLUMN RHYTHM: when one column is longer than a shorter "
+                        "visual/caption column, do not fix the mismatch by making "
+                        "already-dense body text more cramped. Prefer using empty "
+                        "space in the shorter column, adjusting non-text visual/caption "
+                        "height or placement, or making a small grid/gap change. Keep "
+                        "body text line-height and font size at least as readable as the "
+                        "current slide unless the issue explicitly names text overflow.] "
+                        + fix
                     )
 
+            # For low_contrast issues, prefer the smallest contrast-safe color
+            # change. Text on a light/tinted background usually needs darker
+            # text; white text on an accent row may instead need a darker
+            # text-bearing accent fill. Do not force one direction globally.
+            if issue.issue_type == "low_contrast":
+                import re as _re
+                # White text is only valid when the current deterministic
+                # target is a filled/accent row that needs a darker fill.
+                if _re.search(r'(?i)\b(to|use|set)\s+(#[Ff]{3,6}|white)\b', fix) and not _re.search(
+                    r'(?i)(row|filled|fill|background|accent)', fix,
+                ):
+                    fix = (
+                        'Use a contrast-safe color pairing: darken text on '
+                        'light/tinted backgrounds, or darken only the existing '
+                        'text-bearing accent fill when preserving white text on '
+                        'a highlighted row. NEVER set white text on a light or '
+                        'transparent background.'
+                    )
+                fix = (
+                    '[LOW CONTRAST: use the DETERMINISTIC LOW-CONTRAST TARGETS '
+                    'section below as the current source of truth; old issue '
+                    'wording may name elements already fixed. Preserve all text.] '
+                    + fix
+                )
+
+            is_svg_visual = issue.issue_type == "svg_visual_defect"
+            desc_limit = 1200 if is_svg_visual else 300
+            fix_limit = 1200 if is_svg_visual else 250
             issue_block = (
                 f"{i}. [{issue.severity.value}] {issue.rubric_id} "
                 f"{issue.issue_type} ({issue.issue_id})\n"
-                f"   Description: {desc[:300]}\n"
-                f"{fix_label}{fix[:250]}"
+                f"   Description: {desc[:desc_limit]}\n"
+                f"{fix_label}{fix[:fix_limit]}"
             )
+
+            if issue.issue_type in ("density_imbalance", "layout_inappropriate"):
+                issue_block += (
+                    "\n   STRATEGY CHOICE: before editing, decide whether the judge's "
+                    "target can be solved by local resize/reposition or needs a "
+                    "larger reflow of existing elements. Use the current render, "
+                    "LAYOUT ANCHOR, RELATION MAP, and SPACE MAP as evidence. If local "
+                    "changes do not appear to address the diagnosed reading path, "
+                    "imbalance, or unused region, choose a reflow pattern that better "
+                    "preserves the slide's meaning. Treat header/footer/source/frame "
+                    "elements as layout constraints, not filler, unless this issue "
+                    "explicitly names them as targets."
+                )
+
+            if issue.issue_type in COMPOSITION_CLOSURE_ISSUE_TYPES:
+                issue_block += (
+                    "\n   COMPOSITION SELF-ASSESSMENT REQUIRED: after verify_layout, "
+                    "do not mark this issue done only because hard defects are "
+                    "clean. Compare the original evidence and planned_fix to the "
+                    "current LAYOUT ANCHOR / RELATION MAP / SPACE MAP and render; "
+                    "state your chosen strategy, what changed, and any remaining "
+                    "uncertainty for the next judge pass. A mechanical change that "
+                    "only equalizes a metric, stretches a container, or moves auxiliary "
+                    "text into a void should be reported as weak/uncertain unless it "
+                    "also improves the rendered reading path."
+                )
+
+            if is_svg_visual:
+                issue_block += (
+                    "\n   Graph-preservation requirement: Before editing, "
+                    "identify sequential stages versus parallel peers from "
+                    "the current render and labels. Preserve all non-target "
+                    "node roles and edges; repair the reported path, marker, "
+                    "endpoint, or grouping with the smallest coherent change."
+                )
+                fd = getattr(issue, "fix_detail", None)
+                if fd and fd.correct_content:
+                    issue_block += (
+                        "\n   Visual success contract: "
+                        f"{fd.correct_content[:600]}"
+                    )
+                if fd and fd.target_location:
+                    issue_block += (
+                        "\n   Target location: "
+                        f"{fd.target_location[:400]}"
+                    )
 
             # Surface REGEN recommendation so agent knows to use regen_slide
             if (
                 hasattr(issue, "recommended_action")
                 and issue.recommended_action
                 and str(issue.recommended_action.value) == "REGEN"
+                and bool((getattr(issue, "action_rationale", "") or "").strip())
             ):
                 issue_block += (
-                    "\n   ⚡ RECOMMENDED: regen_slide — incremental edits are "
-                    "unlikely to fix this fundamental layout problem."
+                    "\n   RECOMMENDED: consider regen_slide because the judge "
+                    f"provided this rationale: {issue.action_rationale[:300]}"
                 )
 
             # Surface judge-provided fix_detail for C/D issues
@@ -4855,19 +10659,38 @@ class AgentRepair:
                 and not issue.rubric_id.startswith("B")
             ):
                 fd = issue.fix_detail
-                content_text = fd.correct_content[:400]
+                content_text = normalize_correct_content_text(
+                    fd.correct_content,
+                )[:400]
                 # Check for signs of truncated/incomplete source
-                truncation_warning = ""
-                if content_text.rstrip().endswith((",", "...", "…")) or "(source truncated)" in content_text:
-                    truncation_warning = (
-                        "\n   ⚠️ WARNING: This content may be based on a truncated source caption. "
-                        "Use search_source to verify the exact wording before inserting. "
-                        "Do NOT use content that you cannot confirm in the source."
-                    )
-                issue_block += (
-                    f"\n   📋 SOURCE-VERIFIED CONTENT (from judge's direct reading of the source — use directly, no need to re-verify): {content_text}"
-                    f"{truncation_warning}"
-                )
+                if content_text:
+                    row_specs = self._table_row_specs_for_issue(issue)
+                    if self._is_table_row_issue(issue) and row_specs:
+                        rows_text = "\n".join(
+                            f"   - {row[:220]}" for row in row_specs
+                        )
+                        issue_block += (
+                            "\n   📋 SOURCE-VERIFIED TABLE ROWS (insert as "
+                            "<tr>/<td> cells, not as visible prose):\n"
+                            f"{rows_text}"
+                        )
+                    else:
+                        truncation_warning = ""
+                        if content_text.rstrip().endswith((",", "...", "…")) or "(source truncated)" in content_text:
+                            truncation_warning = (
+                                "\n   ⚠️ WARNING: This content may be based on a truncated source caption. "
+                                "Use search_source to verify the exact wording before inserting. "
+                                "Do NOT use content that you cannot confirm in the source."
+                            )
+                        target_label = _source_target_label(
+                            issue.issue_type, content_text, limit=400,
+                        )
+                        issue_block += (
+                            "\n   📋 SOURCE-VERIFIED CONTENT (from judge's direct reading of the source): "
+                            f"{target_label}"
+                            "\n   Fixed-format budget: do not paste long source text wholesale into a title/header/footer/bottom bar or a cramped list item; keep fixed regions concise and place necessary qualifiers in body/interpretation text."
+                            f"{truncation_warning}"
+                        )
                 if fd.source_ref:
                     issue_block += f"\n   Source ref: {fd.source_ref}"
                     # Resolve source_ref → concrete asset path on disk so
@@ -4899,10 +10722,10 @@ class AgentRepair:
                             pass
                         busy_warn = (
                             "\n      ⚠️ This figure looks dense/multi-panel. "
-                            "Insert with caution — prefer cropping to one panel "
-                            "via `object-fit:none; object-position:-Xpx -Ypx;` "
-                            "or replace with `generate_chart` (one clean panel) "
-                            "to avoid B17 raw_figure on next eval."
+                            "Insert with caution — prefer a real cropped/recomposed "
+                            "asset via `crop_image`, `compose_image_grid`, `generate_chart`, or `create_svg_asset`, then "
+                            "display it with `object-fit:contain`; CSS-only crops "
+                            "are not accepted as final B17 repairs."
                             if is_busy_fig else ""
                         )
                         issue_block += (
@@ -4975,21 +10798,32 @@ class AgentRepair:
 
                     if sub_type == "cramped_content":
                         issue_block += (
-                            "\n   🔧 FIX OVERFLOW — first try CSS: reduce font-size "
-                            "(e.g. 20px→16px, min 14px), reduce padding/margin, "
-                            "increase container height. Only condense text as "
-                            "last resort — keep all distinct information points."
+                            "\n   🔧 FIX OVERFLOW — diagnose whether the cause is local "
+                            "sizing/spacing, an undersized owning region, or the "
+                            "surrounding layout. Choose the least damaging direction "
+                            "from the render. Only condense text as a last resort and "
+                            "keep all distinct information points."
                         )
                     elif sub_type == "sparse_content":
                         issue_block += (
-                            "\n   📐 ADD CONTENT — use search_source to find more material, "
-                            "then add bullets/descriptions. If too little content, use regen_slide."
+                            "\n   📐 RECOMPOSE EXISTING CONTENT — preserve every visible "
+                            "string. Improve scale, grouping, focal hierarchy, and placement "
+                            "so whitespace supports the message instead of looking accidental. "
+                            "If the void sits below or beside a focal visual and local scaling "
+                            "would leave the same structure, choose a body reflow of existing "
+                            "callouts/notes/figure/caption relationships. Do not add source "
+                            "material; true missing content belongs to C-family."
                         )
                     elif sub_type == "element_undersized":
                         issue_block += (
-                            "\n   📐 STRETCH ELEMENTS — increase width/height of images, "
-                            "tables, charts, and visual containers via CSS. "
-                            "Do NOT spread text/bullet lists with space-between or "
+                            "\n   📐 RESIZE OR REFLOW THE FOCAL ELEMENT — increase the "
+                            "usable rendered content only when that genuinely improves "
+                            "inspection. Preserve image aspect ratio and avoid creating "
+                            "letterbox, clipping, or overlap. For a complete wide/shallow "
+                            "embedded image, giving it more height may not fix the actual "
+                            "content; prefer more suitable horizontal span or a body reflow "
+                            "that moves existing interpretation/callout content into a support "
+                            "region. Do NOT spread text/bullet lists with space-between or "
                             "space-evenly — that creates ugly gaps. Text stays grouped."
                         )
                     elif sub_type == "column_height_mismatch":
@@ -5001,17 +10835,23 @@ class AgentRepair:
                             "scattered items with huge gaps."
                         )
 
-                    # NOTE: We intentionally do NOT show a quantified coverage
-                    # metric here.  The bbox-union "space coverage %" does not
-                    # correlate with the visual-density judgement the evaluator
-                    # uses (large *contiguous* empty regions).  Showing a fixed
-                    # "Target: ≥60%" caused the agent to stop optimising
-                    # prematurely in 8/10 density repairs.  The issue's own
+                    # NOTE: No quantified coverage metric is shown here.
+                    # The bbox-union "space coverage %" does not correlate with
+                    # visual-density judgment (large contiguous empty regions).
+                    # A fixed threshold causes premature stopping. The issue's own
                     # planned_fix already contains concrete, per-element layout
                     # targets — the agent should follow those instead.
 
             parts.append(issue_block)
         parts.append("")
+
+        svg_source_context = self._build_external_svg_source_context(
+            all_issues,
+            spatial_state,
+        )
+        if svg_source_context:
+            parts.append(svg_source_context)
+            parts.append("")
 
         # 4. Concrete fix suggestions for layout issues — BEFORE code
         # so the agent sees actionable copy-pasteable edits early
@@ -5184,23 +11024,26 @@ class AgentRepair:
             plan_lines = [
                 "## Layout Redistribution Plan\n",
                 "A target layout has been computed to fix the density/"
-                "distribution issues. Apply these position changes:\n",
+                "distribution issues. Treat it as a design target for the "
+                "HTML/CSS reflow, not as a requirement to preserve the "
+                "current skeleton:\n",
             ]
             for var_name, target in sorted(
                 layout_plan.items(),
-                key=lambda kv: kv[1].get("y", 0),
+                key=lambda kv: kv[1].get("top", 0),
             ):
-                ty = target.get("y", "?")
-                th = target.get("h", "?")
-                tw = target.get("w")
-                line = f"  {var_name:20s}: y={ty}, h={th}"
-                if tw:
-                    line += f", w={tw}"
+                left = target.get("left", "?")
+                top = target.get("top", "?")
+                height = target.get("height", "?")
+                width = target.get("width")
+                line = f"  {var_name:20s}: left={left}, top={top}, height={height}"
+                if width:
+                    line += f", width={width}"
                 plan_lines.append(line)
             plan_lines.append(
-                "\nUse apply_edits to update Inches() values to match "
-                "these targets. Include ALL position changes in as few "
-                "apply_edits calls as possible.\n"
+                "\nUse apply_edits to update CSS grid/flex/positioning so the "
+                "visual regions move toward this target while preserving the "
+                "original visible text, image assets, and reading path.\n"
             )
             parts.append("\n".join(plan_lines))
 
@@ -5209,25 +11052,23 @@ class AgentRepair:
             "missing_evidence", "missing_data_visualization",
             "missing_entity", "missing_point",
         }
-        subtractive_types = {
+        layout_types = {
             "text_overflow", "text_wall", "density_imbalance",
         }
         additive_issues = [i for i in all_issues if i.issue_type in additive_types]
-        subtractive_issues = [i for i in all_issues if i.issue_type in subtractive_types]
+        layout_issues = [i for i in all_issues if i.issue_type in layout_types]
 
         conflict_guidance = ""
-        if additive_issues and subtractive_issues:
+        if additive_issues and layout_issues:
             conflict_guidance = (
                 "\n⚠️ **CONFLICT WARNING**: This slide has BOTH additive issues "
-                "(missing content) and subtractive issues (overflow/density). "
+                "(missing content) and layout issues (overflow/density). "
                 "Priorities:\n"
-                "1. Fix subtractive issues FIRST (text_overflow, text_wall, "
-                "density_imbalance) — condense text, simplify content\n"
-                "2. ONLY THEN attempt additive issues IF space is available\n"
-                "3. If after fixing subtractive issues the slide is still "
-                "dense (>80% coverage), SKIP additive issues and note in "
-                "your repair summary: 'Skipped [issue] — insufficient space'\n"
-                "Do NOT try to squeeze in new content on an already-full slide.\n"
+                "1. Apply the specifically authorized C-family insertion/correction.\n"
+                "2. Then solve the B-family layout using geometry and grouping while "
+                "preserving the resulting visible text exactly.\n"
+                "3. If the payload cannot fit, report the unresolved structural constraint; "
+                "do not silently skip required content or delete existing content.\n"
             )
 
         # For persistent text_overflow, mandate condensation
@@ -5242,13 +11083,32 @@ class AgentRepair:
             persistent_overflow_guidance = (
                 "\n🔴 **PERSISTENT OVERFLOW**: Some text_overflow issues have "
                 "persisted from previous turns. CSS-only fixes (font-size, "
-                "container resize) have already been tried and FAILED. "
-                "You MUST use TEXT CONDENSATION:\n"
-                "- Shorten bullet text (remove filler words, compress phrases)\n"
-                "- Merge similar bullets into one\n"
-                "- Remove the least important bullet entirely\n"
-                "- Replace verbose sentences with concise noun phrases\n"
-                "Do NOT retry the same CSS adjustments.\n"
+                "container resize) have already been tried and FAILED. Change the "
+                "layout family while preserving visible text: regroup containers, change "
+                "grid/flex tracks, or use a structurally different arrangement. Do NOT "
+                "retry the same CSS nudges or condense the text.\n"
+            )
+
+        persistent_layout_guidance = ""
+        persistent_layouts = [
+            i for i in all_issues
+            if i.issue_type == "layout_inappropriate"
+            and (
+                getattr(i, "persisted_turns", 0) >= 1
+                or "[PERSISTED]" in str(i.planned_fix or "")
+                or "[PARTIALLY_MITIGATED]" in str(i.planned_fix or "")
+            )
+        ]
+        if persistent_layouts:
+            persistent_layout_guidance = (
+                "\n🔴 **PERSISTENT LAYOUT MISMATCH**: At least one "
+                "layout_inappropriate issue survived a previous repair. Do not "
+                "repeat a footer-only color/height tweak unless the current fix "
+                "plan names only the footer. Follow the current planned_fix's "
+                "named hierarchy targets: metric cards, hero rows, captions, "
+                "right/left panels, figure/table regions, and top summary cards "
+                "must be resized/regrouped when named. Make one coherent "
+                "structural rebalancing edit, then verify.\n"
             )
 
         parts.append(
@@ -5268,7 +11128,14 @@ class AgentRepair:
             "BEFORE submitting.\n"
             f"{conflict_guidance}"
             f"{persistent_overflow_guidance}"
+            f"{persistent_layout_guidance}"
         )
+        if dashboard_guidance:
+            # Keep the current-case decision guidance close to the final action
+            # instruction. The issue/code/evidence packet can be very long, and
+            # placing this only near the top made the model miss the coupled
+            # dashboard trajectory and execute serial local edits instead.
+            parts.append(dashboard_guidance)
 
         # 12. Space Planning requirement for layout issues
         # Forces the agent to reason about spatial budget before
@@ -5321,6 +11188,12 @@ class AgentRepair:
                     "5. **COUPLED MOVES**: Which other elements need to "
                     "move/resize to accommodate this change? Include ALL "
                     "of them in ONE apply_edits call.\n\n"
+                    "Protected frame regions (header/title, slide number, source "
+                    "attribution, footer/takeaway bar, and ReDeck frame contract) "
+                    "are constraints, not spare body space, unless the current issue "
+                    "explicitly targets that region. If your planned move makes them "
+                    "collide or changes their reading order, reshape the body content "
+                    "instead of moving the protected frame/source element.\n\n"
                     "Example planning:\n"
                     "  \"Issue B9 wants a chart. Current: bullets "
                     "y=3.00→5.55 (h=2.55). Available below: "
@@ -5362,24 +11235,52 @@ class AgentRepair:
     def _parse_action(self, response: str) -> dict | None:
         """Parse agent response into tool call dict.
 
-        If the response contains multiple JSON objects (multiple tool calls
-        in a single message), all valid tool calls are collected into
-        ``self._pending_actions`` for sequential execution. The first is
-        returned immediately; subsequent calls to ``_next_pending_action()``
-        yield the rest.
+        If the response contains multiple JSON objects, execute only the first
+        valid tool call and discard the rest. Later actions are speculative
+        because they were authored before seeing the actual result of the first
+        tool call.
         """
+        self._last_parse_error_message = ""
         data = _extract_json(response)
         if data and "tool" in data:
             if _has_extra_json(response):
                 all_actions = _extract_all_json(response)
                 if len(all_actions) > 1:
+                    first_action = next(
+                        (
+                            item for item in all_actions
+                            if isinstance(item, dict) and item.get("tool")
+                        ),
+                        None,
+                    )
+                    if first_action is not None:
+                        ignored = max(0, len(all_actions) - 1)
+                        logger.info(
+                            "Agent emitted %d JSON tool calls in one message; "
+                            "executing the first and ignoring %d speculative call(s).",
+                            len(all_actions),
+                            ignored,
+                        )
+                        self._pending_actions = []
+                        self._multi_action_ignored_count = ignored
+                        return first_action
                     logger.info(
                         "Agent emitted %d JSON tool calls in one message; "
-                        "executing sequentially.", len(all_actions),
+                        "rejecting speculative sequence.",
+                        len(all_actions),
                     )
-                    # Queue remaining actions (skip first which is returned now)
-                    self._pending_actions = all_actions[1:]
-                    return all_actions[0]
+                    self._pending_actions = []
+                    self._multi_action_ignored_count = 0
+                    self._last_parse_error_message = (
+                        "Error: your response contained multiple JSON tool calls. "
+                        "The repair loop executes one tool call per turn so each "
+                        "next action can use the actual tool result. Return exactly "
+                        "one JSON object now, with one `tool` field, and no text or "
+                        "additional JSON before or after it. If the rejected message "
+                        "included a plan plus edits, send only the next required tool "
+                        "call now; do not replay the whole sequence."
+                    )
+                    return None
             return data
         return None
 
@@ -5434,238 +11335,30 @@ class AgentRepair:
     def _check_contrast_regression(
         self, original_code: str, current_code: str, slide_id: int
     ) -> str | None:
-        """Check for contrast ratio regressions between T0 and T1.
-
-        For HTML code: parses CSS color/background properties directly.
-        For PPTX code: uses RGBColor patterns.
-
-        BLOCKS if any text element's contrast drops below 3:1 (WCAG AA).
-        Returns a warning/block message or None if clean.
-        """
-        try:
-            if "<html" in current_code.lower() or "<!doctype" in current_code.lower() or "<div" in current_code[:500]:
-                return self._check_html_contrast_regression(original_code, current_code, slide_id)
-            else:
-                return self._check_pptx_contrast_regression(original_code, current_code, slide_id)
-        except Exception as e:
-            logger.warning(f"Contrast regression check failed: {e}")
-            return None
+        from .contrast_utils import check_contrast_regression
+        return check_contrast_regression(original_code, current_code, slide_id)
 
     def _check_html_contrast_regression(
         self, original_code: str, current_code: str, slide_id: int
     ) -> str | None:
-        """HTML-specific contrast regression check.
-
-        Extracts text color and background color from CSS inline styles,
-        computes contrast ratio, and blocks if any text becomes invisible.
-        """
-        import re as _re
-
-        def _parse_rgb(s: str) -> tuple[int, int, int] | None:
-            m = _re.search(r'rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)', s)
-            if m:
-                return int(m.group(1)), int(m.group(2)), int(m.group(3))
-            # hex color
-            m = _re.search(r'#([0-9a-fA-F]{6})', s)
-            if m:
-                h = m.group(1)
-                return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-            return None
-
-        def _extract_text_elements(code: str) -> list[dict]:
-            """Find all elements with text content and extract their colors."""
-            elements = []
-            # Match styled elements containing text
-            for m in _re.finditer(
-                r'<(?:h[1-6]|p|span|div|li)\s+style="([^"]*)"[^>]*>([^<]{3,})',
-                code, _re.IGNORECASE
-            ):
-                style = m.group(1)
-                text = m.group(2).strip()
-                if not text or len(text) < 3:
-                    continue
-                fg = _parse_rgb(style) if 'color:' in style.split('background')[0] else None
-                # For foreground, find 'color:' that is NOT 'background-color:'
-                fg_match = _re.search(r'(?<!background-)color:\s*(rgb\([^)]+\)|#[0-9a-fA-F]{6})', style)
-                fg = _parse_rgb(fg_match.group(1)) if fg_match else None
-                bg_match = _re.search(r'background(?:-color)?:\s*(rgb\([^)]+\)|#[0-9a-fA-F]{6})', style)
-                bg = _parse_rgb(bg_match.group(1)) if bg_match else None
-                elements.append({
-                    'text': text[:50],
-                    'fg': fg,
-                    'bg': bg,
-                    'pos': m.start(),
-                })
-            return elements
-
-        def _find_parent_bg(code: str, pos: int) -> tuple[int, int, int] | None:
-            """Walk backwards from pos to find nearest parent with background."""
-            # Find all div/section backgrounds before this position
-            bgs = []
-            for m in _re.finditer(
-                r'<(?:div|section)\s+style="([^"]*)"',
-                code[:pos], _re.IGNORECASE
-            ):
-                style = m.group(1)
-                bg_match = _re.search(r'background(?:-color)?:\s*(rgb\([^)]+\)|#[0-9a-fA-F]{6})', style)
-                if bg_match:
-                    rgb = _parse_rgb(bg_match.group(1))
-                    if rgb:
-                        bgs.append(rgb)
-            return bgs[-1] if bgs else None
-
-        current_elements = _extract_text_elements(current_code)
-
-        # Also extract original elements to filter out PRE-EXISTING
-        # low contrast (don't penalize agent for T0's problems).
-        original_low_contrast_texts: set[str] = set()
-        for el in _extract_text_elements(original_code):
-            fg = el['fg']
-            if not fg:
-                continue
-            bg = el['bg'] or _find_parent_bg(original_code, el['pos'])
-            if not bg:
-                bg = (255, 255, 255)
-            ratio = self._calculate_contrast_ratio(
-                self._calculate_luminance(*fg),
-                self._calculate_luminance(*bg),
-            )
-            if ratio < 3.0:
-                original_low_contrast_texts.add(el['text'][:30])
-
-        critical = []
-
-        for el in current_elements:
-            fg = el['fg']
-            if not fg:
-                continue  # no explicit color = inherits, skip
-
-            # Skip pre-existing low contrast elements (not a regression)
-            if el['text'][:30] in original_low_contrast_texts:
-                continue
-
-            # Find effective background
-            bg = el['bg'] or _find_parent_bg(current_code, el['pos'])
-            if not bg:
-                bg = (255, 255, 255)  # assume white default
-
-            fg_lum = self._calculate_luminance(*fg)
-            bg_lum = self._calculate_luminance(*bg)
-            ratio = self._calculate_contrast_ratio(fg_lum, bg_lum)
-
-            if ratio < 2.0:
-                critical.append(
-                    f"  \"{el['text']}\": fg=rgb({fg[0]},{fg[1]},{fg[2]}) on "
-                    f"bg=rgb({bg[0]},{bg[1]},{bg[2]}) → contrast {ratio:.1f}:1 "
-                    f"(text is nearly invisible)"
-                )
-            elif ratio < 3.0:
-                critical.append(
-                    f"  \"{el['text']}\": fg=rgb({fg[0]},{fg[1]},{fg[2]}) on "
-                    f"bg=rgb({bg[0]},{bg[1]},{bg[2]}) → contrast {ratio:.1f}:1 "
-                    f"(below WCAG AA 3:1)"
-                )
-
-        if critical:
-            return (
-                "🚨 SUBMIT BLOCKED — text contrast below WCAG AA minimum:\n"
-                + "\n".join(critical)
-                + "\n\nFix text colors to ensure readable contrast against "
-                "their backgrounds. Use dark text (rgb < 80) on light "
-                "backgrounds (rgb > 180), and light text on dark backgrounds."
-            )
-
-        return None
+        from .contrast_utils import check_html_contrast_regression
+        return check_html_contrast_regression(original_code, current_code, slide_id)
 
     def _check_pptx_contrast_regression(
         self, original_code: str, current_code: str, slide_id: int
     ) -> str | None:
-        """PPTX-specific contrast regression check (legacy)."""
-        return None  # pptx mode is legacy; HTML check handles current usage
+        from .contrast_utils import check_pptx_contrast_regression
+        return check_pptx_contrast_regression(original_code, current_code, slide_id)
 
     def _calculate_element_contrast_ratio(
         self, code: str, var_name: str, fill_colors: dict[str, tuple[int, int, int]]
     ) -> float:
-        """Calculate contrast ratio for a specific element.
-
-        Returns contrast ratio between text and its background (element fill or slide bg).
-        """
-        # Get text color
-        text_rgb = self._extract_text_rgb(code, var_name)
-        text_luminance = self._calculate_luminance(*text_rgb)
-
-        # Get background color (element fill or slide background)
-        if var_name in fill_colors:
-            # Element has its own fill
-            bg_rgb = fill_colors[var_name]
-            bg_luminance = self._calculate_luminance(*bg_rgb)
-        else:
-            # Use slide background
-            bg_luminance = self._extract_slide_background_luminance(code)
-
-        return self._calculate_contrast_ratio(text_luminance, bg_luminance)
+        from .contrast_utils import calculate_element_contrast_ratio
+        return calculate_element_contrast_ratio(code, var_name, fill_colors)
 
     def _extract_slide_background_luminance(self, code: str) -> float:
-        """Extract slide background luminance, defaults to light background."""
-        # Helper: resolve theme_colors dict from code
-        theme_dict: dict[str, tuple[int, int, int]] = {}
-        for m in re.finditer(
-            r'"(\w+)"\s*:\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-            code,
-        ):
-            theme_dict[m.group(1)] = (
-                int(m.group(2)), int(m.group(3)), int(m.group(4)),
-            )
-
-        # Pattern 1: slide.background.fill
-        bg_match = re.search(
-            r'bg_fill\.fore_color\.rgb\s*=\s*RGBColor\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-            code,
-        )
-        if bg_match:
-            r, g, b = int(bg_match.group(1)), int(bg_match.group(2)), int(bg_match.group(3))
-            return self._calculate_luminance(r, g, b)
-
-        # Check theme_colors pattern for background
-        bg_match = re.search(
-            r'bg_fill\.fore_color\.rgb\s*=\s*RGBColor\(\s*\*\s*theme_colors\[\s*"(\w+)"\s*\]\s*\)',
-            code,
-        )
-        if bg_match:
-            key = bg_match.group(1)
-            if key in theme_dict:
-                r, g, b = theme_dict[key]
-                return self._calculate_luminance(r, g, b)
-
-        # Pattern 2: full-slide background shape
-        bg_shape_match = re.search(
-            r'(\w+)\s*=\s*slide\.shapes\.add_shape\(\s*MSO_SHAPE\.\w+\s*,\s*0\s*,\s*0\s*,\s*prs\.slide_width\s*,\s*prs\.slide_height\s*\)',
-            code,
-        )
-        if bg_shape_match:
-            bg_var = bg_shape_match.group(1)
-            # Find the fill color for this shape
-            fill_match = re.search(
-                rf'{bg_var}\.fill\.fore_color\.rgb\s*=\s*RGBColor\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-                code,
-            )
-            if fill_match:
-                r, g, b = int(fill_match.group(1)), int(fill_match.group(2)), int(fill_match.group(3))
-                return self._calculate_luminance(r, g, b)
-            else:
-                # Check theme_colors pattern
-                fill_theme_match = re.search(
-                    rf'{bg_var}\.fill\.fore_color\.rgb\s*=\s*RGBColor\(\s*\*\s*theme_colors\[\s*"(\w+)"\s*\]\s*\)',
-                    code,
-                )
-                if fill_theme_match:
-                    key = fill_theme_match.group(1)
-                    if key in theme_dict:
-                        r, g, b = theme_dict[key]
-                        return self._calculate_luminance(r, g, b)
-
-        # Default: assume light background (white)
-        return self._calculate_luminance(255, 255, 255)
+        from .contrast_utils import extract_slide_background_luminance
+        return extract_slide_background_luminance(code)
 
     # ================================================================
     # CONTENT REQUIREMENT EXTRACTION
@@ -5724,47 +11417,25 @@ class AgentRepair:
                 # Prefer fix_detail.correct_content (exact text from source)
                 # over extracting quoted strings from planned_fix (which may
                 # quote the WRONG text that should be removed).
+                row_specs = self._table_row_specs_for_issue(issue)
+                if self._is_table_row_issue(issue) and row_specs:
+                    for row in row_specs:
+                        must_contain.append(
+                            f'- Table row with cells: "{row[:140]}" '
+                            f"(from [{issue.issue_type}])"
+                        )
+                    continue
                 correct = (
-                    issue.fix_detail.correct_content
+                    normalize_correct_content_text(
+                        issue.fix_detail.correct_content,
+                    )
                     if issue.fix_detail and issue.fix_detail.correct_content
                     else ""
                 )
-                # Sanitize instruction-like correct_content:
-                # e.g. "REMOVE — no source support. Replace with: ..."
-                # e.g. "Use source-grounded content only: ..."
-                # e.g. "Use source wording: ..."
-                # e.g. "Use: ..." (bare instruction prefix)
-                if correct:
-                    # Strip instruction prefixes that evaluator adds
-                    _prefix = re.match(
-                        r'^(?:Use\s+source[\s-]+(?:grounded|backed|wording)'
-                        r'(?:\s+(?:content\s+)?only)?'
-                        r'|Use(?=\s*:\s*")'  # bare "Use:" before quote
-                        r'|Replace\s+with'   # "Replace with: ..."
-                        r'|REMOVE|DELETE)\b[^"]*?'
-                        r'(?::\s*["\']?)',
-                        correct, re.I,
-                    )
-                    if _prefix:
-                        correct = correct[_prefix.end():].strip().rstrip('"\'')
-                    # If it starts with REMOVE/DELETE, extract replacement
-                    _rm = re.match(
-                        r'^(?:REMOVE|DELETE)\b.*?'
-                        r'(?:Replace\s+with|Use\s+instead)[:\s]*["\']?(.+?)["\']?\s*$',
-                        correct, re.I | re.S,
-                    )
-                    if _rm:
-                        correct = _rm.group(1).strip()
-                    # If it still looks like an instruction, skip it
-                    if re.match(
-                        r'^(?:No verified|Keep only|Remove the|REMOVE)',
-                        correct, re.I,
-                    ):
-                        correct = ""
                 if correct and len(correct) >= 8:
+                    label = _source_target_label(issue.issue_type, correct, limit=180)
                     must_contain.append(
-                        f'- Text containing: "{correct[:120]}" '
-                        f"(from [{issue.issue_type}])"
+                        f"- {label} (from [{issue.issue_type}])"
                     )
                 elif issue.issue_type == "missing_entity":
                     must_contain.append(
@@ -5982,6 +11653,14 @@ class AgentRepair:
         """Build content verification checklist."""
         items = []
 
+        if any(issue.issue_type in CONTENT_ACCURACY_ISSUE_TYPES for issue in all_issues):
+            items.append(
+                "[ ] Fixed-format budget: titles/page headers stay concise; "
+                "do not put long source-backed corrections into full-width "
+                "bottom bars, footers, or source notes. Merge longer qualifiers "
+                "into body/interpretation text and verify layout after length changes."
+            )
+
         for issue in all_issues:
             fix = issue.planned_fix or ""
             desc = (
@@ -5990,17 +11669,25 @@ class AgentRepair:
                 or ""
             )
             issue_id = getattr(issue, 'issue_id', '') or ''
+            normalized_correct = ""
+            if issue.fix_detail and issue.fix_detail.correct_content:
+                normalized_correct = normalize_correct_content_text(
+                    issue.fix_detail.correct_content,
+                )
 
             if issue.issue_type in {
                 "fabricated", "incorrect_claim", "numeric_error",
                 "entity_error", "chart_misinterpretation",
                 "unfaithful_compression",
             } and fix:
-                quoted = re.findall(r'"([^"]{8,})"', fix)
+                quoted = [normalized_correct] if normalized_correct else re.findall(r'"([^"]{8,})"', fix)
                 if quoted:
+                    target_label = _source_target_label(
+                        issue.issue_type, quoted[0], limit=220,
+                    )
                     items.append(
                         f'[ ] [{issue.issue_type}] ({issue_id}) '
-                        f'Must contain text close to: "{quoted[0]}"'
+                        f'Must cover: {target_label}'
                     )
                 else:
                     items.append(
@@ -6008,14 +11695,24 @@ class AgentRepair:
                         f"Fix: {fix[:150]}"
                     )
             elif issue.issue_type == "missing_entity" and fix:
-                items.append(
-                    f"[ ] [{issue.issue_type}] ({issue_id}) "
-                    f"REQUIRED: {fix[:200]}"
-                )
+                row_specs = self._table_row_specs_for_issue(issue)
+                if self._is_table_row_issue(issue) and row_specs:
+                    for row in row_specs:
+                        items.append(
+                            f"[ ] [{issue.issue_type}] ({issue_id}) "
+                            f"REQUIRED TABLE ROW: {row[:180]} "
+                            "-- add as <tr>/<td> cells inside the existing table, "
+                            "not as prose text."
+                        )
+                else:
+                    items.append(
+                        f"[ ] [{issue.issue_type}] ({issue_id}) "
+                        f"REQUIRED: {(normalized_correct or fix)[:200]}"
+                    )
             elif issue.issue_type == "missing_context" and fix:
                 items.append(
                     f"[ ] [{issue.issue_type}] ({issue_id}) "
-                    f"Must add context: {fix[:200]}"
+                    f"Must add context: {(normalized_correct or fix)[:200]}"
                 )
             elif issue.issue_type in {
                 "missing_point", "missing_evidence", "missing_conclusion",
@@ -6023,7 +11720,7 @@ class AgentRepair:
             } and fix:
                 items.append(
                     f"[ ] [{issue.issue_type}] ({issue_id}) "
-                    f"Must include: {fix[:150]}"
+                    f"Must include: {(normalized_correct or fix)[:150]}"
                 )
             elif issue.issue_type == "missing_data_visualization":
                 items.append(
@@ -6178,6 +11875,74 @@ class AgentRepair:
 
         return "\n".join(lines)
 
+    @classmethod
+    def _build_external_svg_source_context(
+        cls,
+        issues: list[Issue],
+        spatial_state,
+    ) -> str:
+        """Expose source SVG code for external SVG visual repairs.
+
+        Browser DOM extraction can only see an external SVG as an <img>. When
+        the repair target is inside that SVG, the agent needs the actual asset
+        source to make a surgical label/geometry fix instead of redrawing from a
+        vague visual summary.
+        """
+        if not spatial_state or not any(
+            issue.issue_type == "svg_visual_defect" for issue in issues
+        ):
+            return ""
+
+        issue_text = "\n".join(
+            " ".join(filter(None, (
+                getattr(getattr(issue, "evidence", None), "description", ""),
+                getattr(issue, "planned_fix", ""),
+                " ".join(getattr(getattr(issue, "evidence", None), "object_refs", []) or []),
+            )))
+            for issue in issues
+            if issue.issue_type == "svg_visual_defect"
+        ).lower()
+
+        paths: list[Path] = []
+        for svg_issue in getattr(spatial_state, "svg_asset_issues", []) or []:
+            asset_path = svg_issue.get("asset_path")
+            if not asset_path:
+                continue
+            path = Path(str(asset_path))
+            haystack = f"{path.name} {asset_path} {svg_issue.get('label', '')}".lower()
+            if issue_text and not any(
+                token and token in issue_text
+                for token in (path.name.lower(), str(svg_issue.get("label", "")).lower())
+            ) and haystack not in issue_text:
+                continue
+            if path.exists() and path not in paths:
+                paths.append(path)
+
+        if not paths:
+            return ""
+
+        parts = [
+            "## External SVG Asset Source",
+            "For `svg_visual_defect` repairs on external `<img src=\"*.svg\">` assets, preserve the original SVG canvas, all visible SVG text, and all non-target graph/node/connector roles. Make the smallest local SVG source change needed for the named defect. Do not redraw, simplify, rename labels, change window/model names, or replace captions.",
+        ]
+        for path in paths[:3]:
+            try:
+                svg = path.read_text(encoding="utf-8", errors="replace")
+            except Exception as exc:
+                parts.append(f"### {path}\nCould not read SVG asset: {exc}")
+                continue
+            texts = cls._svg_visible_texts(svg)
+            if len(svg) > 16000:
+                shown_svg = svg[:16000] + "\n<!-- truncated -->"
+            else:
+                shown_svg = svg
+            parts.append(
+                f"### {path}\n"
+                f"Visible SVG text to preserve: {json.dumps(texts, ensure_ascii=False)}\n"
+                f"```xml\n{shown_svg}\n```"
+            )
+        return "\n\n".join(parts)
+
     def _generate_layout_plan(
         self,
         code: str,
@@ -6226,7 +11991,7 @@ class AgentRepair:
         spatial_diagnosis = []
         if spatial_state.overlap_pairs:
             spatial_diagnosis.append(
-                f"OVERLAPS: {', '.join(f'{a}↔{b}' for a,b in spatial_state.overlap_pairs[:5])}"
+                f"OVERLAPS: {', '.join(f'{a}↔{b}' for a, b, *_ in spatial_state.overlap_pairs[:5])}"
             )
 
         # Detect large empty gaps
@@ -6263,8 +12028,9 @@ class AgentRepair:
         slide_context = ""
         if bp_slide:
             slide_context = (
-                f"\nSlide purpose: {bp_slide.title or 'untitled'}\n"
-                f"Layout intent: {getattr(bp_slide, 'layout_type', 'unknown')}\n"
+                f"\nSlide purpose: {bp_slide.primary_proposition or 'untitled'}\n"
+                f"Slide role: {bp_slide.role or 'unknown'}\n"
+                f"Layout hint: {bp_slide.layout_hint or 'unspecified'}\n"
             )
 
         prompt = f"""You are an expert slide layout designer. Analyze the current slide layout and compute optimal positions for all elements.
@@ -6308,9 +12074,9 @@ Think step by step:
 Output ONLY the JSON object, no other text."""
 
         try:
-            response = self.llm.call(
-                system="You are an expert presentation layout designer. Output only valid JSON.",
-                user=prompt,
+            response = self.llm.call_text(
+                system_prompt="You are an expert presentation layout designer. Output only valid JSON.",
+                user_content=prompt,
                 model=self.model,
                 module_name="layout_preplan",
                 prompt_version="v2",
@@ -6726,616 +12492,53 @@ Output ONLY the JSON object, no other text."""
 
     @staticmethod
     def _build_ascii_grid(spatial_state) -> str:
-        """Build an ASCII grid showing element positions on the slide.
-
-        Creates a 40×15 character grid (each cell ≈ 0.33" × 0.5") where
-        each element gets a unique label character. This helps the model
-        intuitively see spatial distribution and balance.
-        """
-        if not spatial_state or not spatial_state.blocks:
-            return ""
-
-        COLS, ROWS = 40, 15
-        col_scale = COLS / 13.333  # chars per inch horizontally
-        row_scale = ROWS / 7.5    # chars per inch vertically
-
-        # Assign unique characters to blocks
-        label_chars = "ABCDEFGHJKLMNPQRSTUVWXYZ123456789"
-        block_labels: dict[str, str] = {}
-        used_chars: set[str] = set()
-
-        for i, b in enumerate(spatial_state.blocks):
-            # Try first char of var_name, then fallback to sequential
-            char = b.var_name[0].upper() if b.var_name else '?'
-            if char in used_chars and i < len(label_chars):
-                char = label_chars[i]
-            used_chars.add(char)
-            block_labels[b.var_name] = char
-
-        # Initialize grid with empty
-        grid = [['·' for _ in range(COLS)] for _ in range(ROWS)]
-        legend = []
-
-        # Draw blocks in reverse order (so topmost in Z-order appears)
-        for b in reversed(spatial_state.blocks):
-            char = block_labels.get(b.var_name, '?')
-            # Map to grid coordinates
-            c0 = max(0, min(COLS - 1, int(b.x * col_scale)))
-            r0 = max(0, min(ROWS - 1, int(b.y * row_scale)))
-            c1 = max(c0 + 1, min(COLS, int((b.x + b.w) * col_scale)))
-            r1 = max(r0 + 1, min(ROWS, int((b.y + b.h) * row_scale)))
-
-            for r in range(r0, r1):
-                for c in range(c0, c1):
-                    grid[r][c] = char
-
-        # Build legend in order
-        for b in spatial_state.blocks:
-            char = block_labels.get(b.var_name, '?')
-            text = (b.text_lines[0][:30] if b.text_lines else "")
-            legend.append(
-                f"  {char} = {b.var_name} ({b.w:.1f}\"×{b.h:.1f}\") "
-                f"{text}"
-            )
-
-        lines = [
-            "## ASCII Slide Layout\n",
-            "Each cell ≈ 0.33\" × 0.5\". Letters identify elements.\n",
-        ]
-        # Draw grid with border
-        lines.append("  +" + "-" * COLS + "+")
-        for row in grid:
-            lines.append("  |" + "".join(row) + "|")
-        lines.append("  +" + "-" * COLS + "+")
-        lines.append("")
-        lines.append("Legend:")
-        lines.extend(legend)
-        lines.append("")
-        return "\n".join(lines)
+        from .spatial_helpers import build_ascii_grid
+        return build_ascii_grid(spatial_state)
 
     @staticmethod
     def _build_pairwise_relations(spatial_state, code: str) -> str:
-        """Build pairwise spatial + visual relations between elements.
-
-        Instead of raw coordinates, describes relationships that are
-        immediately actionable:
-        - ABOVE/BELOW with gap size
-        - LEFT_OF/RIGHT_OF with gap size
-        - OVERLAPS with overlap amount
-        - Relative visual weight comparisons (LOUDER/QUIETER)
-
-        LLMs process relational triples well, making this potentially
-        more effective than coordinate tables.
-        """
-        if not spatial_state or not spatial_state.blocks:
-            return ""
-
-        blocks = [b for b in spatial_state.blocks if b.w > 0.3 and b.h > 0.1]
-        if len(blocks) < 2:
-            return ""
-
-        # Extract fill colors for brightness
-        fill_colors: dict[str, float] = {}
-        for m in re.finditer(
-            r'(\w+)\.fill\.fore_color\.rgb\s*=\s*RGBColor\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-            code,
-        ):
-            r, g, b_val = int(m.group(2)), int(m.group(3)), int(m.group(4))
-            brightness = (0.299 * r + 0.587 * g + 0.114 * b_val) / 255
-            fill_colors[m.group(1)] = brightness
-
-        # Also resolve theme-based colors
-        theme_dict: dict[str, float] = {}
-        for m in re.finditer(
-            r'"(\w+)"\s*:\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-            code,
-        ):
-            r, g, b_val = int(m.group(2)), int(m.group(3)), int(m.group(4))
-            theme_dict[m.group(1)] = (0.299 * r + 0.587 * g + 0.114 * b_val) / 255
-        for m in re.finditer(
-            r'(\w+)\.fill\.fore_color\.rgb\s*=\s*RGBColor\(\s*\*\s*theme_colors\[\s*"(\w+)"\s*\]\s*\)',
-            code,
-        ):
-            key = m.group(2)
-            if key in theme_dict:
-                fill_colors[m.group(1)] = theme_dict[key]
-
-        lines = ["## Spatial Relations Between Elements\n"]
-
-        for i, a in enumerate(blocks):
-            for b_blk in blocks[i+1:]:
-                rels = []
-
-                # Vertical relation
-                a_bottom = a.y + a.h
-                b_bottom = b_blk.y + b_blk.h
-                if a_bottom <= b_blk.y:
-                    gap = b_blk.y - a_bottom
-                    rels.append(f"ABOVE (gap={gap:.2f}\")")
-                elif b_bottom <= a.y:
-                    gap = a.y - b_bottom
-                    rels.append(f"BELOW (gap={gap:.2f}\")")
-                else:
-                    # Vertical overlap
-                    overlap = min(a_bottom, b_bottom) - max(a.y, b_blk.y)
-                    if overlap > 0.05:
-                        rels.append(f"V_OVERLAP={overlap:.2f}\"")
-
-                # Horizontal relation
-                a_right = a.x + a.w
-                b_right = b_blk.x + b_blk.w
-                if a_right <= b_blk.x + 0.1:
-                    gap = b_blk.x - a_right
-                    rels.append(f"LEFT_OF (gap={gap:.2f}\")")
-                elif b_right <= a.x + 0.1:
-                    gap = a.x - b_right
-                    rels.append(f"RIGHT_OF (gap={gap:.2f}\")")
-
-                # Size comparison
-                a_area = a.w * a.h
-                b_area = b_blk.w * b_blk.h
-                if a_area > 0 and b_area > 0:
-                    ratio = max(a_area, b_area) / min(a_area, b_area)
-                    if ratio > 2:
-                        bigger = a.var_name if a_area > b_area else b_blk.var_name
-                        rels.append(f"{bigger} is {ratio:.1f}x larger")
-
-                # Visual weight comparison
-                a_bright = fill_colors.get(a.var_name, 0.9)
-                b_bright = fill_colors.get(b_blk.var_name, 0.9)
-                a_font = a.font_size_pt if a.font_size_pt > 0 else 14
-                b_font = b_blk.font_size_pt if b_blk.font_size_pt > 0 else 14
-                a_weight = a_area * (1 - a_bright) * (a_font / 16)
-                b_weight = b_area * (1 - b_bright) * (b_font / 16)
-                if a_weight > 0 and b_weight > 0:
-                    weight_ratio = max(a_weight, b_weight) / min(a_weight, b_weight)
-                    if weight_ratio > 2:
-                        louder = a.var_name if a_weight > b_weight else b_blk.var_name
-                        rels.append(f"{louder} is {weight_ratio:.1f}x more dominant visually")
-
-                if rels:
-                    lines.append(
-                        f"  {a.var_name} → {b_blk.var_name}: "
-                        + ", ".join(rels)
-                    )
-
-        lines.append("")
-        return "\n".join(lines)
+        from .spatial_helpers import build_pairwise_relations
+        return build_pairwise_relations(spatial_state, code)
 
     @staticmethod
     def _build_vertical_strip(spatial_state) -> str:
-        """Build a vertical strip projection of the slide layout.
-
-        Shows what occupies each vertical band, making density
-        distribution immediately obvious. This is a 1D projection
-        that collapses the horizontal dimension.
-
-        Example:
-          y=0.0-0.8: [title_box] 30pt ██████████████████████ (full width)
-          y=0.8-1.3: ──── empty ────
-          y=1.3-1.9: [hero] 20pt ██████████████████████ (full width, ORANGE)
-          y=2.0-6.0: [left_panel] 16pt ██████████  [right_panel] 16pt ██████████
-          y=6.1-7.0: [takeaway] 18pt ██████████████████████ (full width)
-        """
-        if not spatial_state or not spatial_state.blocks:
-            return ""
-
-        blocks = [b for b in spatial_state.blocks if b.w > 0.3 and b.h > 0.1]
-        if not blocks:
-            return ""
-
-        # Collect all y-boundary events
-        events: list[tuple[float, str, object]] = []
-        for b in blocks:
-            events.append((b.y, 'start', b))
-            events.append((b.y + b.h, 'end', b))
-
-        # Sort by y position
-        events.sort(key=lambda e: (e[0], 0 if e[1] == 'start' else 1))
-
-        # Build bands
-        active: set[str] = set()
-        block_map = {b.var_name: b for b in blocks}
-        bands: list[tuple[float, float, list[str]]] = []
-        prev_y = 0.0
-
-        # Discretize at each event boundary
-        y_points = sorted(set(e[0] for e in events))
-        for y in y_points:
-            if y > prev_y + 0.05 and active:
-                bands.append((prev_y, y, sorted(active)))
-            elif y > prev_y + 0.2 and not active:
-                bands.append((prev_y, y, []))
-            # Process events at this y
-            for ev_y, ev_type, ev_block in events:
-                if abs(ev_y - y) < 0.01:
-                    if ev_type == 'start':
-                        active.add(ev_block.var_name)
-                    else:
-                        active.discard(ev_block.var_name)
-            prev_y = y
-
-        # Final band
-        if active and prev_y < 7.5:
-            bands.append((prev_y, 7.5, sorted(active)))
-
-        if not bands:
-            return ""
-
-        BAR_WIDTH = 30
-        lines = [
-            "## Vertical Layout Strip\n",
-            "Shows what occupies each vertical band (top to bottom).\n",
-        ]
-
-        for y0, y1, vars_in_band in bands:
-            height = y1 - y0
-            if not vars_in_band:
-                lines.append(f"  y={y0:.1f}-{y1:.1f}: ──── empty ({height:.1f}\") ────")
-                continue
-
-            # Build bar for each element in this band
-            parts = []
-            for vn in vars_in_band:
-                b = block_map.get(vn)
-                if not b:
-                    continue
-                # Width proportion
-                w_frac = min(1.0, b.w / 13.333)
-                bar_len = max(1, int(w_frac * BAR_WIDTH))
-                bar = "█" * bar_len
-                font_str = f"{b.font_size_pt:.0f}pt" if b.font_size_pt > 0 else ""
-                text_hint = (b.text_lines[0][:20] if b.text_lines else "")
-                parts.append(f"[{vn}] {font_str} {bar} {text_hint}")
-
-            if len(parts) == 1:
-                lines.append(f"  y={y0:.1f}-{y1:.1f} ({height:.1f}\"): {parts[0]}")
-            else:
-                lines.append(f"  y={y0:.1f}-{y1:.1f} ({height:.1f}\"):")
-                for p in parts:
-                    lines.append(f"    {p}")
-
-        lines.append("")
-        return "\n".join(lines)
+        from .spatial_helpers import build_vertical_strip
+        return build_vertical_strip(spatial_state)
 
     @staticmethod
     def _build_elements_json(code: str, spatial_state) -> str:
-        """Build a structured JSON array of slide elements.
-
-        Each element maps directly to a code variable, with:
-        - var_name: the Python variable name (for apply_edits)
-        - shape_type: textbox/shape/picture/chart
-        - position: {x, y, w, h} in inches
-        - bottom/right edge (computed)
-        - fill_color: {r, g, b} or null
-        - fill_brightness: 0-1 (0=black, 1=white)
-        - font_size_pt: dominant font size
-        - text_preview: first line of text content
-        - visual_weight: area × (1-brightness) × (font/16)
-        - area_pct: % of usable slide area
-
-        Designed for LLM consumption: JSON is the most native
-        structured format for language models, requiring zero
-        format-specific parsing. The var_name field directly maps
-        to code identifiers for apply_edits.
-        """
-        if not spatial_state or not spatial_state.blocks:
-            return ""
-
-        usable_area = (USABLE_RIGHT - USABLE_LEFT) * (USABLE_BOTTOM - USABLE_TOP)
-
-        # Extract fill colors
-        fill_colors: dict[str, tuple[int, int, int]] = {}
-        for m in re.finditer(
-            r'(\w+)\.fill\.fore_color\.rgb\s*=\s*RGBColor\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-            code,
-        ):
-            fill_colors[m.group(1)] = (
-                int(m.group(2)), int(m.group(3)), int(m.group(4)),
-            )
-        theme_dict: dict[str, tuple[int, int, int]] = {}
-        for m in re.finditer(
-            r'"(\w+)"\s*:\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)',
-            code,
-        ):
-            theme_dict[m.group(1)] = (
-                int(m.group(2)), int(m.group(3)), int(m.group(4)),
-            )
-        for m in re.finditer(
-            r'(\w+)\.fill\.fore_color\.rgb\s*=\s*RGBColor\(\s*\*\s*theme_colors\[\s*"(\w+)"\s*\]\s*\)',
-            code,
-        ):
-            key = m.group(2)
-            if key in theme_dict:
-                fill_colors[m.group(1)] = theme_dict[key]
-
-        elements = []
-        for b in spatial_state.blocks:
-            if b.w < 0.2 and b.h < 0.1:
-                continue
-
-            area = b.w * b.h
-            pct = area / usable_area * 100
-
-            fill_rgb = None
-            brightness = 0.95
-            if b.var_name in fill_colors:
-                r, g, bb = fill_colors[b.var_name]
-                fill_rgb = {"r": r, "g": g, "b": bb}
-                brightness = (0.299 * r + 0.587 * g + 0.114 * bb) / 255
-
-            font_pt = b.font_size_pt if b.font_size_pt > 0 else 14
-            vw = area * max(0.1, 1.0 - brightness) * (font_pt / 16.0)
-
-            text_preview = ""
-            if b.text_lines:
-                text_preview = b.text_lines[0][:60]
-
-            elem = {
-                "var_name": b.var_name,
-                "shape_type": b.shape_type,
-                "x": round(b.x, 2),
-                "y": round(b.y, 2),
-                "w": round(b.w, 2),
-                "h": round(b.h, 2),
-                "right": round(b.x + b.w, 2),
-                "bottom": round(b.y + b.h, 2),
-                "area_pct": round(pct, 1),
-                "fill_color": fill_rgb,
-                "brightness": round(brightness, 2),
-                "font_pt": int(font_pt),
-                "visual_weight": round(vw, 2),
-                "text": text_preview,
-            }
-            elements.append(elem)
-
-        # Sort by visual weight descending
-        elements.sort(key=lambda e: e["visual_weight"], reverse=True)
-
-        # Compute summary stats
-        max_vw = elements[0]["visual_weight"] if elements else 1
-        total_vw = sum(e["visual_weight"] for e in elements) or 1
-        dominance_ratio = max_vw / max(0.01,
-            elements[len(elements)//2]["visual_weight"]
-            if len(elements) > 1 else 1
-        )
-
-        result = {
-            "slide_bounds": {"w": 13.333, "h": 7.5},
-            "usable_area": {
-                "x_min": USABLE_LEFT, "x_max": USABLE_RIGHT,
-                "y_min": USABLE_TOP, "y_max": USABLE_BOTTOM,
-            },
-            "dominance_ratio": round(dominance_ratio, 1),
-            "elements": elements,
-        }
-
-        return (
-            "## Slide Elements (JSON)\n\n"
-            "Each element maps to a code variable. Use var_name in "
-            "apply_edits search strings. Visual weight = area × darkness "
-            "× font_scale — higher = more visually dominant.\n\n"
-            f"```json\n{json.dumps(result, indent=2)}\n```\n"
-        )
+        from .spatial_helpers import build_elements_json
+        return build_elements_json(code, spatial_state)
 
     @staticmethod
     def _find_available_slot(
         spatial_state,
     ) -> tuple[float, float, float, float] | None:
-        """Find the largest empty rectangular region on the slide.
-
-        Scans the vertical space between existing elements to find
-        where a new chart could be placed without overlapping anything.
-
-        Returns (x, y, width, height) or None.
-        """
-        blocks = [
-            b for b in spatial_state.blocks
-            if b.w > 0.3 and b.h > 0.2
-        ]
-        if not blocks:
-            return (USABLE_LEFT, 1.5, 12.0, 5.0)
-
-        # Sort by y-position
-        sorted_blocks = sorted(blocks, key=lambda b: b.y)
-
-        # Find vertical gaps between elements
-        gaps: list[tuple[float, float]] = []
-
-        # Gap from usable top to first element
-        first_y = sorted_blocks[0].y
-        if first_y - USABLE_TOP > 0.5:
-            gaps.append((USABLE_TOP, first_y - 0.1))
-
-        # Gaps between consecutive elements
-        for i in range(len(sorted_blocks) - 1):
-            bottom_i = sorted_blocks[i].y + sorted_blocks[i].h
-            top_next = sorted_blocks[i + 1].y
-            gap_h = top_next - bottom_i
-            if gap_h > 0.5:
-                gaps.append((bottom_i + 0.1, top_next - 0.1))
-
-        # Gap from last element to usable bottom
-        last_bottom = max(b.y + b.h for b in sorted_blocks)
-        if USABLE_BOTTOM - last_bottom > 0.5:
-            gaps.append((last_bottom + 0.1, USABLE_BOTTOM))
-
-        if not gaps:
-            # No vertical gaps — suggest bottom of slide
-            return (
-                USABLE_LEFT, last_bottom + 0.15,
-                USABLE_RIGHT - USABLE_LEFT,
-                max(1.0, USABLE_BOTTOM - last_bottom - 0.15),
-            )
-
-        # Pick the largest gap
-        best_gap = max(gaps, key=lambda g: g[1] - g[0])
-        gap_h = best_gap[1] - best_gap[0]
-
-        return (
-            USABLE_LEFT, best_gap[0],
-            USABLE_RIGHT - USABLE_LEFT,
-            min(gap_h, 4.0),  # cap at 4" tall
-        )
+        from .spatial_helpers import find_available_slot
+        return find_available_slot(spatial_state)
 
     @staticmethod
     def _compute_spatial_context(spatial_state) -> str:
-        """Compute quantitative spatial distribution for B2/B8 issues.
-
-        Returns a compact summary of how elements are distributed on the
-        slide, giving the LLM the spatial facts it needs to reason about
-        layout changes.
-        """
-        blocks = [
-            b for b in spatial_state.blocks
-            if b.w > 0.5 and b.h > 0.3
-        ]
-        if len(blocks) < 2:
-            return ""
-
-        slide_mid_y = 3.75
-        top = [b for b in blocks if b.y + b.h / 2 < slide_mid_y]
-        bottom = [b for b in blocks if b.y + b.h / 2 >= slide_mid_y]
-        top_area = sum(b.w * b.h for b in top)
-        bottom_area = sum(b.w * b.h for b in bottom)
-        total = top_area + bottom_area
-
-        if total < 0.1:
-            return ""
-
-        top_pct = top_area / total * 100
-        bottom_pct = bottom_area / total * 100
-
-        # Also check left vs right
-        slide_mid_x = 6.67  # middle of 13.33"
-        left = [b for b in blocks if b.x + b.w / 2 < slide_mid_x]
-        right = [b for b in blocks if b.x + b.w / 2 >= slide_mid_x]
-        left_area = sum(b.w * b.h for b in left)
-        right_area = sum(b.w * b.h for b in right)
-
-        # Find the bottom-most element boundary
-        max_y_bottom = max(b.y + b.h for b in blocks)
-        empty_below = 7.20 - max_y_bottom  # distance to usable bottom
-
-        lines = [
-            f"   SPATIAL CONTEXT: "
-            f"top-half {len(top)} elements ({top_pct:.0f}%), "
-            f"bottom-half {len(bottom)} elements ({bottom_pct:.0f}%)"
-        ]
-
-        if empty_below > 1.5:
-            lines.append(
-                f"   → {empty_below:.1f}\" empty below last element "
-                f"(y={max_y_bottom:.1f}\"→7.20\")"
-            )
-
-        if abs(left_area - right_area) > total * 0.3:
-            lines.append(
-                f"   → Left/right imbalance: "
-                f"left {len(left)} ({left_area/(total+0.01)*100:.0f}%) "
-                f"vs right {len(right)} ({right_area/(total+0.01)*100:.0f}%)"
-            )
-
-        return "\n".join(lines)
+        from .spatial_helpers import compute_spatial_context
+        return compute_spatial_context(spatial_state)
 
     @staticmethod
     def _compute_coverage_pct(spatial_state) -> float:
-        """Compute content area coverage as % of slide canvas."""
-        blocks = [b for b in spatial_state.blocks if b.w > 0.3 and b.h > 0.2]
-        if not blocks:
-            return 0.0
-        canvas_area = 13.333 * 7.5  # inches
-        min_x = min(b.x for b in blocks)
-        min_y = min(b.y for b in blocks)
-        max_x = max(b.x + b.w for b in blocks)
-        max_y = max(b.y + b.h for b in blocks)
-        union_area = (max_x - min_x) * (max_y - min_y)
-        return (union_area / canvas_area) * 100
+        from .spatial_helpers import compute_coverage_pct
+        return compute_coverage_pct(spatial_state)
 
     @staticmethod
     def _format_spatial_issue_with_px(
         issue: "Issue",
         spatial_state: "SlideState",
     ) -> str:
-        """Add px bounding-box context for spatial issues on HTML slides.
-
-        Converts the inch-based spatial state back to CSS px so the agent
-        sees coordinates it can directly use in style edits.
-        """
-        from .html_spatial_state import VIEWPORT_W, VIEWPORT_H
-
-        inch_to_px_x = VIEWPORT_W / SLIDE_WIDTH
-        inch_to_px_y = VIEWPORT_H / SLIDE_HEIGHT
-
-        def _blk_px(b) -> str:
-            lx = round(b.x * inch_to_px_x)
-            ty = round(b.y * inch_to_px_y)
-            bw = round(b.w * inch_to_px_x)
-            bh = round(b.h * inch_to_px_y)
-            label = b.var_name or b.block_id
-            return (
-                f"{label}({b.block_id}) at "
-                f"(left:{lx}px, top:{ty}px, "
-                f"width:{bw}px, height:{bh}px)"
-            )
-
-        blk_map = {b.block_id: b for b in spatial_state.blocks}
-        lines: list[str] = []
-
-        if issue.issue_type == "overlap":
-            for a_id, b_id, ratio in spatial_state.overlap_pairs:
-                a, b = blk_map.get(a_id), blk_map.get(b_id)
-                if a and b:
-                    lines.append(
-                        f"   CSS bbox: {_blk_px(a)} overlaps "
-                        f"{_blk_px(b)} ({ratio:.0%} intersection)"
-                    )
-
-        elif issue.issue_type == "text_overflow":
-            for bid in spatial_state.overflow_blocks:
-                blk = blk_map.get(bid)
-                if blk:
-                    lines.append(
-                        f"   CSS bbox: {_blk_px(blk)} — text overflows "
-                        f"container ({blk.overflow_bottom_px}px bottom, {blk.overflow_right_px}px right)"
-                    )
-
-        elif issue.issue_type == "out_of_bounds":
-            for bid in spatial_state.oob_blocks:
-                blk = blk_map.get(bid)
-                if blk:
-                    lines.append(
-                        f"   CSS bbox: {_blk_px(blk)} — extends "
-                        f"outside slide ({SlideDimensions.VIEWPORT_W}×{SlideDimensions.VIEWPORT_H}px viewport)"
-                    )
-
-        return "\n".join(lines) if lines else ""
+        from .spatial_helpers import format_spatial_issue_with_px
+        return format_spatial_issue_with_px(issue, spatial_state)
 
     @staticmethod
     def _extract_palette_note(code: str, is_html: bool) -> str:
-        """Extract color values from slide code to remind agent of deck palette."""
-        import re as _re
-        colors = set()
-        if is_html:
-            # Extract rgb(...) and hex colors from CSS
-            for m in _re.finditer(r'rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)', code):
-                colors.add(m.group(0))
-            for m in _re.finditer(r'#[0-9a-fA-F]{6}\b', code):
-                colors.add(m.group(0))
-        else:
-            # Extract RGBColor values
-            for m in _re.finditer(r'RGBColor\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)', code):
-                colors.add(m.group(0))
-        if not colors:
-            return ""
-        palette_list = ", ".join(sorted(colors)[:12])  # limit to 12 most common
-        return (
-            f"**DECK COLOR PALETTE** (extracted from this slide's code): "
-            f"{palette_list}\n"
-            f"You MUST stay within this palette. When fixing contrast, adjust "
-            f"lightness/saturation of existing colors — do NOT introduce new "
-            f"hues (e.g., do not change green→blue or orange→brown).\n"
-        )
+        from .spatial_helpers import extract_palette_note
+        return extract_palette_note(code, is_html)
 
     @staticmethod
     def _annotate_issue_locations(
@@ -7343,255 +12546,8 @@ Output ONLY the JSON object, no other text."""
         code: str,
         code_lines: list[str],
     ) -> str:
-        """Find specific code locations referenced by an issue.
-
-        For content issues (fabricated, incorrect_claim, etc.), find the
-        exact lines containing the problematic text and annotate them.
-        For layout issues (B-series), identify the shape variables and
-        their current dimensions.
-
-        Returns annotation string or empty string.
-        """
-        desc = (
-            issue.evidence.description
-            or issue.why_this_fails
-            or ""
-        )
-        fix = issue.planned_fix or ""
-        itype = issue.issue_type
-
-        lines_out = []
-
-        # --- Content issues: find quoted strings from description in code ---
-        if itype in {
-            "fabricated", "incorrect_claim", "numeric_error",
-            "entity_error", "unfaithful_compression",
-            "unsupported_causality", "chart_misinterpretation",
-        }:
-            # Extract quoted strings from description
-            quoted = re.findall(r'"([^"]{5,})"', desc)
-            quoted += re.findall(r"'([^']{5,})'", desc)
-            if quoted:
-                found_any = False
-                for q in quoted[:6]:
-                    q_lower = q.lower()
-                    for line_no, line in enumerate(code_lines, 1):
-                        if q_lower in line.lower():
-                            lines_out.append(
-                                f"   → Line {line_no}: {line.strip()[:100]}"
-                            )
-                            found_any = True
-                if found_any:
-                    lines_out.insert(0, "   Code locations with this content:")
-            lines_out.append(
-                "   ⚠️ MINIMAL REWRITE: Replace ONLY the incorrect phrases with "
-                "source-verified text. Do NOT rephrase surrounding sentences that "
-                "are already correct. Preserve the slide's structure and density."
-            )
-            lines_out.append(
-                "   ⚠️ VISUAL STRUCTURE: If the incorrect text is inside a metric "
-                "card, table cell, or chart label, replace ONLY the value (number/"
-                "keyword). Do NOT convert visual elements into sentences. A metric "
-                "card with '7.03' should become a metric card with the correct "
-                "number, NOT a paragraph of text."
-            )
-            # Detect if the fabricated content is inside a metric card or data
-            # element — if so, force search_source before editing
-            is_data_element = False
-            for q in re.findall(r'"([^"]{3,})"', desc)[:4]:
-                for line in code_lines:
-                    if q.lower() in line.lower():
-                        # Check if the line is inside a metric card / table cell
-                        if any(kw in line.lower() for kw in [
-                            'metric', 'number', 'score', 'accuracy',
-                        ]) or re.search(r'>\s*[\d.]+\s*<', line):
-                            is_data_element = True
-                            break
-                if is_data_element:
-                    break
-            if is_data_element:
-                lines_out.append(
-                    "   🔍 MANDATORY: This appears to be a numeric data element "
-                    "(metric card / table cell). You MUST call search_source or "
-                    "lookup_table FIRST to find the correct number from the paper "
-                    "BEFORE making any edits. Replace the number with the correct "
-                    "number — do NOT replace it with descriptive text or labels."
-                )
-
-            # --- Generate ready-made search/replace for content fixes ---
-            # Find the exact code text that matches the problematic claim
-            # and pair it with the fix text, so the agent can copy-paste.
-            if fix and quoted:
-                fix_quoted = re.findall(r'"([^"]{8,})"', fix)
-                if fix_quoted:
-                    is_html_code = "<!DOCTYPE" in code or ("<html" in code and "<body" in code)
-                    # Try to find which code line contains the problematic text
-                    for q in quoted[:3]:
-                        q_lower = q.lower()
-                        for line_no, line in enumerate(code_lines, 1):
-                            if q_lower in line.lower():
-                                if is_html_code:
-                                    # For HTML: find text between tags
-                                    tag_match = re.search(
-                                        r'(>[^<]*?)(' + re.escape(q) + r')([^<]*<)',
-                                        line, re.IGNORECASE,
-                                    )
-                                    if tag_match:
-                                        old_text = q
-                                        lines_out.append(
-                                            f'   📋 READY-MADE FIX: '
-                                            f'{{"search": "{old_text[:100]}", '
-                                            f'"replace": "{fix_quoted[0][:100]}"}}'
-                                        )
-                                        break
-                                else:
-                                    # For pptx: find .text = "..." assignments
-                                    text_match = re.search(
-                                        r'(\.text\s*=\s*["\'])(.+?)(["\'])',
-                                        line,
-                                    )
-                                    if text_match:
-                                        old_text = text_match.group(2)
-                                        lines_out.append(
-                                            f'   📋 READY-MADE FIX: '
-                                            f'{{"search": "{old_text[:100]}", '
-                                            f'"replace": "{fix_quoted[0][:100]}"}}'
-                                        )
-                                        break
-                                    dict_match = re.search(
-                                        r'("text"\s*:\s*")([^"]+)(")',
-                                        line,
-                                    )
-                                    if dict_match:
-                                        old_text = dict_match.group(2)
-                                        lines_out.append(
-                                            f'   📋 READY-MADE FIX: '
-                                            f'{{"search": "{old_text[:100]}", '
-                                            f'"replace": "{fix_quoted[0][:100]}"}}'
-                                        )
-                                        break
-                        else:
-                            continue
-                        break  # only need one match
-
-            # --- Detect problematic data in chart/viz JSON or add_series ---
-            # Extract numbers from the issue description
-            desc_numbers = re.findall(r'\b(\d+\.?\d*)\b', desc)
-            desc_numbers = [n for n in desc_numbers if len(n) >= 2]
-
-            chart_data_lines = []
-            image_lines = []
-            is_html_code = "<!DOCTYPE" in code or ("<html" in code and "<body" in code)
-            for line_no, line in enumerate(code_lines, 1):
-                if is_html_code:
-                    # HTML: embedded images
-                    if '<img' in line:
-                        image_lines.append((line_no, line.strip()[:120]))
-                else:
-                    # pptx: Chart data in JSON strings or add_series calls
-                    if any(kw in line for kw in [
-                        'viz_data_str', 'add_series', '"values"',
-                        'chart_data.categories', '"categories"',
-                    ]):
-                        for n in desc_numbers[:5]:
-                            if n in line:
-                                chart_data_lines.append(
-                                    (line_no, line.strip()[:120])
-                                )
-                                break
-                    # Embedded images
-                    if 'add_picture' in line:
-                        image_lines.append((line_no, line.strip()[:120]))
-
-            if chart_data_lines:
-                lines_out.append(
-                    "   ⚠ FABRICATED DATA IN CHART — the problematic "
-                    "values appear in chart data, not just text! You MUST "
-                    "either (a) edit the chart data values, or (b) "
-                    "delete_shape the chart and replace it:"
-                )
-                for ln, lt in chart_data_lines:
-                    lines_out.append(f"   → Line {ln}: {lt}")
-
-            if image_lines and itype in {"fabricated", "numeric_error",
-                                         "untraceable"}:
-                # Find the variable name for delete_shape suggestion
-                pic_var_names = re.findall(
-                    r'(\w+)\s*=\s*slide\.shapes\.add_picture\(',
-                    code,
-                )
-                lines_out.append(
-                    "   ⚠ FABRICATED DATA IN EMBEDDED IMAGE — you CANNOT "
-                    "edit text inside a PNG. The fabricated values are "
-                    "rendered inside the image. You MUST:"
-                )
-                lines_out.append(
-                    "   1. Delete the image (and its container card/shape)"
-                )
-                lines_out.append(
-                    "   2. Add a text box with correct information from "
-                    "the source evidence"
-                )
-                for ln, lt in image_lines:
-                    lines_out.append(f"   → Line {ln}: {lt}")
-                if pic_var_names:
-                    lines_out.append(
-                        f'   → Suggested: {{"tool": "delete_shape", '
-                        f'"var_name": "{pic_var_names[0]}"}}'
-                    )
-                    # Also look for the container card
-                    for b in code_lines:
-                        if pic_var_names[0] in b:
-                            break
-
-        # --- Missing content: show where content COULD be added ---
-        elif itype in {"missing_evidence", "missing_point",
-                       "missing_conclusion", "missing_entity"}:
-            # Find text assignments to suggest insertion points
-            text_lines = []
-            for line_no, line in enumerate(code_lines, 1):
-                if '.text' in line and '=' in line:
-                    text_lines.append((line_no, line.strip()[:80]))
-            if text_lines:
-                lines_out.append(
-                    f"   Existing text locations (candidates for edit/insertion):"
-                )
-                for ln, lt in text_lines[-5:]:
-                    lines_out.append(f"   → Line {ln}: {lt}")
-            lines_out.append(
-                "   ⚠️ CONTENT PRESERVATION: When adding missing content, do NOT "
-                "remove or rephrase existing correct text. Insert the missing "
-                "information alongside what's already there. After edits, verify "
-                "all must-cover items from the repair brief are still present."
-            )
-
-        # --- Layout issues: identify shapes and their dimensions ---
-        elif itype in {
-            "density_imbalance", "text_visual_imbalance",
-            "layout_inappropriate", "text_overflow",
-        }:
-            # Extract shape mentions from description
-            desc_lower = desc.lower()
-
-            # Find shapes with their dimensions
-            shape_lines = []
-            for line_no, line in enumerate(code_lines, 1):
-                if any(kw in line for kw in [
-                    'add_textbox(', 'add_shape(', 'add_picture(',
-                ]):
-                    # Extract Inches values
-                    inches_vals = re.findall(r'Inches\(([\d.]+)\)', line)
-                    if len(inches_vals) >= 4:
-                        x, y, w, h = [float(v) for v in inches_vals[:4]]
-                        shape_lines.append(
-                            f"   → Line {line_no}: x={x:.1f} y={y:.1f} "
-                            f"w={w:.1f} h={h:.1f}  {line.strip()[:60]}"
-                        )
-            if shape_lines:
-                lines_out.append("   Shape dimensions in code:")
-                lines_out.extend(shape_lines[:8])
-
-        return "\n".join(lines_out) if lines_out else ""
+        from .spatial_helpers import annotate_issue_locations
+        return annotate_issue_locations(issue, code, code_lines)
 
     def _build_adjacent_context(
         self,

@@ -166,70 +166,136 @@ class DeckPlanner:
         evidence: EvidenceState,
         source_store=None,
     ) -> None:
-        """Post-LLM: validate figure assignments, fill gaps.
+        """Normalize figure references and assign one real asset per slide.
 
-        Checks both legacy linked_evidence_ids and new asset_ids for
-        figure assignment fallback.
+        SourceStore uses canonical A### IDs while legacy evidence and planner
+        responses may use extractor IDs such as ``fig_p7_img0``. Treat the
+        image stem and both ID namespaces as aliases, but always write a
+        canonical SourceStore ID when one is available.
         """
-        # Build valid figure ID set from evidence (legacy) or source_store (new)
-        all_fig_ids: set[str] = set()
+        aliases: dict[str, str] = {}
+        valid_ids: set[str] = set()
+
+        def add_alias(alias: str | None, canonical: str) -> None:
+            if not alias:
+                return
+            cleaned = str(alias).strip()
+            if cleaned:
+                aliases.setdefault(cleaned, canonical)
+                aliases.setdefault(cleaned.lower(), canonical)
+
         if source_store is not None:
-            all_fig_ids = {
-                a.asset_id for a in source_store.assets
-                if a.type == "figure"
-            }
-        if not all_fig_ids and evidence.figures:
-            all_fig_ids = {
-                f.figure_id
-                for f in evidence.figures
-                if f.figure_type not in ("page_screenshot", "table_screenshot")
-            }
+            for asset in source_store.assets:
+                if (
+                    asset.type != "figure"
+                    or not asset.image_path
+                    or not Path(asset.image_path).is_file()
+                ):
+                    continue
+                valid_ids.add(asset.asset_id)
+                add_alias(asset.asset_id, asset.asset_id)
+                add_alias(Path(asset.image_path).stem, asset.asset_id)
+
+        asset_by_path = {
+            str(Path(asset.image_path).resolve()): asset.asset_id
+            for asset in getattr(source_store, "assets", [])
+            if asset.asset_id in valid_ids and asset.image_path
+        }
+        for figure in evidence.figures:
+            if (
+                figure.figure_type in ("page_screenshot", "table_screenshot")
+                or not figure.image_path
+                or not Path(figure.image_path).is_file()
+            ):
+                continue
+            canonical = asset_by_path.get(str(Path(figure.image_path).resolve()))
+            if canonical is None:
+                stem_match = aliases.get(Path(figure.image_path).stem)
+                canonical = stem_match or figure.figure_id
+                if canonical == figure.figure_id:
+                    valid_ids.add(canonical)
+            add_alias(figure.figure_id, canonical)
+            add_alias(Path(figure.image_path).stem, canonical)
+
+        def canonicalize(candidate: str | None) -> str | None:
+            if not candidate:
+                return None
+            cleaned = str(candidate).strip()
+            canonical = aliases.get(cleaned) or aliases.get(cleaned.lower())
+            return canonical if canonical in valid_ids else None
+
+        # Normalize known aliases in asset_ids so source bundles use A### IDs.
+        for slide in blueprint.slides:
+            normalized_asset_ids: list[str] = []
+            for asset_id in slide.asset_ids:
+                normalized = canonicalize(asset_id) or asset_id
+                if normalized not in normalized_asset_ids:
+                    normalized_asset_ids.append(normalized)
+            slide.asset_ids = normalized_asset_ids
 
         used: set[str] = set()
 
         # Pass 1: validate LLM assignments (keep first, clear duplicates/invalid)
         for slide in blueprint.slides:
-            fid = slide.assigned_figure_id
-            if fid and fid in all_fig_ids and fid not in used:
+            original = slide.assigned_figure_id
+            fid = canonicalize(original)
+            if fid and fid not in used:
+                slide.assigned_figure_id = fid
                 used.add(fid)
-            elif fid:
+            elif original:
                 logger.warning(
                     "Slide %d: clearing invalid/duplicate assigned_figure_id '%s'",
-                    slide.slide_id, fid,
+                    slide.slide_id, original,
                 )
                 slide.assigned_figure_id = ""
 
-        # Pass 2: greedy fallback — check asset_ids first, then linked_evidence_ids
+        doc_block_assets: dict[str, list[str]] = {}
+        if source_store is not None:
+            doc_block_assets = {
+                block.doc_block_id: block.linked_asset_ids
+                for block in source_store.doc_block_plan.blocks
+            }
+
+        # Pass 2: use all planner evidence fields in decreasing specificity.
         for slide in blueprint.slides:
             if slide.assigned_figure_id:
                 continue
-            # Try new asset_ids first
-            for aid in slide.asset_ids:
-                if aid in all_fig_ids and aid not in used:
-                    slide.assigned_figure_id = aid
-                    used.add(aid)
-                    logger.info(
-                        "Slide %d: auto-assigned figure '%s' from asset_ids",
-                        slide.slide_id, aid,
-                    )
+            candidates = [
+                ("asset_ids", slide.asset_ids),
+                ("linked_evidence_ids", slide.linked_evidence_ids),
+                (
+                    "source_doc_block_ids",
+                    [
+                        asset_id
+                        for block_id in slide.source_doc_block_ids
+                        for asset_id in doc_block_assets.get(block_id, [])
+                    ],
+                ),
+            ]
+            for source_name, source_ids in candidates:
+                for source_id in source_ids:
+                    fid = canonicalize(source_id)
+                    if fid and fid not in used:
+                        slide.assigned_figure_id = fid
+                        used.add(fid)
+                        logger.info(
+                            "Slide %d: auto-assigned figure '%s' from %s",
+                            slide.slide_id, fid, source_name,
+                        )
+                        break
+                if slide.assigned_figure_id:
                     break
-            if slide.assigned_figure_id:
-                continue
-            # Fallback to legacy linked_evidence_ids
-            for eid in slide.linked_evidence_ids:
-                if eid.startswith("fig_") and eid in all_fig_ids and eid not in used:
-                    slide.assigned_figure_id = eid
-                    used.add(eid)
-                    logger.info(
-                        "Slide %d: auto-assigned figure '%s' from linked_evidence_ids",
-                        slide.slide_id, eid,
-                    )
-                    break
+
+        # Keep the typed asset field consistent for source-bundle creation.
+        for slide in blueprint.slides:
+            fid = slide.assigned_figure_id
+            if fid and fid not in slide.asset_ids:
+                slide.asset_ids.append(fid)
 
         assigned_count = sum(1 for s in blueprint.slides if s.assigned_figure_id)
         logger.info(
             "Figure assignment: %d/%d slides have assigned figures (%d available)",
-            assigned_count, len(blueprint.slides), len(all_fig_ids),
+            assigned_count, len(blueprint.slides), len(valid_ids),
         )
 
     def _build_planner_context(

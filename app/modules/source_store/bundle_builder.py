@@ -1,8 +1,22 @@
 """SlideSourceBundleBuilder — assemble per-slide evidence bundles."""
 
+import re
+
 from .models import (
     AtomicBlock, Asset, TableData, DocumentBlock, DocumentBlockPlan, SlideSourceBundle
 )
+
+_PAGE_HEADING_RE = re.compile(r'^\s*#{1,6}\s*Page\s+(\d+)\b', re.IGNORECASE)
+
+
+def _page_from_heading(text: str) -> int | None:
+    match = _PAGE_HEADING_RE.match(text or "")
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
 
 
 class SlideSourceBundleBuilder:
@@ -47,18 +61,27 @@ class SlideSourceBundleBuilder:
             # Build source text — include page numbers so codegen can cite correctly
             source_parts: list[str] = []
             total_chars = 0
-            current_page: int | None = None
+            current_context_page: int | None = None
+            emitted_page: int | None = None
             for bid in unique_atomic:
                 b = block_map.get(bid)
                 if b:
                     text = b.text
+                    heading_page = _page_from_heading(text)
+                    if heading_page is not None:
+                        current_context_page = heading_page
+                        if heading_page != emitted_page:
+                            emitted_page = heading_page
+                            source_parts.append(f"\n## Page {heading_page}")
+                        continue
+                    logical_page = current_context_page or b.page
                     if total_chars + len(text) > max_source_chars:
                         source_parts.append(f"[{bid}] [TRUNCATED]")
                         break
                     # Insert page header when page changes
-                    if b.page is not None and b.page != current_page:
-                        current_page = b.page
-                        source_parts.append(f"\n## Page {b.page}")
+                    if logical_page is not None and logical_page != emitted_page:
+                        emitted_page = logical_page
+                        source_parts.append(f"\n## Page {logical_page}")
                     source_parts.append(f"[{bid}] {text}")
                     total_chars += len(text)
 

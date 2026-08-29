@@ -93,10 +93,23 @@ class PlaywrightRenderBackend:
             prefix, path, suffix = m.group(1), m.group(2), m.group(3)
             if path.startswith(('file://', 'http://', 'https://', 'data:', '/')):
                 return m.group(0)
+            path_parts = Path(path).parts
+            if 'generated_assets' in path_parts:
+                asset_name = Path(path).name
+                asset_candidates = [
+                    output_path.parent / path,
+                    output_path.parent.parent / 'generated_assets' / asset_name,
+                    output_path.parent.parent.parent / 'generated_assets' / asset_name,
+                ]
+                for candidate in sorted(Path(cwd).glob(f'runs/**/generated_assets/{asset_name}')):
+                    asset_candidates.append(candidate)
+                for abs_path in asset_candidates:
+                    if abs_path.exists():
+                        return f'{prefix}file://{abs_path.resolve()}{suffix}'
             for root in _search_roots:
                 abs_path = os.path.join(root, path)
                 if os.path.exists(abs_path):
-                    return f'{prefix}file://{abs_path}{suffix}'
+                    return f'{prefix}file://{Path(abs_path).resolve()}{suffix}'
             return m.group(0)
 
         html_content = re.sub(

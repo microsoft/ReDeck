@@ -1,0 +1,73 @@
+<!--
+  METHOD SLIDE — HTML Skill Pattern
+  Structure: Left pipeline/process visual (60-68%) + Right key points sidebar (32-40%)
+
+  ADAPT: Replace ALL colors with your palette. Replace ALL data with actual evidence.
+
+  VISUAL PRIORITY (choose ONE for .left):
+  1. ★ SVG Flow Diagram — PREFERRED when method has sequential stages (3-5 steps)
+  2. Paper figure — when evidence includes a provided figure
+  3. Card-based pipeline — fallback when SVG is inappropriate
+
+  DENSITY RULES:
+  - Stage labels: title only (max 3 words per stage)
+  - Max 4 stages in the flow diagram
+  - Sidebar: max 2 cards. 1 hero metric + 1 supporting card (2 bullets max)
+  - Card descriptions: noun phrases, NOT full sentences
+-->
+
+<style>
+  /* body zone: 720 - header(78) - bottom_bar(72) = 560px (with safety margin) */
+  .body { display:flex; gap:20px; height:560px; padding:20px 28px; overflow:hidden; }
+  .left { width:64%; overflow:hidden; display:flex; align-items:center; justify-content:center; }
+  .right { width:36%; display:flex; flex-direction:column; gap:14px; overflow:hidden; }
+
+  /* — Sidebar cards — */
+  .key-point-card {
+    background:PRIMARY_DARK; border-radius:10px; padding:16px;
+    color:#fff;
+  }
+  .key-point-card h4 { font-size:11px; text-transform:uppercase; opacity:0.8; margin:0 0 8px; }
+  .key-point-card .value { font-size:14px; line-height:1.5; }
+
+  .detail-card {
+    background:LIGHT_BG; border-radius:10px; padding:14px 16px;
+    flex:1; overflow:hidden;
+  }
+  .detail-card h4 { font-size:11px; text-transform:uppercase; color:PRIMARY_MID; margin:0 0 8px; }
+  .detail-card li { font-size:11px; line-height:1.4; color:BODY_TEXT; margin-bottom:2px; }
+</style>
+
+<!--
+  ★ PREFERRED: SVG FLOW DIAGRAM in .left
+  Use this when method has 3-5 sequential stages.
+  Boxes should be LARGE (150×110px min), connected by arrows.
+
+  Template structure:
+  <svg width="100%" height="460" viewBox="0 0 700 460">
+    <defs>
+      <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <path d="M0,0 L8,3 L0,6" fill="none" stroke="PRIMARY_MID" stroke-width="1.5"/>
+      </marker>
+    </defs>
+    <!-- Stage 1 box -->
+    <rect x="10" y="50" width="160" height="110" rx="10" fill="PRIMARY_DARK"/>
+    <text x="90" y="95" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">Stage 1</text>
+    <text x="90" y="120" text-anchor="middle" fill="#fff" font-size="11" opacity="0.8">short label</text>
+    <!-- Arrow -->
+    <line x1="170" y1="105" x2="210" y2="105" stroke="PRIMARY_MID" stroke-width="2.5" marker-end="url(#arr)"/>
+    <!-- Stage 2 box... -->
+  </svg>
+
+  RULES for SVG flow:
+  - Alternate PRIMARY_DARK and PRIMARY_MID fills for visual rhythm
+  - Each box: bold title (14px) + 1-line label (11px) — max 5 words per box
+  - Arrows between stages: stroke-width 2.5, marker-end
+  - For L-shaped flows: use vertical arrows to go to second row
+  - Total SVG height: 460px max (fits in 560px body with padding)
+
+  WHEN SLIDE HAS A FIGURE:
+  - .left = figure container ONLY (use image sizing formula)
+  - .right = 1 key-point card + 1 detail card
+  - Do NOT also add pipeline stages around the figure
+-->

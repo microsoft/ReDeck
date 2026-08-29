@@ -37,6 +37,7 @@ class CaseCreator:
         cases_dir: str | Path = "cases",
         deck_type: str = "conference_talk",
         audience: str = "researchers",
+        source_kind: str = "paper",
         page_budget: list[int] | None = None,
         max_bullets_per_slide: int = 5,
         preferred_visual_forms: list[str] | None = None,
@@ -49,6 +50,8 @@ class CaseCreator:
             cases_dir: Base directory for all cases.
             deck_type: Type of presentation.
             audience: Target audience description.
+            source_kind: Source semantics used in the generated task brief.
+                Use "document" for reports, filings, and existing presentations.
             page_budget: [min_slides, max_slides]. Default [8, 12].
             max_bullets_per_slide: Maximum bullet points per slide.
             preferred_visual_forms: Preferred visual forms.
@@ -230,7 +233,7 @@ class CaseCreator:
         # === Step 3: Generate task_brief.md ===
         task_brief = self._generate_task_brief(
             metadata, figures, tables,
-            deck_type, audience, page_budget,
+            deck_type, audience, page_budget, source_kind,
         )
         task_brief_path = case_dir / "task_brief.md"
         task_brief_path.write_text(task_brief, encoding="utf-8")
@@ -239,7 +242,7 @@ class CaseCreator:
         # === Step 4: Generate constraints.json ===
         constraints = self._generate_constraints(
             case_id, deck_type, audience, page_budget,
-            max_bullets_per_slide, preferred_visual_forms,
+            max_bullets_per_slide, preferred_visual_forms, source_kind,
         )
         constraints_path = case_dir / "constraints.json"
         constraints_path.write_text(
@@ -320,6 +323,7 @@ class CaseCreator:
         deck_type: str,
         audience: str,
         page_budget: list[int],
+        source_kind: str = "paper",
     ) -> str:
         """Generate task_brief.md from metadata and extracted assets."""
         title = metadata.get("title", "Untitled Paper")
@@ -334,7 +338,7 @@ class CaseCreator:
             if content_figures:
                 figures_info = (
                     f"\n## Available Figures\n"
-                    f"{len(content_figures)} figures extracted from the paper. "
+                    f"{len(content_figures)} figures extracted from the source. "
                     f"Use these when visual content is needed for slides.\n"
                 )
                 for fig in content_figures[:10]:
@@ -348,60 +352,93 @@ class CaseCreator:
         if tables:
             tables_info = (
                 f"\n## Available Tables\n"
-                f"{len(tables)} tables extracted from the paper.\n"
+                f"{len(tables)} tables extracted from the source.\n"
             )
             for tbl in tables[:10]:
                 caption_text = f" - {tbl.caption}" if tbl.caption else ""
                 tables_info += f"- {tbl.table_id} ({tbl.row_count} rows){caption_text}\n"
 
+        if source_kind == "paper":
+            source_label = "paper"
+            info_heading = "Paper Information"
+            creator_label = "Authors"
+            overview_heading = "Abstract"
+            overview_fallback = "See source paper for abstract."
+            coverage_areas = """- Problem context and motivation (Introduction, Background)
+- Technical approach and methodology (core method sections)
+- Key experimental results with quantitative evidence
+- Comparison with baselines or prior work
+- Limitations, conclusions, and future directions"""
+            must_cover = """- Paper's main contribution and key results
+- Methodology overview with key design choices
+- Key experimental findings with quantitative results
+- Comparison with prior work / baselines
+- Limitations acknowledged by the authors
+- Conclusions and implications"""
+            must_avoid = """- Unsupported claims not in the original paper
+- Marketing language
+- Omitting negative results or limitations
+- Plagiarizing text verbatim without paraphrasing"""
+        else:
+            source_label = "source document"
+            info_heading = "Source Information"
+            creator_label = "Publisher / Author"
+            overview_heading = "Source Overview"
+            overview_fallback = "Use the complete source document as the evidence base."
+            coverage_areas = """- Executive context, purpose, and the document's central message
+- Key claims, operating themes, or strategic priorities
+- Quantitative evidence, trends, and meaningful comparisons
+- Material implications, risks, qualifications, or constraints
+- Conclusions and actionable takeaways supported by the source"""
+            must_cover = """- The source document's central message and intended context
+- Its most decision-relevant themes and supporting evidence
+- Material quantitative results with their dates, units, and comparison basis
+- Important qualifications, risks, or limitations stated in the source
+- Conclusions and implications appropriate for the target audience"""
+            must_avoid = """- Claims, causal interpretations, or recommendations unsupported by the source
+- Presenting forward-looking statements as established outcomes
+- Omitting material qualifications needed to interpret a number or claim
+- Copying dense source prose when a faithful visual summary is possible"""
+
+        deck_label = deck_type.replace("_", " ")
+        article = "an" if deck_label[:1].lower() in "aeiou" else "a"
+
         brief = f"""# Task Brief: {title}
 
 ## Objective
-Create a {deck_type.replace('_', ' ')} presentation summarizing the paper "{title}" for a {audience} audience.
+Create {article} {deck_label} presentation summarizing the {source_label} "{title}" for a {audience} audience.
 
-## Paper Information
+## {info_heading}
 - **Title**: {title}
-- **Authors**: {author if author else 'See paper'}
+- **{creator_label}**: {author if author else 'See source'}
 - **Total Pages**: {total_pages}
 
-## Abstract
-{abstract if abstract else 'See source paper for abstract.'}
+## {overview_heading}
+{abstract if abstract else overview_fallback}
 
 ## Audience
 {audience}
 
 ## Required Coverage Areas
 The deck should substantively cover these thematic areas (not necessarily one slide per area):
-- Problem context and motivation (Introduction, Background)
-- Technical approach and methodology (core method sections)
-- Key experimental results with quantitative evidence
-- Comparison with baselines or prior work
-- Limitations, conclusions, and future directions
+{coverage_areas}
 
 Note: The deck has a limited slide budget. Sections may be merged or covered
 within broader thematic slides. Evaluate substantive coverage of each area,
 not 1:1 section-to-slide mapping.
 
 ## Must-Cover Points
-- Paper's main contribution and key results
-- Methodology overview with key design choices
-- Key experimental findings with quantitative results
-- Comparison with prior work / baselines
-- Limitations acknowledged by the authors
-- Conclusions and implications
+{must_cover}
 
 ## Must-Avoid
-- Unsupported claims not in the original paper
-- Marketing language
-- Omitting negative results or limitations
-- Plagiarizing text verbatim without paraphrasing
+{must_avoid}
 
 ## Page Budget
 {page_budget[0]}-{page_budget[1]} slides
 {figures_info}{tables_info}
 ## Constraints
 - Editable PPTX output required
-- Use figures from the paper where appropriate
+- Use figures from the source where appropriate
 - No more than 5 bullet points per slide
 - Include slide numbers
 """
@@ -415,12 +452,14 @@ not 1:1 section-to-slide mapping.
         page_budget: list[int],
         max_bullets_per_slide: int,
         preferred_visual_forms: list[str],
+        source_kind: str = "paper",
     ) -> dict:
         """Generate constraints.json."""
         return {
             "case_id": case_id,
             "deck_type": deck_type,
             "audience": audience,
+            "source_kind": source_kind,
             "page_budget": page_budget,
             "editable_required": True,
             "max_bullets_per_slide": max_bullets_per_slide,

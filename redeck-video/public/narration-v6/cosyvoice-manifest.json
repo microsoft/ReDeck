@@ -1,0 +1,186 @@
+{
+  "engine": "Fun-CosyVoice3-0.5B",
+  "engine_license": "Apache-2.0",
+  "reference": {
+    "type": "synthetic_reference_voice",
+    "provider": "Microsoft Edge Neural TTS",
+    "voice": "en-US-AvaMultilingualNeural",
+    "rate": "-10%",
+    "text": "Clear narration at a steady pace.",
+    "disclosure": "AI-generated reference audio; no real person's voice is imitated."
+  },
+  "speed": 1.12,
+  "seed": 20260821,
+  "sample_rate": 24000,
+  "normalization": {
+    "active_rms_dbfs": -20,
+    "peak_limit_dbfs": -2
+  },
+  "cues": [
+    {
+      "id": "v6-00-title",
+      "text": "Re Deck is a research framework for slide generation and refinement.",
+      "mode": "instruct2",
+      "instruction": "Speak as a Microsoft Research presenter: measured, precise, accessible, and quietly confident. Avoid promotional or theatrical delivery.",
+      "duration": 4.2,
+      "window": 4.6,
+      "margin": 0.4,
+      "rms_dbfs": -20.66,
+      "peak_dbfs": -3.72
+    },
+    {
+      "id": "v6-01-complexity",
+      "text": "Slides are complex visual artifacts.",
+      "mode": "instruct2",
+      "instruction": "Introduce the complexity of slides in a measured, accessible research presentation tone.",
+      "duration": 2.2,
+      "window": 3.2,
+      "margin": 1.0,
+      "rms_dbfs": -20.66,
+      "peak_dbfs": -3.28
+    },
+    {
+      "id": "v6-02-first-draft",
+      "text": "AI drafts have many issues, so refinement is essential.",
+      "mode": "instruct2",
+      "instruction": "Continue smoothly, with restrained emphasis on why refinement is necessary.",
+      "duration": 3.1,
+      "window": 3.75,
+      "margin": 0.65,
+      "rms_dbfs": -20.67,
+      "peak_dbfs": -2.1
+    },
+    {
+      "id": "v6-03-turn-level",
+      "text": "If observations are too late or too sparse, the spatial effect of each edit remains unknown.",
+      "mode": "instruct2",
+      "instruction": "Explain the motivation analytically, emphasizing observation timing, frequency, and spatial attribution rather than implementation details.",
+      "duration": 5.119,
+      "window": 7.5,
+      "margin": 2.381,
+      "rms_dbfs": -20.71,
+      "peak_dbfs": -2.73
+    },
+    {
+      "id": "v6-05-workspace",
+      "text": "Re Deck observes the slide after every atomic edit.",
+      "mode": "instruct2",
+      "instruction": "Introduce the method principle with calm confidence, stressing observation after each edit.",
+      "duration": 3.301,
+      "window": 4.7,
+      "margin": 1.399,
+      "rms_dbfs": -20.86,
+      "peak_dbfs": -2.79
+    },
+    {
+      "id": "v6-06-bounded-edit",
+      "text": "Each observation reveals how that edit changed the real spatial state.",
+      "mode": "instruct2",
+      "instruction": "Explain the insight precisely but accessibly, with emphasis on the edit's observable spatial consequence.",
+      "duration": 3.64,
+      "window": 4.75,
+      "margin": 1.11,
+      "rms_dbfs": -20.49,
+      "peak_dbfs": -4.86
+    },
+    {
+      "id": "v6-07-measure",
+      "text": "That evidence grounds the next action.",
+      "mode": "instruct2",
+      "instruction": "Use a concise connective delivery, emphasizing evidence rather than process.",
+      "duration": 1.82,
+      "window": 4.0,
+      "margin": 2.18,
+      "rms_dbfs": -20.51,
+      "peak_dbfs": -3.37
+    },
+    {
+      "id": "v6-08-next-action",
+      "text": "The agent can keep, revise, or roll back the edit, then validate before submission.",
+      "mode": "instruct2",
+      "instruction": "Explain the evidence-based choices and final validation rule with measured clarity.",
+      "duration": 5.38,
+      "window": 5.7,
+      "margin": 0.32,
+      "rms_dbfs": -20.91,
+      "peak_dbfs": -2.52
+    },
+    {
+      "id": "v6-09-case-one",
+      "text": "The case studies show complete repair traces from accepted runs.",
+      "mode": "instruct2",
+      "instruction": "Introduce the case studies as evidence from real accepted runs, without promotional emphasis.",
+      "duration": 3.2,
+      "window": 6.0,
+      "margin": 2.8,
+      "rms_dbfs": -20.48,
+      "peak_dbfs": -2.61
+    },
+    {
+      "id": "v6-10-case-two",
+      "text": "When a regression appears, the agent returns to the last valid state and tries another repair.",
+      "mode": "instruct2",
+      "instruction": "Explain rollback as evidence-guided recovery in an analytical tone.",
+      "duration": 5.199,
+      "window": 6.0,
+      "margin": 0.801,
+      "rms_dbfs": -20.55,
+      "peak_dbfs": -3.29
+    },
+    {
+      "id": "v6-11-case-three",
+      "text": "Step-level observations handle local spatial effects; the turn-level critic tracks broader issues.",
+      "mode": "instruct2",
+      "instruction": "Explain the separated responsibilities of the two feedback levels clearly and without jargon-heavy delivery.",
+      "duration": 5.56,
+      "window": 6.0,
+      "margin": 0.44,
+      "rms_dbfs": -20.56,
+      "peak_dbfs": -3.21
+    },
+    {
+      "id": "v6-12-case-summary",
+      "text": "Together, they improve layout while preserving the source meaning.",
+      "mode": "instruct2",
+      "instruction": "Conclude the method with calm certainty, emphasizing complementarity.",
+      "duration": 3.7,
+      "window": 5.5,
+      "margin": 1.8,
+      "rms_dbfs": -20.62,
+      "peak_dbfs": -4.6
+    },
+    {
+      "id": "v6-13-results",
+      "text": "Deck Quiz scores fidelity, spatial quality, aesthetics, and design.",
+      "mode": "instruct2",
+      "instruction": "Introduce component-level evaluation formally and clearly.",
+      "duration": 4.28,
+      "window": 4.8,
+      "margin": 0.52,
+      "rms_dbfs": -21.0,
+      "peak_dbfs": -2.72
+    },
+    {
+      "id": "v6-14-ablation",
+      "text": "Re Deck improves all four. Local and global feedback work together.",
+      "mode": "instruct2",
+      "instruction": "Report the result and ablation insight with measured confidence, not excitement.",
+      "duration": 4.42,
+      "window": 5.6,
+      "margin": 1.18,
+      "rms_dbfs": -20.73,
+      "peak_dbfs": -3.5
+    },
+    {
+      "id": "v6-15-cta",
+      "text": "Re Deck is open source, with code, benchmarks, and repair examples.",
+      "mode": "instruct2",
+      "instruction": "Close as a research project invitation: restrained, professional, and informative.",
+      "duration": 4.06,
+      "window": 4.5,
+      "margin": 0.44,
+      "rms_dbfs": -21.15,
+      "peak_dbfs": -2.0
+    }
+  ]
+}

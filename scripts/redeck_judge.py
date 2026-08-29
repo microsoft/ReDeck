@@ -163,7 +163,7 @@ def run_spatial_only(slide_codes: dict[int, str]) -> list[dict]:
 def run_full_evaluation(
     slide_codes: dict[int, str],
     paper_text: str = "",
-    model: str = "gpt-4o",
+    model: str = "gpt-5.4",
 ) -> list[Issue]:
     """Run full evaluation pipeline (spatial + all LLM judges)."""
     from app.orchestrator.eval_router import EvalRouter
@@ -214,7 +214,7 @@ def main():
     parser.add_argument("--paper", help="Source paper markdown file (for content judges)")
     parser.add_argument("--spatial-only", action="store_true",
                         help="Run spatial checks only (no LLM, fast)")
-    parser.add_argument("--model", default="gpt-4o")
+    parser.add_argument("--model", default="gpt-5.4")
     parser.add_argument("--json", action="store_true", help="JSON output")
     parser.add_argument("--output", "-o", help="Output file for issues")
     args = parser.parse_args()

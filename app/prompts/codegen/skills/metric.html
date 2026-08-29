@@ -1,0 +1,53 @@
+<!--
+  SKILL: Key Metric Highlight
+  Use when: a slide has ONE standout number/result to emphasize
+
+  KEY RULES:
+  - The metric is rendered as large bold text — NOT inside a dark card
+  - It sits on the white background or within a subtle light-tinted area
+  - Context (what it means) goes as small text below it
+  - Maximum 1 hero metric per slide
+-->
+
+<style>
+  .hero-metric {
+    /* Option A: standalone on white */
+    text-align: left; /* or center, depending on layout */
+    margin: 16px 0;
+  }
+  .hero-metric .label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+    color: PRIMARY_MID; margin-bottom: 4px;
+  }
+  .hero-metric .value {
+    font-size: 48px; font-weight: 800; color: PRIMARY_DARK;
+    line-height: 1.1;
+  }
+  .hero-metric .context {
+    font-size: 13px; color: #555; margin-top: 6px;
+    line-height: 1.4;
+  }
+
+  /* Option B: subtle highlight box (use sparingly) */
+  .metric-highlight {
+    background: #f8f9fa; /* near-white, NOT dark/saturated */
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 18px 22px;
+    display: inline-block;
+  }
+</style>
+
+<!--
+  WRONG (dashboard style — AVOID):
+    Dark card with white text, 200px×200px colored square with number inside
+
+  RIGHT (presentation style — USE):
+    Large colored number (48-56px, PRIMARY_DARK) sitting directly on white,
+    with a small label above and context below
+
+  PLACEMENT:
+  - In a sidebar: metric sits in the right 30% with text annotations
+  - Inline: metric integrated into the content flow
+  - NEVER: isolated in a centered dark box taking 30% of the slide
+-->

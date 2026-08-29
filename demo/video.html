@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ReDeck Demo Video</title>
+  <title>ReDeck Research Overview</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@600;700&family=Outfit:wght@100..900&display=swap" rel="stylesheet">
@@ -30,32 +30,18 @@
 
   <main class="video-stage">
     <div class="video-heading">
-      <p class="tech-kicker">Demo Reel</p>
-      <h1>ReDeck in 60 Seconds</h1>
-      <p class="video-intro">See how turn-level guidance, per-edit render observations, and submission-level validation work together.</p>
+      <h1>Research Overview</h1>
     </div>
     <div class="video-frame-wrap">
-      <video id="demo-video" controls preload="metadata" poster="assets/demo-reel-poster.png">
-        <source src="assets/demo-reel.mp4" type="video/mp4">
+      <video id="demo-video" controls preload="metadata" poster="assets/redeck-demo-poster.png">
+        <source src="assets/redeck-demo.mp4" type="video/mp4">
         Your browser does not support the video tag.
       </video>
-      <audio id="demo-music" preload="auto" src="assets/bassa-redeck-60s.mp3"></audio>
-    </div>
-    <p class="music-credit">
-      Music:
-      <a href="https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1100840" target="_blank" rel="noopener">&ldquo;Bassa Island Game Loop&rdquo; by Kevin MacLeod</a>
-      &middot;
-      <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>
-      &middot; edited for this demo
-    </p>
-    <div class="video-actions">
-      <a class="btn btn-ghost" href="index.html">Home</a>
-      <a class="btn btn-ghost" href="tech.html">Technical Details</a>
     </div>
   </main>
 
   <footer class="footer">
-    <p>Copyright &copy; 2026 Microsoft Research</p>
+    <p>&copy; 2026 Microsoft Research &middot; Music: <a href="https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1600022" target="_blank" rel="noopener">&ldquo;Inspired&rdquo; by Kevin MacLeod</a> (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>)</p>
   </footer>
 
   <script>
@@ -63,6 +49,5 @@
       document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 20);
     });
   </script>
-  <script src="video-player.js"></script>
 </body>
 </html>

@@ -26,16 +26,23 @@ from ...schemas.issue_types import (
     IssueTypeDef,
     SpatialThresholds,
     VALID_ISSUE_TYPES,
+    get_atomic_check_details,
 )
 from ...utils.io_utils import read_text
 from ...utils.json_utils import strip_code_fences
-from ...utils.image_ops import image_to_base64
+from ...utils.image_ops import (
+    get_image_dimensions,
+    image_regions_to_base64,
+    image_to_base64,
+)
+from ...utils.issue_identity import issues_share_target, stable_issue_id
 
 logger = logging.getLogger(__name__)
 
 _PROBES_DIR = Path(__file__).parent.parent.parent / "prompts" / "probes"
 _SHARED_DIR = _PROBES_DIR / "_shared"
 _GLOBAL_SHARED_DIR = Path(__file__).parent.parent.parent / "prompts" / "shared"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class ProbeRunner:
@@ -64,6 +71,9 @@ class ProbeRunner:
         source_store: Any = None,
         previous_issues: list[Issue] | None = None,
         turn_index: int = 0,
+        system_prompt_suffix: str = "",
+        prompt_variant: str = "",
+        selected_check_ids: list[str] | None = None,
     ) -> list[Issue]:
         """Run a single probe and return issues.
 
@@ -80,6 +90,8 @@ class ProbeRunner:
             source_store: SourceStore for V2 evidence bundling
             previous_issues: issues from prior turn for triage
             turn_index: current repair turn
+            selected_check_ids: atomic conditions that constrain fresh discovery;
+                previous-issue triage still uses the complete probe rubric
 
         Returns:
             List of Issue objects found by this probe.
@@ -90,6 +102,9 @@ class ProbeRunner:
             return []
 
         system_prompt = self._build_system_prompt(probe_def)
+        if system_prompt_suffix:
+            system_prompt = f"{system_prompt}\n\n{system_prompt_suffix}"
+        module_suffix = f"_{prompt_variant}" if prompt_variant else ""
 
         # --- STEP 1: Triage previous issues of this probe's type ---
         triaged_issues: list[Issue] = []
@@ -105,6 +120,15 @@ class ProbeRunner:
                     source_summary, blueprint, evidence, source_store,
                     turn_index,
                 )
+
+        selected_focus = self._format_selected_check_focus(
+            probe_id,
+            selected_check_ids or [],
+        )
+        fresh_system_prompt = (
+            f"{system_prompt}\n\n{selected_focus}"
+            if selected_focus else system_prompt
+        )
 
         # --- STEP 2: Fresh evaluation ---
         user_content = self._build_user_content(
@@ -129,29 +153,31 @@ class ProbeRunner:
         try:
             if probe_def.requires_vision and png_paths:
                 image_urls = self._encode_slide_images(
-                    slide_ids, extractions, png_paths
+                    slide_ids, extractions, png_paths,
+                    probe_id=probe_id,
+                    spatial_signals=spatial_signals,
                 )
                 text_part = user_content if isinstance(user_content, str) else \
                     "\n".join(c["text"] for c in user_content if c.get("type") == "text")
                 raw = self.llm.call_vision(
-                    system_prompt=system_prompt,
+                    system_prompt=fresh_system_prompt,
                     text_content=text_part,
                     image_urls=image_urls,
                     model=model,
-                    module_name=f"probe_{probe_id}",
-                    prompt_version=f"probe.{probe_id}.v1",
-                    max_tokens=4096,
+                    module_name=f"probe_{probe_id}{module_suffix}",
+                    prompt_version=f"probe.{probe_id}{module_suffix}.v1",
+                    max_tokens=8192 if probe_id == "B20" else 4096,
                     temperature=0.2,
                 )
             else:
                 text_part = user_content if isinstance(user_content, str) else \
                     "\n".join(c["text"] for c in user_content if c.get("type") == "text")
                 raw = self.llm.call_text(
-                    system_prompt=system_prompt,
+                    system_prompt=fresh_system_prompt,
                     user_content=text_part,
                     model=model,
-                    module_name=f"probe_{probe_id}",
-                    prompt_version=f"probe.{probe_id}.v1",
+                    module_name=f"probe_{probe_id}{module_suffix}",
+                    prompt_version=f"probe.{probe_id}{module_suffix}.v1",
                     max_tokens=4096,
                     temperature=0.2,
                 )
@@ -167,6 +193,30 @@ class ProbeRunner:
             new_issues = self._dedup_new_against_triaged(new_issues, triaged_issues)
 
         return triaged_issues + new_issues
+
+    @staticmethod
+    def _format_selected_check_focus(
+        probe_id: str,
+        selected_check_ids: list[str],
+    ) -> str:
+        """Constrain fresh findings to the atomic checks selected by the planner."""
+        details = get_atomic_check_details()
+        selected = [
+            (check_id, details[check_id]["text"])
+            for check_id in selected_check_ids
+            if check_id in details and details[check_id]["probe_id"] == probe_id
+        ]
+        if not selected:
+            return ""
+        lines = [
+            "## Selected atomic checks for this invocation",
+            "For fresh issue discovery, evaluate only the conditions below. "
+            "Do not report other new failures from the same probe family. "
+            "The full rubric remains available only for definitions, boundaries, "
+            "and severity calibration.",
+        ]
+        lines.extend(f"- {check_id}: {text}" for check_id, text in selected)
+        return "\n".join(lines)
 
     # ================================================================
     # PROMPT ASSEMBLY
@@ -248,6 +298,74 @@ class ProbeRunner:
                 source_summary, blueprint, evidence, source_store,
             )
 
+    @staticmethod
+    def _resolve_image_path(image_path: str) -> Path | None:
+        if not image_path:
+            return None
+        raw = Path(image_path)
+        candidates = [raw] if raw.is_absolute() else [Path.cwd() / raw, _REPO_ROOT / raw]
+        for candidate in candidates:
+            try:
+                if candidate.is_file():
+                    return candidate
+            except OSError:
+                continue
+        return None
+
+    @classmethod
+    def _build_object_inventory(cls, ext: SlideExtraction) -> list[dict[str, Any]]:
+        """Return compact per-object affordances for visual probes.
+
+        The rendered image is still the primary evidence. This inventory gives
+        the judge enough structure to avoid impossible fix plans, especially for
+        indivisible embedded image assets whose internals cannot be rearranged.
+        """
+        inventory: list[dict[str, Any]] = []
+        for obj in ext.objects[:80]:
+            entry: dict[str, Any] = {
+                "object_id": obj.object_id,
+                "object_type": obj.object_type,
+                "shape_name": obj.shape_name,
+                "bbox_emu": obj.bbox_emu,
+                "z_order": obj.z_order,
+            }
+            if obj.text_content:
+                preview = re.sub(r"\s+", " ", obj.text_content).strip()
+                entry["text_preview"] = preview[:180]
+            if obj.has_image:
+                entry.update({
+                    "has_image": True,
+                    "image_path": obj.image_path,
+                    "embedded_image_asset": True,
+                    "internal_content_editable": False,
+                    "image_affordance": (
+                        "The whole image can be moved, resized, cropped, or "
+                        "recomposed from source; internal labels, panels, marks, "
+                        "and curves cannot be rearranged by normal layout repair."
+                    ),
+                })
+                image_file = cls._resolve_image_path(obj.image_path)
+                if image_file:
+                    try:
+                        width_px, height_px = get_image_dimensions(image_file)
+                    except Exception:
+                        width_px = height_px = 0
+                    if width_px > 0 and height_px > 0:
+                        aspect = width_px / height_px
+                        entry.update({
+                            "natural_width_px": width_px,
+                            "natural_height_px": height_px,
+                            "natural_aspect_ratio": round(aspect, 3),
+                        })
+                        if aspect >= 2.0:
+                            entry["image_shape_note"] = (
+                                "wide_shallow_image: adding height to the outer "
+                                "slot may create letterbox or overlap instead of "
+                                "making the figure content more useful."
+                            )
+            inventory.append(entry)
+        return inventory
+
     def _build_visual_content(
         self,
         probe_def: IssueTypeDef,
@@ -281,6 +399,7 @@ class ProbeRunner:
                 "object_count": ext.total_objects,
                 "total_words": total_words,
                 "has_image": has_image,
+                "object_inventory": self._build_object_inventory(ext),
             }
             if min_font < 999:
                 info["min_font_pt"] = round(min_font, 1)
@@ -306,6 +425,24 @@ class ProbeRunner:
                     spatial_ctx[sid] = _format_spatial_signal(state)
             if spatial_ctx:
                 data["spatial_signals"] = spatial_ctx
+                if probe_def.probe_id == "B20":
+                    data["inspection_image_order"] = [
+                        {
+                            "slide_id": sid,
+                            "images": ["full_slide"] + [
+                                label
+                                for i, _ in enumerate(
+                                    getattr(spatial_signals.get(sid), "svg_regions", [])
+                                )
+                                for label in (
+                                    f"svg_region_{i + 1}_enlarged",
+                                    f"svg_region_{i + 1}_detail_tiles_top_left_top_right_bottom_left_bottom_right",
+                                )
+                            ],
+                        }
+                        for sid in slide_ids
+                        if spatial_signals.get(sid)
+                    ]
 
         return json.dumps(data, indent=2, ensure_ascii=False)
 
@@ -351,6 +488,22 @@ class ProbeRunner:
             "scope_slides": slide_ids,
             "slide_content": claims,
         }
+        if probe_def.probe_id in {"C03", "C04"}:
+            # Coverage is a deck-level property even when the repair target is
+            # local. Give the probe enough context to avoid demanding that a
+            # metric, example, or caveat be repeated on every related slide.
+            data["deck_context"] = [
+                {
+                    "slide_id": ext.slide_id,
+                    "title": ext.title,
+                    "content": [
+                        obj.text_content.strip()
+                        for obj in ext.objects
+                        if obj.text_content.strip()
+                    ],
+                }
+                for ext in extractions
+            ]
         if probe_def.requires_source:
             data["source_materials"] = source_summary
 
@@ -431,6 +584,15 @@ class ProbeRunner:
         triage_prompt = (
             base_content + prev_ctx
             + "\n\n## IMPORTANT — Verdict-Only Mode\n"
+            "Treat each previous issue as a hypothesis to re-check against the "
+            "CURRENT rendered pixels, not as evidence that the defect persists. "
+            "A spatial candidate or bounding-box intersection is only an attention "
+            "hint and cannot by itself justify PERSISTED: paint order, masking, "
+            "clipping, and transparent whitespace can make geometric boxes overlap "
+            "without any visible interference. Inspect the named target in the "
+            "current full-slide image and crop. If the reported visual symptom is "
+            "no longer visible, return RESOLVED even when metadata still lists a "
+            "candidate.\n"
             "Return ONLY `previous_issue_verdicts`. Do NOT report new issues.\n"
             f"You MUST return a verdict for ALL {len(open_issues)} issues.\n"
             '```json\n{"previous_issue_verdicts": [...]}\n```'
@@ -440,7 +602,11 @@ class ProbeRunner:
 
         try:
             if probe_def.requires_vision and png_paths:
-                image_urls = self._encode_slide_images(slide_ids, extractions, png_paths)
+                image_urls = self._encode_slide_images(
+                    slide_ids, extractions, png_paths,
+                    probe_id=probe_def.probe_id,
+                    spatial_signals=spatial_signals,
+                )
                 raw = self.llm.call_vision(
                     system_prompt=system_prompt,
                     text_content=triage_prompt,
@@ -480,27 +646,49 @@ class ProbeRunner:
             vdata = verdict_map.get(iss.issue_id)
             if vdata:
                 verdict_str = vdata.get("verdict", "PERSISTED").upper()
+                already_triaged = getattr(iss, "last_triaged_turn", None) == turn_index
                 if verdict_str == "RESOLVED":
                     iss.status = IssueStatus.RESOLVED
                     iss.resolved_at_turn = turn_index
                     iss.verdict = Verdict.PASS
                     iss.persisted_turns = 0
                 elif verdict_str == "WORSENED":
+                    updated_desc = vdata.get("updated_description")
+                    if isinstance(updated_desc, str) and updated_desc.strip():
+                        desc = updated_desc.strip()
+                        iss.why_this_fails = desc
+                        if iss.evidence:
+                            iss.evidence.description = desc
                     iss.planned_fix = f"[WORSENED] {vdata.get('reasoning', '')}"
-                    iss.persisted_turns = max(iss.persisted_turns, 0) + 1
+                    if not already_triaged:
+                        iss.persisted_turns = max(iss.persisted_turns, 0) + 1
                 else:
                     label = "PARTIALLY_MITIGATED" if "PARTIAL" in verdict_str else "PERSISTED"
+                    updated_desc = vdata.get("updated_description")
+                    if isinstance(updated_desc, str) and updated_desc.strip():
+                        desc = updated_desc.strip()
+                        iss.why_this_fails = desc
+                        if iss.evidence:
+                            iss.evidence.description = desc
                     iss.planned_fix = f"[{label}] {vdata.get('reasoning', '')}"
-                    iss.persisted_turns += 1
-                    # Auto-give-up after 2 consecutive PERSISTED — the repair
-                    # agent has tried twice and failed; further attempts waste
-                    # budget and risk regressions on the same slide.
-                    if iss.persisted_turns >= 2 and iss.status == IssueStatus.OPEN:
-                        iss.status = IssueStatus.WONT_FIX
-                        iss.planned_fix = (
-                            f"[AUTO_WONT_FIX after {iss.persisted_turns} "
-                            f"persisted turns] {iss.planned_fix[:200]}"
-                        )
+                    if not already_triaged:
+                        iss.persisted_turns += 1
+
+                # Triage persistence is not evidence that two distinct repair
+                # strategies failed. Keep lifecycle state open here; the repair
+                # dispatcher owns escalation from structured attempt outcomes.
+                iss.last_triaged_turn = turn_index
+
+                updated_fix = vdata.get("updated_planned_fix")
+                if isinstance(updated_fix, str) and updated_fix.strip():
+                    iss.planned_fix = updated_fix.strip()
+                updated_correct = vdata.get("updated_correct_content")
+                if isinstance(updated_correct, str):
+                    iss.fix_detail.correct_content = updated_correct.strip()
+                elif updated_fix:
+                    # A changed semantic correction invalidates an old exact-text
+                    # contract unless the current triage explicitly refreshes it.
+                    iss.fix_detail.correct_content = ""
 
         return resolved + open_issues
 
@@ -539,19 +727,26 @@ class ProbeRunner:
 
             affected = item.get("affected_slides", scope_slides)
 
+            raw_evidence = item.get("evidence", "")
+            if isinstance(raw_evidence, dict):
+                issue_evidence = IssueEvidence(
+                    render_ref=str(raw_evidence.get("render_ref", "")),
+                    object_refs=[str(ref) for ref in raw_evidence.get("object_refs", [])],
+                    source_refs=[str(ref) for ref in raw_evidence.get("source_refs", [])],
+                    description=str(raw_evidence.get("description", "")),
+                )
+            else:
+                issue_evidence = IssueEvidence(description=str(raw_evidence or ""))
+
             issue = Issue(
-                issue_id=(
-                    f"{probe_def.probe_id}_slide"
-                    f"{'_'.join(str(s) for s in affected)}_{i:02d}"
-                ),
+                issue_id="pending",
                 rubric_id=item.get("rubric_id", probe_def.probe_id),
                 issue_type=raw_type,
+                sub_type=item.get("sub_type", ""),
                 severity=Severity(item.get("severity", "minor")),
                 confidence=Confidence(item.get("confidence", "medium")),
                 affected_slides=affected,
-                evidence=IssueEvidence(
-                    description=item.get("evidence", ""),
-                ),
+                evidence=issue_evidence,
                 suspected_module="unknown",
                 verdict=Verdict.FAIL,
                 why_this_fails=item.get("why_this_fails", ""),
@@ -564,6 +759,7 @@ class ProbeRunner:
                 action_rationale=item.get("action_rationale", ""),
                 source_probe_id=f"probe_{probe_def.probe_id}",
             )
+            issue.issue_id = stable_issue_id(issue, probe_def.probe_id)
 
             # Handle B09 sub_type
             sub_type = item.get("sub_type")
@@ -582,11 +778,16 @@ class ProbeRunner:
     def _parse_fix_detail(raw: Any) -> FixDetail:
         if not raw or not isinstance(raw, dict):
             return FixDetail()
+
+        def text_value(key: str) -> str:
+            value = raw.get(key)
+            return value if isinstance(value, str) else ""
+
         return FixDetail(
-            correct_content=raw.get("correct_content", ""),
-            source_ref=raw.get("source_ref", ""),
-            target_location=raw.get("target_location", ""),
-            action_type=raw.get("action_type", ""),
+            correct_content=text_value("correct_content"),
+            source_ref=text_value("source_ref"),
+            target_location=text_value("target_location"),
+            action_type=text_value("action_type"),
         )
 
     @staticmethod
@@ -594,14 +795,20 @@ class ProbeRunner:
         slide_ids: list[int],
         extractions: list[SlideExtraction],
         png_paths: list[str],
+        probe_id: str = "",
+        spatial_signals: dict | None = None,
     ) -> list[str]:
         """Encode slide PNGs as base64 for vision LLM calls."""
         image_urls = []
         for ext, png_path in zip(extractions, png_paths):
             if ext.slide_id in slide_ids and Path(png_path).exists():
                 try:
-                    b64 = image_to_base64(png_path, max_size=1920)
-                    image_urls.append(b64)
+                    state = spatial_signals.get(ext.slide_id) if spatial_signals else None
+                    regions = getattr(state, "svg_regions", []) if state else []
+                    if probe_id == "B20" and regions:
+                        image_urls.extend(image_regions_to_base64(png_path, regions))
+                    else:
+                        image_urls.append(image_to_base64(png_path, max_size=1920))
                 except Exception as e:
                     logger.warning("Failed to encode slide %d: %s", ext.slide_id, e)
         return image_urls
@@ -651,14 +858,13 @@ class ProbeRunner:
         new_issues: list[Issue], triaged_issues: list[Issue],
     ) -> list[Issue]:
         """Remove new issues that duplicate triaged previous issues."""
-        prev_sigs = {
-            (iss.issue_type, frozenset(iss.affected_slides))
-            for iss in triaged_issues
-            if iss.status != IssueStatus.RESOLVED
-        }
+        open_previous = [
+            issue for issue in triaged_issues
+            if issue.status != IssueStatus.RESOLVED
+        ]
         return [
-            iss for iss in new_issues
-            if (iss.issue_type, frozenset(iss.affected_slides)) not in prev_sigs
+            issue for issue in new_issues
+            if not any(issues_share_target(issue, previous) for previous in open_previous)
         ]
 
     def _build_slide_evidence(

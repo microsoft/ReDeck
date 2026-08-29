@@ -1,0 +1,99 @@
+<!--
+  SKILL: Hero Numbers Row
+  Use when: a slide needs to highlight 3-5 key statistics side by side
+  (dataset scale, main results, resource counts)
+
+  KEY RULES:
+  - 3-5 large numbers displayed horizontally
+  - Light styling: colored top-border as accent, NO heavy shadow
+  - Numbers are the dominant visual element on the slide
+  - These are NOT full cards — just number blocks with minimal decoration
+-->
+
+<style>
+  .hero-row {
+    display: flex;
+    gap: 20px;
+    justify-content: flex-start;
+    align-items: stretch;
+    margin: 20px 0;
+  }
+  .hero-item {
+    background: #fff;
+    padding: 18px 22px;
+    border-top: 3px solid PRIMARY_MID;
+    min-width: 140px;
+    flex: 1;
+  }
+  .hero-item.featured {
+    border-top-color: ACCENT;
+  }
+  .hero-item .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: PRIMARY_MID;
+    margin-bottom: 6px;
+    font-weight: 700;
+  }
+  .hero-item .number {
+    font-size: 38px;
+    font-weight: 800;
+    color: PRIMARY_DARK;
+    line-height: 1.1;
+  }
+  .hero-item.featured .number {
+    color: ACCENT;
+  }
+  .hero-item .unit {
+    font-size: 16px;
+    font-weight: 400;
+    color: #666;
+    margin-left: 4px;
+  }
+  .hero-item .context {
+    font-size: 12px;
+    color: #666;
+    margin-top: 6px;
+    line-height: 1.4;
+  }
+</style>
+
+<!--
+  BOTTOM ROW (dataset stats):
+
+  <div class="hero-row" style="margin-top:auto; padding-top:20px;">
+    <div class="hero-item">
+      <div class="label">Recipes</div>
+      <div class="number">118,083</div>
+      <div class="context">in global corpus</div>
+    </div>
+    <div class="hero-item">
+      <div class="label">Ingredients</div>
+      <div class="number">19,019</div>
+      <div class="context">unique ingredients</div>
+    </div>
+    <div class="hero-item featured">
+      <div class="label">Best F1</div>
+      <div class="number">0.7907</div>
+      <div class="context">GPT-5 + Transformer G</div>
+    </div>
+    <div class="hero-item">
+      <div class="label">Cook time</div>
+      <div class="number">30<span class="unit">min</span></div>
+      <div class="context">median cook time</div>
+    </div>
+  </div>
+
+  DESIGN RULES:
+  - 3-5 items (fewer = use single hero metric, more = use a table)
+  - Each card: accent top-border (4px), rounded corners (12px), subtle shadow
+  - ONE card can be .featured (ACCENT border + tinted bg) for the key metric
+  - Labels: max 2 words, uppercase
+  - Context: max 5 words, optional
+
+  AVOID:
+  - Wrapping each number in a dark-filled card
+  - More than 5 items (becomes cramped)
+  - All cards featured (defeats emphasis)
+-->

@@ -1,0 +1,22 @@
+<!-- Local skill: use two to five rows; omit the metric column when findings are qualitative. -->
+<style>
+  .skill-findings { display: grid; align-content: start; }
+  .skill-finding {
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr) minmax(92px, auto);
+    gap: 12px;
+    align-items: start;
+    padding: 10px 0;
+    border-top: 1px solid color-mix(in srgb, var(--secondary) 35%, transparent);
+  }
+  .skill-finding:first-child { border-top: 2px solid var(--secondary); }
+  .skill-finding-index { color: var(--accent-text); font-size: 20px; line-height: 1; font-weight: 800; }
+  .skill-finding h3 { margin: 0 0 3px; color: var(--ink); font-size: 19px; line-height: 1.08; }
+  .skill-finding p { margin: 0; color: var(--ink); font-size: 14px; line-height: 1.2; }
+  .skill-finding-value { color: var(--primary-text); font-size: 26px; line-height: 1; font-weight: 800; text-align: right; }
+  .skill-finding-value small { display: block; margin-top: 3px; color: var(--ink); font-size: 11px; line-height: 1.1; text-transform: uppercase; }
+</style>
+<div class="skill-findings">
+  <article class="skill-finding"><b class="skill-finding-index">01</b><div><h3>{{finding}}</h3><p>{{supporting_evidence}}</p></div><div class="skill-finding-value">{{value}}<small>{{unit_or_meaning}}</small></div></article>
+  <article class="skill-finding"><b class="skill-finding-index">02</b><div><h3>{{finding}}</h3><p>{{supporting_evidence}}</p></div><div class="skill-finding-value">{{value}}<small>{{unit_or_meaning}}</small></div></article>
+</div>

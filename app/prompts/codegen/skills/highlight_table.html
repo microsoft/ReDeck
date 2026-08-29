@@ -1,0 +1,216 @@
+<!--
+  SKILL: Highlighted / Conditional-Format Table
+  Use when: presenting benchmark results where best/worst values should
+  stand out visually (heatmap-style cells, ranked indicators, trend arrows)
+
+  DIFFERENT FROM table:
+  - table: clean data table with header + alternating rows + bold best
+  - highlight_table: cells colored by value intensity, rank badges,
+    trend arrows, and multi-row grouping
+
+  KEY RULES:
+  - Build on the base table structure but add visual encoding
+  - Use color intensity to show value magnitude
+  - Add rank badges (1st, 2nd, 3rd) or trend arrows
+  - Group rows by category with subheaders
+  - Max 10 visible rows, max 6 columns
+-->
+
+<style>
+  .ht-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-top: 10px;
+  }
+  .ht-table th {
+    background: PRIMARY_DARK;
+    color: #fff;
+    padding: 10px 12px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 12px;
+  }
+  .ht-table th:first-child {
+    text-align: left;
+  }
+  .ht-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #eee;
+    color: #333;
+    text-align: center;
+  }
+  .ht-table td:first-child {
+    text-align: left;
+    font-weight: 500;
+  }
+
+  /* Row highlighting */
+  .ht-table tr.ht-ours {
+    background: rgba(ACCENT_RGB, 0.06);
+    font-weight: 600;
+  }
+  .ht-table tr.ht-ours td:first-child {
+    border-left: 3px solid ACCENT;
+    padding-left: 9px;
+  }
+  .ht-table tr:nth-child(even):not(.ht-ours):not(.ht-group) {
+    background: #f8f9fa;
+  }
+
+  /* Group subheader row */
+  .ht-table tr.ht-group td {
+    background: #f0f1f3;
+    font-weight: 700;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: PRIMARY_MID;
+    padding: 6px 12px;
+    border-bottom: 2px solid #ddd;
+  }
+
+  /* Cell value intensity (green = best, red = worst) */
+  .ht-best {
+    background: rgba(46, 125, 50, 0.08) !important;
+    color: #2e7d32;
+    font-weight: 700;
+  }
+  .ht-good {
+    background: rgba(46, 125, 50, 0.04) !important;
+    color: #388e3c;
+    font-weight: 600;
+  }
+  .ht-poor {
+    background: rgba(198, 40, 40, 0.04) !important;
+    color: #c62828;
+  }
+  .ht-worst {
+    background: rgba(198, 40, 40, 0.08) !important;
+    color: #b71c1c;
+    font-weight: 600;
+  }
+
+  /* Rank badges */
+  .ht-rank {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    font-size: 10px;
+    font-weight: 800;
+    margin-right: 4px;
+  }
+  .ht-rank.gold { background: #ffd54f; color: #5d4037; }
+  .ht-rank.silver { background: #e0e0e0; color: #424242; }
+  .ht-rank.bronze { background: #ffcc80; color: #5d4037; }
+
+  /* Trend arrows */
+  .ht-up { color: #2e7d32; font-weight: 700; }
+  .ht-up::after { content: " \2191"; }
+  .ht-down { color: #c62828; font-weight: 700; }
+  .ht-down::after { content: " \2193"; }
+  .ht-flat { color: #888; }
+  .ht-flat::after { content: " \2192"; }
+
+  /* Delta values */
+  .ht-delta {
+    font-size: 11px;
+    margin-left: 4px;
+    font-weight: 400;
+  }
+  .ht-delta.positive { color: #2e7d32; }
+  .ht-delta.negative { color: #c62828; }
+
+  /* Interpretation panel */
+  .ht-interpret {
+    margin-top: 14px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    background: rgba(ACCENT_RGB, 0.04);
+    border-left: 3px solid ACCENT;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #2c3e50;
+  }
+</style>
+
+<!--
+  USAGE (benchmark table with rank badges and intensity):
+
+  <table class="ht-table">
+    <tr>
+      <th>Model</th>
+      <th>BLEU</th>
+      <th>ROUGE-L</th>
+      <th>BERTScore</th>
+      <th>Human</th>
+    </tr>
+    <tr class="ht-group"><td colspan="5">Open-source models</td></tr>
+    <tr>
+      <td>Llama 3.2</td>
+      <td class="ht-poor">28.4</td>
+      <td>42.1</td>
+      <td>0.862</td>
+      <td class="ht-poor">3.1</td>
+    </tr>
+    <tr>
+      <td>Mistral 7B</td>
+      <td>31.2</td>
+      <td class="ht-good">44.8</td>
+      <td>0.871</td>
+      <td>3.4</td>
+    </tr>
+    <tr class="ht-group"><td colspan="5">Commercial APIs</td></tr>
+    <tr>
+      <td><span class="ht-rank silver">2</span>GPT-4o</td>
+      <td class="ht-good">38.9</td>
+      <td class="ht-good">48.2</td>
+      <td class="ht-good">0.905</td>
+      <td class="ht-good">4.1</td>
+    </tr>
+    <tr class="ht-ours">
+      <td><span class="ht-rank gold">1</span>Our Method</td>
+      <td class="ht-best">42.7 <span class="ht-delta positive">+3.8</span></td>
+      <td class="ht-best">51.3 <span class="ht-delta positive">+3.1</span></td>
+      <td class="ht-best">0.921 <span class="ht-delta positive">+.016</span></td>
+      <td class="ht-best">4.5 <span class="ht-delta positive">+0.4</span></td>
+    </tr>
+  </table>
+
+  <div class="ht-interpret">
+    Our method achieves the highest scores across all metrics, with the
+    largest margin on BLEU (+3.8 over GPT-4o), confirming consistent
+    improvement across both automatic and human evaluation.
+  </div>
+
+  USAGE (with trend arrows for temporal comparison):
+
+  <td class="ht-up">89.2</td>     <!-- improved -->
+  <td class="ht-down">71.3</td>   <!-- declined -->
+  <td class="ht-flat">85.0</td>   <!-- unchanged -->
+
+  DESIGN RULES:
+  - Green intensity for best values, red for worst
+  - Use rank badges (gold/silver/bronze) for top 3 only
+  - Group rows with subheader rows for organization
+  - Highlight "our method" row with accent tint + left border
+  - Show deltas (+X.X) in small text beside values when comparing
+  - Max 6 value columns (more = split into multiple tables)
+  - Use trend arrows for temporal/version comparisons
+  - Bottom callout summarizes the key takeaway from the table
+
+  WHEN TO USE:
+  - Benchmark comparison tables (the most common results slide)
+  - Ablation results where values need visual ranking
+  - Multi-dataset evaluation with grouped sections
+  - Any table where visual emphasis accelerates reading
+
+  AVOID:
+  - Coloring every cell (pick the most important column)
+  - More than 3 color levels (best/good/poor/worst = fine; more = noisy)
+  - Rank badges beyond top 3 (defeats the purpose)
+  - Mixing this with the base table skill on the same slide
+-->

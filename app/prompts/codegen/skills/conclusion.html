@@ -1,0 +1,64 @@
+<!--
+  CONCLUSION SLIDE — HTML Skill Pattern
+  Structure: Hero metrics row (top ~40%) + Future work/takeaway panel (bottom)
+
+  KEY: Conclusion slides should be VISUALLY LIGHT — 2-3 large hero cards
+  showing key results, plus ONE text panel with implications.
+  Do NOT pack dense content. Let the numbers breathe.
+
+  DENSITY RULES:
+  - Hero cards: icon + large number + 1 short phrase (max 8 words per card body)
+  - Takeaway panel: max 2 columns × 2 bullets × 10 words each
+  - Do NOT put paragraph descriptions inside hero cards
+  - Use noun phrases, NOT full sentences
+-->
+
+<style>
+  /* body zone: 720 - header(78) - bottom_bar(72) = 560px (with safety margin) */
+  .body { display:flex; flex-direction:column; gap:16px; height:560px; padding:20px 28px; overflow:hidden; }
+
+  /* — Hero metrics row — */
+  .hero-row { display:flex; gap:14px; }
+  .hero-metric {
+    flex:1; background:PRIMARY_DARK; border-radius:12px; padding:20px 16px;
+    text-align:center; color:#fff;
+  }
+  .hero-metric .icon { font-size:20px; margin-bottom:8px; opacity:0.8; }
+  .hero-metric .value { font-size:40px; font-weight:800; color:ACCENT; line-height:1; }
+  .hero-metric .label { font-size:12px; margin-top:10px; opacity:0.85; line-height:1.3; }
+
+  /* — Takeaway panel — */
+  .takeaway-panel {
+    flex:1; background:LIGHT_BG; border-radius:12px; padding:20px 24px;
+    display:flex; gap:20px; overflow:hidden;
+  }
+  .takeaway-panel h4 {
+    font-size:12px; text-transform:uppercase; color:PRIMARY_MID;
+    font-weight:700; margin:0 0 12px; letter-spacing:0.5px;
+  }
+  .takeaway-panel .col { flex:1; }
+  .takeaway-panel li { font-size:12px; line-height:1.6; color:BODY_TEXT; margin-bottom:6px; }
+</style>
+
+<!--
+  RULES:
+  - Hero card body = number + short label ONLY. NOT paragraphs.
+  - Max 3 hero cards. If you have more metrics, pick the top 3.
+  - Takeaway bullets should be forward-looking (future work, implications)
+  - Do NOT embed figures/images in conclusion slides — use numbers to represent results
+  - ONLY 2 rows total: hero-row + takeaway-panel. Never add a 3rd section.
+
+  ALTERNATIVE: Replace hero-row with SVG DONUT CHARTS for visual impact:
+  <div style="display:flex; justify-content:space-around; align-items:center; padding:10px 0;">
+    <div style="text-align:center; width:200px;">
+      <svg width="160" height="160" viewBox="0 0 160 160">
+        <circle cx="80" cy="80" r="60" fill="none" stroke="#e0e0e0" stroke-width="16"/>
+        <circle cx="80" cy="80" r="60" fill="none" stroke="ACCENT" stroke-width="16"
+                stroke-dasharray="272 377" transform="rotate(-90 80 80)" stroke-linecap="round"/>
+        <text x="80" y="86" text-anchor="middle" font-size="32" font-weight="800" fill="PRIMARY_DARK">72%</text>
+      </svg>
+      <div style="font-size:13px; font-weight:700; margin-top:8px; color:PRIMARY_DARK;">LABEL</div>
+    </div>
+  </div>
+  Use 2-3 donuts for percentage metrics. Ring stroke-width 14-18.
+-->

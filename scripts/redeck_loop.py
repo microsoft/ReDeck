@@ -152,7 +152,7 @@ def build_issues_from_state(state, slide_id: int) -> list[Issue]:
 def run_loop(
     slide_codes: dict[int, str],
     max_turns: int = 3,
-    model: str = "gpt-4o",
+    model: str = "gpt-5.4",
     output_dir: Path | None = None,
 ) -> dict:
     """Run the iterative spatial check → repair loop.
@@ -259,7 +259,7 @@ def main():
     parser.add_argument("--dir", help="Directory of slide_*.html files")
     parser.add_argument("--output-dir", "-o", help="Output directory for repaired slides")
     parser.add_argument("--max-turns", type=int, default=3, help="Max repair turns (default: 3)")
-    parser.add_argument("--model", default="gpt-4o", help="LLM model for repair")
+    parser.add_argument("--model", default="gpt-5.4", help="LLM model for repair")
     parser.add_argument("--json", action="store_true", help="JSON output")
     args = parser.parse_args()
 

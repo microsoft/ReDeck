@@ -21,6 +21,6 @@ class ModuleCallLog(BaseModel):
     timing_sec: float = 0.0
     token_usage: dict = Field(default_factory=dict)
 
-    # Optional request/response trace.
+    # Full request/response for debugging and error analysis
     messages: list[dict[str, Any]] = Field(default_factory=list)
     response_text: str = ""

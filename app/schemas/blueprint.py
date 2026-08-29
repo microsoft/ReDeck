@@ -18,7 +18,7 @@ class BlueprintSlide(BaseModel):
     assigned_figure_id: str = Field(
         default="",
         description=(
-            "Figure ID assigned to this slide (e.g. 'fig_p1_fig1'). "
+            "Canonical figure asset ID assigned to this slide (e.g. 'A001'). "
             "Empty if no figure should be used. Each figure should be "
             "assigned to at most one slide across the deck."
         ),
@@ -29,6 +29,16 @@ class BlueprintSlide(BaseModel):
             "Layout hint for codegen: 'two-column' | 'image-hero' | "
             "'table-focus' | 'metric-cards' | 'quote-insight' | "
             "'three-column' | ''. Empty means codegen decides freely."
+        ),
+    )
+    viz_data: dict = Field(
+        default_factory=dict,
+        description=(
+            "Optional structured chart specification for ChartGenerator. "
+            "When provided, a matplotlib chart PNG is pre-generated and "
+            "injected as an Available Image for this slide. "
+            "Keys: chart_type (bar/column/line/heatmap/radar/scatter/flowchart), "
+            "categories, series, title, x_label, y_label, etc."
         ),
     )
     notes: str = ""

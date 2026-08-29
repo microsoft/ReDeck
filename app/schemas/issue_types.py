@@ -44,6 +44,10 @@ class IssueTypeDef:
     is_deterministic: bool = False      # Detected by geom_checks/Playwright, not LLM
     is_cross_slide: bool = False        # Inherently cross-slide
     is_unsolvable: bool = False         # Cannot be fixed by single-slide repair
+    residual_categories: frozenset[str] = frozenset()
+    # Significant DOM categories that this issue is expected to clear. Empty
+    # means DOM checks are regression guards only and resolution is decided by
+    # the issue's own evaluator.
 
 
 def _b(name: str, **kw) -> IssueTypeDef:
@@ -98,9 +102,13 @@ _reg(
     _b("layout_inappropriate",
        probe_id="B02", probe_file="B02_layout_inappropriate.md"),
     _b("overlap",
-       probe_id="B03", probe_file="B03_overlap.md", requires_spatial=True),
+       probe_id="B03", probe_file="B03_overlap.md", requires_spatial=True,
+       residual_categories=frozenset({"overlap", "occlusion"})),
     _b("text_overflow",
-       probe_id="B04", probe_file="B04_text_overflow.md", requires_spatial=True),
+       probe_id="B04", probe_file="B04_text_overflow.md", requires_spatial=True,
+       residual_categories=frozenset({
+           "text_overflow", "svg_text_overflow", "clipped", "canvas_truncation",
+       })),
     _b("low_contrast",
        probe_id="B05", probe_file="B05_low_contrast.md", requires_spatial=True),
     _b("text_visual_imbalance",
@@ -132,7 +140,11 @@ _reg(
     # Deterministic (geom_checks) — no probe file, detected programmatically
     _b("empty_slide",           is_deterministic=True),
     _b("empty_placeholder",     is_deterministic=True),
-    _b("out_of_bounds",         is_deterministic=True),
+    _b("out_of_bounds",         is_deterministic=True,
+       residual_categories=frozenset({"out_of_bounds"})),
+    _b("svg_visual_defect",
+       probe_id="B20", probe_file="B20_svg_visual_quality.md", requires_spatial=True,
+       residual_categories=frozenset({"svg_text_overflow"})),
     _b("content_anomaly",       is_deterministic=True),
 )
 
@@ -152,7 +164,7 @@ _reg(
                  requires_source=True),
     IssueTypeDef("missing_conclusion", IssueFamily.C,
                  probe_id="C05", probe_file="C05_conclusions_present.md",
-                 requires_source=True, is_deck_level=True),
+                 requires_source=True, is_deck_level=True, is_cross_slide=True),
 )
 
 # --- D: Correctness ---
@@ -247,13 +259,15 @@ CROSS_SLIDE_TYPES: frozenset[str] = frozenset(
 
 # Cross-family dedup pairs: when both types appear on the same slide,
 # keep only the higher-severity one.
+# NOTE: density_imbalance is NOT deduped with overlap/text_overflow here.
+# The visual judge prompt already instructs the VLM not to co-report B09
+# with B03/B04. Hard-filtering here was killing legitimate element_undersized
+# issues (whitespace asymmetry) that are independent of spatial conflicts.
 DEDUP_PAIRS: frozenset[frozenset[str]] = frozenset({
     frozenset({"fabricated", "numeric_error"}),
     frozenset({"fabricated", "incorrect_claim"}),
     frozenset({"fabricated", "unsupported_causality"}),
     frozenset({"title_content_mismatch", "text_overflow"}),
-    frozenset({"density_imbalance", "overlap"}),
-    frozenset({"density_imbalance", "text_overflow"}),
 })
 
 # ================================================================
@@ -281,8 +295,8 @@ CONTENT_ACCURACY_TYPES: frozenset[str] = frozenset({
     "fabricated", "incorrect_claim", "numeric_error",
     "entity_error", "chart_misinterpretation",
     "unfaithful_compression", "missing_entity",
-    "missing_context", "unsupported_causality",
-    "misleading_omission",
+    "missing_context", "missing_point", "missing_evidence",
+    "missing_conclusion", "unsupported_causality", "misleading_omission",
 })
 
 # Layout-related types: bulk coordinate edits are rejected for these;
@@ -393,23 +407,44 @@ DECK_LEVEL_PROBES: frozenset[str] = frozenset(
 # ================================================================
 
 _ATOMIC_REGISTRY: dict[str, str] | None = None
+_ATOMIC_CHECK_DETAILS: dict[str, dict[str, str]] | None = None
+
+
+def _load_atomic_checks() -> None:
+    """Load atomic parent mappings and check text from the generated registry."""
+    global _ATOMIC_REGISTRY, _ATOMIC_CHECK_DETAILS
+    if _ATOMIC_REGISTRY is not None and _ATOMIC_CHECK_DETAILS is not None:
+        return
+    import json as _json
+    _path = Path(__file__).parent.parent / "prompts" / "probes" / "probe_registry.json"
+    _ATOMIC_REGISTRY = {}
+    _ATOMIC_CHECK_DETAILS = {}
+    if not _path.exists():
+        return
+    _data = _json.loads(_path.read_text(encoding="utf-8"))
+    for _probe_id, _info in _data.items():
+        for _check in _info.get("checks", []):
+            _check_id = _check["id"]
+            _ATOMIC_REGISTRY[_check_id] = _probe_id
+            _ATOMIC_CHECK_DETAILS[_check_id] = {
+                "probe_id": _probe_id,
+                "text": _check.get("text", ""),
+                "source": _check.get("source", ""),
+            }
 
 
 def get_atomic_check_registry() -> dict[str, str]:
     """Map check_id (e.g., 'B03.1') → parent probe_id (e.g., 'B03'). Lazy-loaded."""
-    global _ATOMIC_REGISTRY
-    if _ATOMIC_REGISTRY is None:
-        import json as _json
-        _path = Path(__file__).parent.parent / "prompts" / "probes" / "probe_registry.json"
-        if _path.exists():
-            _data = _json.loads(_path.read_text(encoding="utf-8"))
-            _ATOMIC_REGISTRY = {}
-            for _probe_id, _info in _data.items():
-                for _check in _info.get("checks", []):
-                    _ATOMIC_REGISTRY[_check["id"]] = _probe_id
-        else:
-            _ATOMIC_REGISTRY = {}
+    _load_atomic_checks()
+    assert _ATOMIC_REGISTRY is not None
     return _ATOMIC_REGISTRY
+
+
+def get_atomic_check_details() -> dict[str, dict[str, str]]:
+    """Return check text and parent probe keyed by atomic check ID."""
+    _load_atomic_checks()
+    assert _ATOMIC_CHECK_DETAILS is not None
+    return _ATOMIC_CHECK_DETAILS
 
 # Mutex probe pairs: on the same slide, only the higher-severity issue survives
 MUTEX_PROBE_PAIRS: frozenset[frozenset[str]] = frozenset({

@@ -1,0 +1,130 @@
+<!--
+  SKILL: Quote Block / Key Finding Highlight
+  Use when: emphasizing one important finding, thesis statement, or conclusion
+  in a visually prominent way (like a pull-quote in a magazine)
+
+  KEY RULES:
+  - One large quote (the main insight) dominates center of slide
+  - Decorative quotation marks (large, faded)
+  - Supporting context below or beside the quote
+  - Works well for conclusion slides, key findings, or motivation statements
+  - Max 2 sentences in the quote
+-->
+
+<style>
+  .quote-area {
+    position: absolute;
+    left: 100px;
+    right: 100px;
+    top: 140px;
+    text-align: center;
+  }
+
+  .quote-mark {
+    font-size: 80px;
+    font-weight: 800;
+    color: PRIMARY_LIGHT;
+    opacity: 0.35;
+    line-height: 0.6;
+    margin-bottom: 8px;
+    font-family: Georgia, serif;
+  }
+
+  .quote-text {
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1.35;
+    color: PRIMARY_DARK;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  .quote-text em {
+    color: ACCENT;
+    font-style: normal;
+    text-decoration: underline;
+    text-decoration-color: rgba(ACCENT_RGB, 0.3);
+    text-underline-offset: 4px;
+  }
+
+  .quote-attribution {
+    margin-top: 20px;
+    font-size: 14px;
+    color: #5a6b7d;
+    font-style: italic;
+  }
+
+  /* Supporting evidence row below quote */
+  .evidence-row {
+    position: absolute;
+    left: 80px;
+    right: 80px;
+    bottom: 120px;
+    display: flex;
+    gap: 30px;
+    justify-content: center;
+  }
+
+  .evidence-item {
+    text-align: center;
+    min-width: 160px;
+  }
+  .evidence-item .value {
+    font-size: 38px;
+    font-weight: 800;
+    color: PRIMARY_DARK;
+  }
+  .evidence-item .label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #5a6b7d;
+    margin-top: 4px;
+  }
+</style>
+
+<!--
+  USAGE:
+
+  <div class="quote-area">
+    <div class="quote-mark">"</div>
+    <div class="quote-text">
+      LLM-based edge refinement adds <em>explicit structural reasoning</em>
+      to EEG graph construction, improving seizure detection accuracy by 8%.
+    </div>
+    <div class="quote-attribution">— Conclusion from experimental results on TUSZ benchmark</div>
+  </div>
+
+  <div class="evidence-row">
+    <div class="evidence-item">
+      <div class="value">0.7907</div>
+      <div class="label">Best F1</div>
+    </div>
+    <div class="evidence-item">
+      <div class="value">0.0265</div>
+      <div class="label">Lowest JSD</div>
+    </div>
+    <div class="evidence-item">
+      <div class="value">5</div>
+      <div class="label">LLMs tested</div>
+    </div>
+  </div>
+
+  DESIGN RULES:
+  - Quote is the HERO — centered, large (26-30px), bold
+  - Emphasize 1-2 key phrases with <em> (rendered in accent color)
+  - Quotation mark is decorative only (large, faded)
+  - Evidence row: 2-4 supporting metrics below (optional)
+  - White background — the quote stands alone
+
+  WHEN TO USE:
+  - Conclusion slides (the main takeaway)
+  - Motivation slides (the research question/hypothesis)
+  - Key finding slides (the headline result)
+
+  AVOID:
+  - More than 2 sentences in the quote
+  - More than 4 evidence items (gets cluttered)
+  - Dark backgrounds (this is a clean, typography-driven layout)
+  - Using this for data-heavy slides (use table/chart skills instead)
+-->

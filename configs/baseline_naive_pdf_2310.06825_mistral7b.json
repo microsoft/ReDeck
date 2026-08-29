@@ -1,0 +1,46 @@
+{
+  "run_id": "baseline_naive_pdf_2310.06825_mistral7b",
+  "ablation_tags": [
+    "codegen",
+    "eval_family_slide",
+    "layout_freeform",
+    "baseline"
+  ],
+  "models": {
+    "default": "gpt-5.4"
+  },
+  "plan_mode": {
+    "enabled": true,
+    "split_level": "monolithic"
+  },
+  "eval_mode": {
+    "enabled": true,
+    "split_level": "family_plus_slide",
+    "deterministic_geom_first": true,
+    "verifier_enabled": false
+  },
+  "layout_mode": {
+    "enabled": false,
+    "strategy": "none"
+  },
+  "repair_mode": {
+    "enabled": true,
+    "routing": "typed_workers",
+    "local_only": true,
+    "max_repair_rounds": 2
+  },
+  "render_mode": {
+    "fast_backend": "linux_lo_pdf",
+    "reference_backend": "graph_pdf"
+  },
+  "prompt_mode": {
+    "specialist_prompts": true,
+    "shared_rules_version": "v1"
+  },
+  "max_turns": 3,
+  "seed": 42,
+  "skip_layout_design": false,
+  "use_html_codegen": false,
+  "layout_strategy": "freeform",
+  "repair_strategy": "baseline"
+}

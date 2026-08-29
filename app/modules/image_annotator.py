@@ -10,8 +10,8 @@ from ..utils.image_ops import image_to_base64
 
 logger = logging.getLogger(__name__)
 
-_FIGURE_ANNOTATION_PROMPT = """You are an expert at describing document figures.
-Given an image extracted from a document, provide a concise, factual description.
+_FIGURE_ANNOTATION_PROMPT = """You are an expert at describing academic paper figures.
+Given an image extracted from a research paper, provide a concise, factual description.
 
 Your description should cover:
 1. What TYPE of figure this is (architecture diagram, bar chart, line plot, table screenshot, photo, scatter plot, heatmap, flowchart, etc.)
@@ -21,8 +21,8 @@ Your description should cover:
 
 Return ONLY the description, 2-4 sentences. Be specific and factual. Do not speculate."""
 
-_TABLE_ANNOTATION_PROMPT = """You are an expert at describing document tables.
-Given a screenshot of a table from a document, provide a concise, factual description.
+_TABLE_ANNOTATION_PROMPT = """You are an expert at describing academic paper tables.
+Given a screenshot of a table from a research paper, provide a concise, factual description.
 
 Your description should cover:
 1. What the table COMPARES (models, methods, datasets, hyperparameters, etc.)

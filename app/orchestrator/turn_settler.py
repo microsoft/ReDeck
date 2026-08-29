@@ -58,6 +58,7 @@ class TurnSettler:
         # Decide whether to continue
         should_continue = self._should_continue(
             issues, repair_units, verify_report, turn_index,
+            previous_issues=previous_issues,
             previous_issue_counts=previous_issue_counts,
             current_issue_count=len(issues),
             issues_new=actionable_new,
@@ -100,6 +101,7 @@ class TurnSettler:
         repair_units: list[RepairUnit],
         verify_report: VerifyReport | None,
         turn_index: int,
+        previous_issues: list[Issue] | None = None,
         previous_issue_counts: list[int] | None = None,
         current_issue_count: int = 0,
         issues_new: int = 0,
@@ -121,18 +123,10 @@ class TurnSettler:
         if applied == 0 and turn_index > 0:
             return False
 
-        # "Good enough" threshold: when open issues are already low,
-        # further repair is high-risk (likely to introduce more issues
-        # than it resolves). The dominant rebound pattern is:
-        #   B02 visual_clutter, B13 alignment, E01-E03 fabrication
-        # all caused by the repair agent making aggressive changes
-        # to slides that only have minor remaining issues.
-        #
-        # EXCEPTION: never gate on minor-volume when MAJOR/CRITICAL
-        # content-accuracy bugs remain — those (fabricated, missing_evidence,
-        # incorrect_claim, numeric_error, entity_error, missing_point,
-        # missing_entity) directly harm content quality, so we must keep
-        # iterating to chase them.
+        # Open current-render findings are not terminal success. Risk is
+        # bounded by the no-applied-repair check, rebound detection, plateau
+        # window, and RunManager.max_turns rather than by hiding a small issue
+        # count behind a "good enough" label.
         _CONTENT_ACCURACY_TYPES = {
             "fabricated", "missing_evidence", "incorrect_claim",
             "numeric_error", "entity_error", "missing_point",
@@ -144,63 +138,66 @@ class TurnSettler:
             if i.severity in (Severity.MAJOR, Severity.CRITICAL)
             and i.issue_type in _CONTENT_ACCURACY_TYPES
         ]
-        if (
-            len(open_issues) <= self.good_enough_threshold
-            and turn_index > 0
-            and not major_content_open
-        ):
+        # Rebound detection: based on issue-ID tracking, not raw count.
+        # A true rebound = previously-resolved issues re-opened, or
+        # previously-open issues got worse. Newly-discovered issues
+        # (first-time IDs from expanded eval coverage) are NOT rebound.
+        if previous_issues and turn_index >= 1:
+            prev_open_ids = {
+                i.issue_id for i in previous_issues
+                if i.status == IssueStatus.OPEN
+            }
+            cur_open_ids = {i.issue_id for i in open_issues}
+
+            # Issues that were open before and are still open (persisted)
+            persisted_ids = prev_open_ids & cur_open_ids
+            # Issues that were resolved/closed but re-appeared as open
+            prev_resolved_ids = {
+                i.issue_id for i in previous_issues
+                if i.status in (IssueStatus.RESOLVED, IssueStatus.WONT_FIX)
+            }
+            reopened_ids = prev_resolved_ids & cur_open_ids
+            # Truly new issues (IDs never seen in previous turn)
+            prev_all_ids = {i.issue_id for i in previous_issues}
+            newly_discovered = cur_open_ids - prev_all_ids
+            # Issues resolved this turn
+            resolved_ids = prev_open_ids - cur_open_ids
+
+            # True regression = reopened issues (were resolved, now open again)
+            # Net progress = resolved minus reopened
+            net_progress = len(resolved_ids) - len(reopened_ids)
+
             logger.info(
-                "Good enough at T%d: only %d open issues (<= %d threshold). "
-                "Stopping to avoid repair regression.",
-                turn_index, len(open_issues), self.good_enough_threshold,
-            )
-            return False
-        if major_content_open and len(open_issues) <= self.good_enough_threshold:
-            logger.info(
-                "T%d: %d open issues incl. %d MAJOR content-accuracy "
-                "(fabricated/missing_evidence/numeric_error/etc.) — "
-                "skipping good-enough gate, continuing to chase content fidelity.",
-                turn_index, len(open_issues), len(major_content_open),
+                "T%d issue-ID tracking: %d resolved, %d persisted, "
+                "%d newly discovered, %d reopened, net_progress=%+d",
+                turn_index, len(resolved_ids), len(persisted_ids),
+                len(newly_discovered), len(reopened_ids), net_progress,
             )
 
-        # Rebound detection: if open issues INCREASED from previous turn,
-        # the repair is doing more harm than good. Stop to preserve the
-        # better state from the previous turn.
-        # Active from T1 onwards — any increase means regression.
-        # EXCEPTION: if major content-accuracy bugs are still open and the
-        # rebound is small (<= 2 net), keep going — content fidelity is
-        # worth more than a couple of new minor cosmetic issues.
-        if (
-            previous_issue_counts
-            and len(previous_issue_counts) >= 1
-            and turn_index >= 1
-        ):
-            prev_open = previous_issue_counts[-1]
-            delta = len(open_issues) - prev_open
-            if delta > 0:
-                if major_content_open and delta <= 2:
+            if net_progress < 0:
+                # True regression: more issues reopened than resolved
+                if major_content_open and abs(net_progress) <= 2:
                     logger.info(
-                        "T%d small rebound %+d but %d MAJOR content-accuracy "
+                        "T%d true rebound %+d but %d MAJOR content-accuracy "
                         "issues still open — continuing.",
-                        turn_index, delta, len(major_content_open),
+                        turn_index, net_progress, len(major_content_open),
                     )
                 else:
                     logger.info(
-                        "Rebound detected at T%d: open issues %d -> %d (+%d). "
+                        "Rebound detected at T%d: net_progress=%+d "
+                        "(%d resolved, %d reopened). "
                         "Stopping to preserve previous turn's state.",
-                        turn_index, prev_open, len(open_issues), delta,
+                        turn_index, net_progress,
+                        len(resolved_ids), len(reopened_ids),
                     )
                     return False
 
-        # Early stop once the run reaches a plateau.
-        # Require net regression over the configured window to avoid cutting
-        # short runs that are still slowly improving.
+        # Early stop: after turn 6, check if we're in a plateau.
         if (
             turn_index >= self.early_stop_turn
             and previous_issue_counts
             and len(previous_issue_counts) >= self.plateau_window
         ):
-            # Net improvement = open count N turns ago - current open count
             count_n_ago = previous_issue_counts[-self.plateau_window]
             net_improvement = count_n_ago - len(open_issues)
             if net_improvement <= 0:

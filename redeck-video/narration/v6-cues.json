@@ -1,0 +1,127 @@
+[
+  {
+    "id": "v6-00-title",
+    "start": 0.15,
+    "end": 4.75,
+    "rate": "1.12x",
+    "en": "ReDeck is a research framework for slide generation and refinement.",
+    "tts_en": "Re Deck is a research framework for slide generation and refinement.",
+    "instruct": "Speak as a Microsoft Research presenter: measured, precise, accessible, and quietly confident. Avoid promotional or theatrical delivery."
+  },
+  {
+    "id": "v6-01-complexity",
+    "start": 5.0,
+    "end": 8.2,
+    "rate": "1.12x",
+    "en": "Slides are complex visual artifacts.",
+    "instruct": "Introduce the complexity of slides in a measured, accessible research presentation tone."
+  },
+  {
+    "id": "v6-02-first-draft",
+    "start": 8.2,
+    "end": 11.95,
+    "rate": "1.12x",
+    "en": "AI drafts have many issues, so refinement is essential.",
+    "instruct": "Continue smoothly, with restrained emphasis on why refinement is necessary."
+  },
+  {
+    "id": "v6-03-turn-level",
+    "start": 12.2,
+    "end": 19.7,
+    "rate": "1.12x",
+    "en": "If observations are too late or too sparse, the spatial effect of each edit remains unknown.",
+    "instruct": "Explain the motivation analytically, emphasizing observation timing, frequency, and spatial attribution rather than implementation details."
+  },
+  {
+    "id": "v6-05-workspace",
+    "start": 20.2,
+    "end": 24.9,
+    "rate": "1.12x",
+    "en": "ReDeck observes the slide after every atomic edit.",
+    "tts_en": "Re Deck observes the slide after every atomic edit.",
+    "instruct": "Introduce the method principle with calm confidence, stressing observation after each edit."
+  },
+  {
+    "id": "v6-06-bounded-edit",
+    "start": 25.0,
+    "end": 29.75,
+    "rate": "1.12x",
+    "en": "Each observation reveals how that edit changed the real spatial state.",
+    "instruct": "Explain the insight precisely but accessibly, with emphasis on the edit's observable spatial consequence."
+  },
+  {
+    "id": "v6-07-measure",
+    "start": 29.8,
+    "end": 33.8,
+    "rate": "1.12x",
+    "en": "That evidence grounds the next action.",
+    "instruct": "Use a concise connective delivery, emphasizing evidence rather than process."
+  },
+  {
+    "id": "v6-08-next-action",
+    "start": 34.0,
+    "end": 39.7,
+    "rate": "1.12x",
+    "en": "The agent can keep, revise, or roll back the edit, then validate before submission.",
+    "instruct": "Explain the evidence-based choices and final validation rule with measured clarity."
+  },
+  {
+    "id": "v6-09-case-one",
+    "start": 40.2,
+    "end": 46.2,
+    "rate": "1.12x",
+    "en": "The case studies show complete repair traces from accepted runs.",
+    "instruct": "Introduce the case studies as evidence from real accepted runs, without promotional emphasis."
+  },
+  {
+    "id": "v6-10-case-two",
+    "start": 46.5,
+    "end": 52.5,
+    "rate": "1.12x",
+    "en": "When a regression appears, the agent returns to the last valid state and tries another repair.",
+    "instruct": "Explain rollback as evidence-guided recovery in an analytical tone."
+  },
+  {
+    "id": "v6-11-case-three",
+    "start": 52.8,
+    "end": 58.8,
+    "rate": "1.12x",
+    "en": "Step-level observations handle local spatial effects; the turn-level critic tracks broader issues.",
+    "instruct": "Explain the separated responsibilities of the two feedback levels clearly and without jargon-heavy delivery."
+  },
+  {
+    "id": "v6-12-case-summary",
+    "start": 59.2,
+    "end": 64.7,
+    "rate": "1.12x",
+    "en": "Together, they improve layout while preserving the source meaning.",
+    "instruct": "Conclude the method with calm certainty, emphasizing complementarity."
+  },
+  {
+    "id": "v6-13-results",
+    "start": 65.2,
+    "end": 70.0,
+    "rate": "1.12x",
+    "en": "DeckQuiz scores fidelity, spatial quality, aesthetics, and design.",
+    "tts_en": "Deck Quiz scores fidelity, spatial quality, aesthetics, and design.",
+    "instruct": "Introduce component-level evaluation formally and clearly."
+  },
+  {
+    "id": "v6-14-ablation",
+    "start": 70.1,
+    "end": 75.7,
+    "rate": "1.12x",
+    "en": "ReDeck improves all four. Local and global feedback work together.",
+    "tts_en": "Re Deck improves all four. Local and global feedback work together.",
+    "instruct": "Report the result and ablation insight with measured confidence, not excitement."
+  },
+  {
+    "id": "v6-15-cta",
+    "start": 76.2,
+    "end": 80.7,
+    "rate": "1.12x",
+    "en": "ReDeck is open source, with code, benchmarks, and repair examples.",
+    "tts_en": "Re Deck is open source, with code, benchmarks, and repair examples.",
+    "instruct": "Close as a research project invitation: restrained, professional, and informative."
+  }
+]

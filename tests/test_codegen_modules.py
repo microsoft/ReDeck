@@ -6,7 +6,7 @@ from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 
-from app.backends.html_codegen import code_transforms, code_executor
+from app.backends.python_pptx import code_transforms, code_executor
 
 
 # --- code_transforms tests ---

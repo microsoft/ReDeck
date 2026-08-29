@@ -1,13 +1,13 @@
-"""Structured slide analysis for constraint-aware refinement.
+"""Slide Manifest — structured slide analysis for constraint-aware refinement.
 
-This module provides:
+This module provides the foundation for repair dispatch:
 
-1. SlideManifest: structured per-slide representation combining spatial
-   state, text budgets, evidence bindings, and mutability annotations
-2. TextBudget: per-block capacity analysis telling the LLM how much text
-   can fit before generation
-3. triage_slide(): typed action decision routing each slide to the
-   appropriate repair strategy
+1. SlideManifest: rich structured per-slide representation combining
+   spatial state, text budgets, evidence bindings, and mutability annotations
+2. TextBudget: per-block capacity analysis telling the LLM exactly how
+   much text can fit BEFORE generation (not as post-hoc rejection)
+3. triage_slide(): typed action decision (keep/text_fix/re_layout/regenerate)
+   routing each slide to the appropriate repair strategy
 
 The manifest separates concerns:
 - LLM handles semantic decisions (what to include, how to phrase)
@@ -38,16 +38,11 @@ logger = logging.getLogger(__name__)
 # Issue types that cannot be solved by single-slide repair.
 # These require cross-slide coordination or fundamentally different
 # visual assets (charts, images) that text/layout repair cannot provide.
-#
-# Single-slide spatial and local text issues are handled by the repair tools.
-#
-# KEPT in filter (genuinely unsolvable by single-slide repair):
 from ...schemas.issue_types import UNSOLVABLE_TYPES as UNSOLVABLE_ISSUE_TYPES
 
-# Backward compatibility alias
-HIGH_CHURN_ISSUE_TYPES = UNSOLVABLE_ISSUE_TYPES
-
 # Minimum T0 issues per slide to justify regeneration.
+# Constraint-aware regeneration is safe, so threshold is low.
+# text_fix_only has NO threshold (always safe).
 MIN_ISSUES_FOR_REPAIR = 3
 
 # Content issue families — these are fixable by TEXT_FIX with positive ROI
@@ -142,7 +137,7 @@ def build_manifest(
 
     Args:
         slide_id: The slide number
-        code: Current generated code for this slide
+        code: Current python-pptx code for this slide
         issues: All issues affecting this slide
         bp_slide: Blueprint slide (for semantic context)
 
@@ -289,7 +284,7 @@ def _classify_issues(manifest: SlideManifest, issues: list[Issue]) -> None:
         itype = issue.issue_type
         fam = issue.rubric_id[0].upper() if issue.rubric_id else "?"
 
-        if itype in HIGH_CHURN_ISSUE_TYPES:
+        if itype in UNSOLVABLE_ISSUE_TYPES:
             manifest.high_churn_issues += 1
         else:
             manifest.actionable_issues += 1
@@ -455,7 +450,7 @@ def triage_slide(manifest: SlideManifest, issues: list[Issue]) -> tuple[str, str
     # Filter unsolvable issue types
     actionable = [
         i for i in open_issues
-        if i.issue_type not in HIGH_CHURN_ISSUE_TYPES
+        if i.issue_type not in UNSOLVABLE_ISSUE_TYPES
     ]
 
     if not actionable:

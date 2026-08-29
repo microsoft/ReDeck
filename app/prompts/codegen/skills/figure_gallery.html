@@ -1,0 +1,163 @@
+<!--
+  SKILL: Figure Gallery / Multi-Panel
+  Use when: displaying 2-4 related figures/images on a single slide
+  (e.g., Figure 2 panels a,b,c,d or comparing visualizations)
+
+  DIFFERENT FROM annotated_figure:
+  - annotated_figure: ONE main figure + text annotations on the side
+  - figure_gallery: MULTIPLE figures arranged in a grid
+
+  KEY RULES:
+  - 2-4 images arranged in a grid (2×1, 2×2, 1×3, etc.)
+  - Each panel has a letter label (a, b, c, d)
+  - Brief caption below each panel
+  - Optional: shared legend or summary box
+  - Images MUST use proper aspect ratio (compute from given dimensions)
+-->
+
+<style>
+  .gallery-grid {
+    position: absolute;
+    left: 50px;
+    top: 100px;
+    right: 50px;
+    display: grid;
+    gap: 16px;
+  }
+
+  /* 2-column layout (default) */
+  .gallery-grid.cols-2 {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* 3-column layout */
+  .gallery-grid.cols-3 {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  /* 2×2 layout */
+  .gallery-grid.grid-2x2 {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto;
+  }
+
+  .gallery-panel {
+    position: relative;
+  }
+
+  .panel-label {
+    position: absolute;
+    left: 8px;
+    top: 8px;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    background: PRIMARY_DARK;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+  }
+
+  .panel-img {
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid #e4e9f0;
+    object-fit: contain;
+    background: #fafbfc;
+  }
+
+  .panel-caption {
+    font-size: 12px;
+    color: #5a6b7d;
+    margin-top: 6px;
+    line-height: 1.3;
+    text-align: center;
+  }
+
+  /* Shared description below gallery */
+  .gallery-desc {
+    position: absolute;
+    left: 50px;
+    right: 50px;
+    bottom: 70px;
+    background: #f7f9fc;
+    border-radius: 10px;
+    padding: 14px 20px;
+    font-size: 14px;
+    line-height: 1.45;
+    color: #2c3e50;
+  }
+  .gallery-desc strong {
+    color: PRIMARY_DARK;
+  }
+</style>
+
+<!--
+  LAYOUT A — 2 panels side by side:
+
+  <div class="gallery-grid cols-2">
+    <div class="gallery-panel">
+      <div class="panel-label">a</div>
+      <img class="panel-img" src="figure_path_a.png" style="height:320px;" />
+      <div class="panel-caption">Global ingredient frequency distribution</div>
+    </div>
+    <div class="gallery-panel">
+      <div class="panel-label">b</div>
+      <img class="panel-img" src="figure_path_b.png" style="height:320px;" />
+      <div class="panel-caption">Per-cuisine scaling comparison</div>
+    </div>
+  </div>
+
+  LAYOUT B — 2×2 grid:
+
+  <div class="gallery-grid grid-2x2">
+    <div class="gallery-panel">
+      <div class="panel-label">a</div>
+      <img class="panel-img" src="fig_a.png" style="height:220px;" />
+      <div class="panel-caption">Heatmap t+1</div>
+    </div>
+    <div class="gallery-panel">
+      <div class="panel-label">b</div>
+      <img class="panel-img" src="fig_b.png" style="height:220px;" />
+      <div class="panel-caption">Heatmap t+3</div>
+    </div>
+    <div class="gallery-panel">
+      <div class="panel-label">c</div>
+      <img class="panel-img" src="fig_c.png" style="height:220px;" />
+      <div class="panel-caption">Heatmap t+5</div>
+    </div>
+    <div class="gallery-panel">
+      <div class="panel-label">d</div>
+      <img class="panel-img" src="fig_d.png" style="height:220px;" />
+      <div class="panel-caption">Heatmap t+6</div>
+    </div>
+  </div>
+
+  <div class="gallery-desc">
+    <strong>Figure 2:</strong> Node importance evolves from frontal to temporal regions
+    across time steps, consistent with seizure propagation patterns.
+  </div>
+
+  DESIGN RULES:
+  - Panel labels (a, b, c, d) always present
+  - Images: compute height from aspect ratio — NEVER flex:1 or height:100%
+  - Captions: max 8 words per panel
+  - All panels same height within a row
+  - Shared description at bottom: 1-2 sentences max
+
+  IMAGE SIZING:
+  - For 2-col: each image ~540px wide
+  - For 3-col: each image ~360px wide
+  - For 2×2: each image ~540px wide, ~220px tall (adjust per aspect ratio)
+  - ALWAYS set explicit height based on aspect ratio
+
+  AVOID:
+  - More than 4 panels (gets too small)
+  - Mixed aspect ratios without adjusting heights
+  - Long captions (they compete with the images)
+  - Missing panel labels (reader can't reference specific panels)
+-->

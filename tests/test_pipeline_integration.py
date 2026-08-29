@@ -12,6 +12,7 @@ Tests cover:
 import pytest
 from unittest.mock import MagicMock, patch
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 from app.schemas.issue_types import (
     VALID_ISSUE_TYPES, ALL_VALID_TYPES, B_SERIES_TYPES,
@@ -120,19 +121,20 @@ class TestConsumerImports:
         # B_SERIES_TYPES should be the same object as the registry's
         assert eval_router.B_SERIES_TYPES is B_SERIES_TYPES
 
-    def test_eval_router_uses_registry_dedup_pairs(self):
+    def test_eval_router_uses_semantic_dedup(self):
         from app.orchestrator import eval_router
-        assert eval_router.DEDUP_PAIRS is DEDUP_PAIRS
+        from app.utils import issue_identity
+        assert eval_router.issues_share_target is issue_identity.issues_share_target
 
     def test_base_judge_uses_registry(self):
         from app.modules.evaluators import base_judge
         assert base_judge.VALID_ISSUE_TYPES is VALID_ISSUE_TYPES
 
     def test_redeck_uses_registry(self):
-        from app.modules.redeck import repair_worker
-        assert repair_worker.UNSOLVABLE_ISSUE_TYPES is UNSOLVABLE_TYPES
-        assert repair_worker.SPATIAL_ONLY_ISSUE_TYPES is SPATIAL_ISSUE_TYPES
-        assert repair_worker.TRULY_CROSS_SLIDE_TYPES is CROSS_SLIDE_TYPES
+        from app.modules.redeck import dispatcher
+        assert dispatcher.UNSOLVABLE_ISSUE_TYPES is UNSOLVABLE_TYPES
+        assert dispatcher.SPATIAL_ONLY_ISSUE_TYPES is SPATIAL_ISSUE_TYPES
+        assert dispatcher.TRULY_CROSS_SLIDE_TYPES is CROSS_SLIDE_TYPES
 
     def test_spatial_state_uses_centralized_dims(self):
         from app.modules.redeck.spatial_state import SLIDE_WIDTH, SLIDE_HEIGHT
@@ -387,7 +389,8 @@ class TestEdgeCases:
     def test_empty_modified_set_is_not_falsy(self):
         """An empty set() is falsy in Python but should NOT skip diff eval."""
         modified_slides = set()
-        # Diff evaluation should distinguish an empty set from None.
+        # This was a bug: `if modified_slides:` fails for empty set
+        # Fixed to: `if modified_slides is not None:`
         assert modified_slides is not None  # should be True
         assert not modified_slides  # empty set IS falsy
         # The pipeline uses `is not None`, which is correct:
@@ -417,15 +420,13 @@ class TestEdgeCases:
         assert "poor_flow" in UNSOLVABLE_TYPES
 
     def test_unsolvable_includes_visual_inconsistency(self):
-        """visual_inconsistency belongs to the UNSOLVABLE issue set."""
+        """visual_inconsistency was previously missing from UNSOLVABLE — verify fix."""
         assert "visual_inconsistency" in UNSOLVABLE_TYPES
 
     def test_slide_manifest_uses_registry(self):
-        from app.modules.redeck.slide_manifest import (
-            UNSOLVABLE_ISSUE_TYPES, HIGH_CHURN_ISSUE_TYPES,
-        )
-        assert UNSOLVABLE_ISSUE_TYPES is UNSOLVABLE_TYPES
-        assert HIGH_CHURN_ISSUE_TYPES is UNSOLVABLE_TYPES
+        from app.modules.redeck import slide_manifest
+        assert slide_manifest.UNSOLVABLE_ISSUE_TYPES is UNSOLVABLE_TYPES
+        assert not hasattr(slide_manifest, "HIGH_CHURN_ISSUE_TYPES")
 
 
 # ================================================================
@@ -435,13 +436,15 @@ class TestEdgeCases:
 class TestCrossModuleConsistency:
     """Check that modules agree on the same sets."""
 
-    def test_redeck_high_value_is_registry(self):
-        from app.modules.redeck import repair_worker
-        assert not hasattr(repair_worker, 'HIGH_VALUE_TYPES')
+    def test_dispatcher_has_no_legacy_high_value_filter(self):
+        # HIGH_VALUE_TYPES was removed with the legacy repair filters.
+        # Verify it's no longer imported
+        from app.modules.redeck import dispatcher
+        assert not hasattr(dispatcher, 'HIGH_VALUE_TYPES')
 
-    def test_redeck_critical_content_is_registry(self):
-        from app.modules.redeck import repair_worker
-        assert repair_worker.CRITICAL_CONTENT_TYPES is CRITICAL_CONTENT_TYPES
+    def test_dispatcher_critical_content_is_registry(self):
+        from app.modules.redeck import dispatcher
+        assert dispatcher.CRITICAL_CONTENT_TYPES is CRITICAL_CONTENT_TYPES
 
     def test_agent_repair_critical_content_is_registry(self):
         from app.modules.redeck import agent_repair
@@ -494,13 +497,13 @@ class TestNoHardcodedConstants:
         assert not raw_1280, f"spatial_state has hardcoded 1280: {raw_1280}"
         assert not raw_720, f"spatial_state has hardcoded 720: {raw_720}"
 
-    def test_redeck_no_raw_emu_literals(self):
-        """repair_worker should use SlideDimensions for Emu() calls."""
+    def test_dispatcher_no_raw_emu_literals(self):
+        """The active dispatcher should use SlideDimensions for Emu() calls."""
         import inspect, re
-        from app.modules.redeck import repair_worker
-        source = inspect.getsource(repair_worker)
+        from app.modules.redeck import dispatcher
+        source = inspect.getsource(dispatcher)
         raw_emu = re.findall(r'Emu\(12192000\)|Emu\(6858000\)', source)
-        assert not raw_emu, f"repair_worker has hardcoded Emu(): {raw_emu}"
+        assert not raw_emu, f"dispatcher has hardcoded Emu(): {raw_emu}"
 
     def test_agent_repair_no_raw_emu_literals(self):
         """agent_repair should use SlideDimensions for Emu() calls."""
@@ -510,11 +513,18 @@ class TestNoHardcodedConstants:
         raw_emu = re.findall(r'Emu\(12192000\)|Emu\(6858000\)', source)
         assert not raw_emu, f"agent_repair has hardcoded Emu(): {raw_emu}"
 
+    def test_deck_style_enforcer_no_raw_914400(self):
+        """deck_style_enforcer should use SlideDimensions.EMU_PER_INCH."""
+        import inspect, re
+        from app.backends.python_pptx import deck_style_enforcer
+        source = inspect.getsource(deck_style_enforcer)
+        raw_divs = re.findall(r'/ 914400\b', source)
+        assert not raw_divs, f"deck_style_enforcer has raw '/ 914400': {raw_divs}"
 
-    def test_repair_worker_imports_slide_dims(self):
-        """repair_worker should import SlideDimensions from registry."""
-        from app.modules.redeck import repair_worker
-        assert repair_worker.SlideDimensions is SlideDimensions
+    def test_dispatcher_imports_slide_dims(self):
+        """The active dispatcher should import SlideDimensions from registry."""
+        from app.modules.redeck import dispatcher
+        assert dispatcher.SlideDimensions is SlideDimensions
 
 
 # ================================================================
@@ -608,3 +618,27 @@ class TestInlineSetsValidity:
         # 3-dot import `from ...render_backends` resolves to app.render_backends (correct)
         bad_imports = re.findall(r'from \.\.render_backends', source)
         assert not bad_imports, f"agent_repair has wrong 2-dot render_backends import: {bad_imports}"
+
+
+class TestBestTurnRollback:
+    def test_new_probe_discoveries_do_not_rollback_valid_repair(self):
+        from app.orchestrator.run_manager import RunManager
+
+        summary = SimpleNamespace(issues_resolved=1, issues_new=2)
+
+        assert not RunManager._should_rollback_to_best(
+            summary,
+            best_open=1,
+            current_open=2,
+        )
+
+    def test_comparable_issue_count_regression_can_rollback(self):
+        from app.orchestrator.run_manager import RunManager
+
+        summary = SimpleNamespace(issues_resolved=0, issues_new=0)
+
+        assert RunManager._should_rollback_to_best(
+            summary,
+            best_open=1,
+            current_open=2,
+        )

@@ -7,12 +7,17 @@ name = "redeck"
 version = "0.1.0"
 description = "ReDeck: LLM-powered slide deck generation from academic papers with constraint-aware multi-turn refinement"
 requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Microsoft Corporation"}]
 dependencies = [
     "pydantic>=2.5,<3",
+    "python-pptx>=1.0,<2",
     "openai>=1.30,<2",
     "Pillow>=10.0,<11",
+    "pdf2image>=1.17,<2",
     "httpx>=0.27,<1",
     "tenacity>=8.2,<10",
+    "azure-identity>=1.15,<2",
     "PyMuPDF>=1.24,<2",
     "rank_bm25>=0.2.2,<1",
     "beautifulsoup4>=4.12,<5",
@@ -21,13 +26,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-azure = [
-    "azure-identity>=1.15",
-]
-pptx = [
-    "python-pptx>=1.0,<2",
-    "pdf2image>=1.17,<2",
-]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -39,3 +37,8 @@ slide-agent = "app.main:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["app*"]
+
+[project.urls]
+Homepage = "https://github.com/microsoft/ReDeck"
+Repository = "https://github.com/microsoft/ReDeck"
+Issues = "https://github.com/microsoft/ReDeck/issues"

@@ -3,15 +3,16 @@
 
 Usage:
     # Single paper
-    python3.11 scripts/run_pdf_pipeline.py --configs codegen --codegen --case pdf_2408.03326v3
+    python3.11 scripts/run_pdf_pipeline.py --configs html_codegen --html-codegen --case db_002 --max-turns 4
 
     # All papers in papers/ directory, in parallel
-    python3.11 scripts/run_pdf_pipeline.py --configs codegen --codegen --papers-dir papers --max-turns 10 --parallel 4
+    python3.11 scripts/run_pdf_pipeline.py --configs html_codegen --html-codegen --papers-dir papers --max-turns 4 --parallel 4
 
-Environment variables required:
-    OPENAI_API_KEY   - API key for OpenAI or an OpenAI-compatible endpoint
-    OPENAI_BASE_URL  - Optional OpenAI-compatible endpoint URL
-    OPENAI_MODEL     - Optional default model name
+API authentication:
+    AzureCliCredential is used by default with the Azure OpenAI endpoint. Run
+    `az login` first. Override with AZURE_OPENAI_ENDPOINT when needed.
+    Set REDECK_AZURE_AUTH=api_key to use API key auth explicitly.
+    Alternatively, set OPENAI_BASE_URL + OPENAI_API_KEY for OpenAI-compatible APIs.
 """
 
 import json
@@ -51,42 +52,42 @@ logger = logging.getLogger("run_pdf_pipeline")
 # Configuration templates
 # --------------------------------------------------------------------------
 
-MODEL = "gpt-4o"
+MODEL = "gpt-5.4"
 
 CONFIGS = {
     "default": {
-        "ablation_tags": ["default", "evaluation", "layout", "repair"],
+        "ablation_tags": ["plan_full", "eval_family_slide", "layout_explicit", "repair_typed"],
         "eval_mode": {"enabled": True, "split_level": "family_plus_slide"},
         "max_turns": 5,
         "layout_strategy": "template",
     },
     "codegen": {
-        "ablation_tags": ["codegen", "evaluation", "layout"],
+        "ablation_tags": ["codegen", "eval_family_slide", "layout_explicit"],
         "eval_mode": {"enabled": True, "split_level": "family_plus_slide"},
         "max_turns": 1,  # T0 only, no repair
         "layout_strategy": "template",
     },
     "codegen_repair": {
-        "ablation_tags": ["codegen", "evaluation", "layout", "repair"],
+        "ablation_tags": ["codegen", "eval_family_slide", "layout_freeform", "repair_enabled"],
         "eval_mode": {"enabled": True, "split_level": "family_plus_slide"},
         "max_turns": 5,
         "layout_strategy": "template",
     },
     "codegen_no_layout": {
-        "ablation_tags": ["codegen", "evaluation", "heuristic_layout"],
+        "ablation_tags": ["codegen", "eval_family_slide", "layout_heuristic"],
         "eval_mode": {"enabled": True, "split_level": "family_plus_slide"},
         "max_turns": 1,
         "layout_strategy": "none",
     },
     "html_codegen": {
-        "ablation_tags": ["html_codegen", "evaluation", "layout"],
+        "ablation_tags": ["html_codegen", "eval_family_slide", "layout_explicit"],
         "eval_mode": {"enabled": True, "split_level": "family_plus_slide"},
         "max_turns": 5,
         "use_html_codegen": True,
         "layout_strategy": "template",
     },
     "html_codegen_no_layout": {
-        "ablation_tags": ["html_codegen", "evaluation", "heuristic_layout"],
+        "ablation_tags": ["html_codegen", "eval_family_slide", "layout_heuristic"],
         "eval_mode": {"enabled": True, "split_level": "family_plus_slide"},
         "max_turns": 1,
         "use_html_codegen": True,
@@ -98,29 +99,57 @@ CONFIGS = {
 def build_config(
     config_name: str, case_id: str, max_turns: int,
     repair_strategy: str | None = None, run_suffix: str = "",
+    codegen_prompt: str | None = None, theme_id: str | None = None,
+    model: str | None = None, codegen_model: str | None = None,
+    repair_model: str | None = None, prebuilt_blueprint_path: str | None = None,
+    prebuilt_turn0_dir: str | None = None,
+    style_pattern: str | None = None,
 ) -> ExperimentConfig:
     """Build an ExperimentConfig from a named template."""
     template = CONFIGS[config_name]
     suffix = f"_{run_suffix}" if run_suffix else ""
     run_id = f"{case_id}_{config_name}_{max_turns}turns{suffix}"
+    models = {"default": model or MODEL}
+    if codegen_model:
+        models["slide_codegen"] = codegen_model
+    if repair_model:
+        models["slide_repair"] = repair_model
     config_dict = {
         "run_id": run_id,
         "ablation_tags": template["ablation_tags"],
-        "models": {"default": MODEL},
+        "models": models,
         "eval_mode": template["eval_mode"],
         "render_mode": {
             "fast_backend": "linux_lo_pdf",
-            "reference_backend": "linux_lo_pdf",
+            "reference_backend": "graph_pdf",
         },
         "max_turns": max_turns,
         "use_html_codegen": template.get("use_html_codegen", False),
         "repair_strategy": repair_strategy or template.get("repair_strategy", "redeck"),
         "layout_strategy": template.get("layout_strategy", "template"),
     }
+    if codegen_prompt:
+        config_dict["codegen_prompt"] = codegen_prompt
+    if theme_id:
+        config_dict["theme_id"] = theme_id
+    if prebuilt_blueprint_path:
+        config_dict["prebuilt_blueprint_path"] = prebuilt_blueprint_path
+    if prebuilt_turn0_dir:
+        config_dict["prebuilt_turn0_dir"] = prebuilt_turn0_dir
+    if style_pattern:
+        config_dict["style_pattern"] = style_pattern
     return ExperimentConfig.model_validate(config_dict)
 
 
-def ensure_case_from_pdf(pdf_path: str, cases_dir: str = "cases") -> str:
+def ensure_case_from_pdf(
+    pdf_path: str,
+    cases_dir: str = "cases",
+    *,
+    deck_type: str = "conference_talk",
+    audience: str = "researchers",
+    source_kind: str = "paper",
+    page_budget: list[int] | None = None,
+) -> str:
     """Create a case directory from a PDF file if it doesn't already exist."""
     pdf_path = Path(pdf_path)
     creator = CaseCreator()
@@ -133,8 +162,9 @@ def ensure_case_from_pdf(pdf_path: str, cases_dir: str = "cases") -> str:
 
     return creator.create_from_pdf(
         pdf_path, cases_dir=cases_dir,
-        deck_type="conference_talk", audience="researchers",
-        page_budget=[8, 12],
+        deck_type=deck_type, audience=audience,
+        source_kind=source_kind,
+        page_budget=page_budget or [8, 12],
     )
 
 
@@ -145,6 +175,15 @@ def run_single_case(
     cases_dir: str = "cases",
     repair_strategy: str | None = None,
     run_suffix: str = "",
+    codegen_prompt: str | None = None,
+    theme_id: str | None = None,
+    runs_dir: str | None = None,
+    model: str | None = None,
+    codegen_model: str | None = None,
+    repair_model: str | None = None,
+    prebuilt_blueprint_path: str | None = None,
+    prebuilt_turn0_dir: str | None = None,
+    style_pattern: str | None = None,
 ) -> dict:
     """Run the pipeline for a single case. Designed for subprocess execution."""
     # Re-setup logging for subprocess
@@ -157,10 +196,18 @@ def run_single_case(
     sub_logger = logging.getLogger(f"run.{case_id}")
 
     config = build_config(config_name, case_id, max_turns,
-                          repair_strategy=repair_strategy, run_suffix=run_suffix)
+                          repair_strategy=repair_strategy, run_suffix=run_suffix,
+                          codegen_prompt=codegen_prompt, theme_id=theme_id,
+                          model=model,
+                          codegen_model=codegen_model,
+                          repair_model=repair_model,
+                          prebuilt_blueprint_path=prebuilt_blueprint_path,
+                          prebuilt_turn0_dir=prebuilt_turn0_dir,
+                          style_pattern=style_pattern)
 
     # Skip if already completed
-    run_result_path = Path("runs") / config.run_id / "run_result.json"
+    actual_runs_dir = runs_dir or "runs"
+    run_result_path = Path(actual_runs_dir) / config.run_id / "run_result.json"
     if run_result_path.exists():
         try:
             existing = json.load(open(run_result_path))
@@ -180,6 +227,7 @@ def run_single_case(
             config=config,
             cases_dir=cases_dir,
             base_dir=".",
+            runs_dir=runs_dir,
         )
 
         summaries = runner.run(case_id)
@@ -225,7 +273,7 @@ def run_single_case(
         sub_logger.error("FAILED after %.1fs: %s", elapsed, e)
 
     # Save individual result
-    result_path = Path(f"runs/{result['run_id']}/run_result.json")
+    result_path = Path(actual_runs_dir) / result['run_id'] / "run_result.json"
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(json.dumps(result, indent=2, ensure_ascii=False))
 
@@ -244,20 +292,55 @@ def main():
     parser.add_argument("--papers-dir", default=None,
                         help="Directory of PDF papers; auto-creates cases from each")
     parser.add_argument("--max-turns", type=int, default=10,
-                        help="Maximum turns per case (default: 10)")
+                        help="Total turns per case, including T0 generation (default: 10)")
+    parser.add_argument("--repair-turns", type=int, default=None,
+                        help="Repair turns after T0; overrides --max-turns")
     parser.add_argument("--parallel", type=int, default=1,
                         help="Number of parallel workers (default: 1)")
     parser.add_argument("--cases-dir", default="cases",
                         help="Base directory for cases (default: cases)")
     parser.add_argument("--skip-layout-design", action="store_true",
-                        help="Skip LLM layout designer and use heuristic codegen only")
+                        help="Ablation: skip LLM layout designer, use heuristic codegen only")
     parser.add_argument("--html-codegen", action="store_true",
-                        help="Use HTML/CSS code generation with Playwright rendering")
+                        help="Use HTML/CSS code generation (Playwright rendering) instead of python-pptx")
     parser.add_argument("--repair-strategy", choices=["redeck", "baseline"], default=None,
                         help="Repair strategy: 'redeck' (agentic, default) or 'baseline' (single-pass naive)")
     parser.add_argument("--run-suffix", default="",
                         help="Suffix appended to run directory names (e.g. 'baseline')")
+    parser.add_argument("--codegen-prompt", default=None,
+                        help="Custom codegen prompt name (e.g. 'slide_html_codegen_imgseed')")
+    parser.add_argument("--theme-id", default=None,
+                        help="Theme ID or family (e.g. 'ocean_breeze', 'navy_sand', 'demo_curated_all')")
+    parser.add_argument("--style-pattern", default=None,
+                        help="Design pattern for deck-level styling ('auto' or pattern name/id)")
+    parser.add_argument("--runs-dir", default=None,
+                        help="Custom output directory for runs (default: ./runs/)")
+    parser.add_argument("--model", default=MODEL,
+                        help=f"Model deployment for all modules (default: {MODEL})")
+    parser.add_argument("--codegen-model", default=None,
+                        help="Optional T0 HTML generation model override")
+    parser.add_argument("--repair-model", default=None,
+                        help="Optional HTML repair model override; defaults to codegen model")
+    parser.add_argument("--prebuilt-blueprint", default=None,
+                        help="Optional deck_blueprint.json reused for controlled T0 generation")
+    parser.add_argument("--prebuilt-turn0-dir", default=None,
+                        help="Optional prebuilt T0 artifacts reused for repair-only runs")
+    parser.add_argument("--page-budget", nargs=2, type=int, metavar=("MIN", "MAX"),
+                        default=[8, 12], help="Target slide-count range for new PDF cases")
+    parser.add_argument("--deck-type", default="conference_talk",
+                        help="Presentation intent for new PDF cases")
+    parser.add_argument("--audience", default="researchers",
+                        help="Target audience for new PDF cases")
+    parser.add_argument("--source-kind", choices=["paper", "document"], default="paper",
+                        help="Use document for reports, filings, and existing presentations")
     args = parser.parse_args()
+
+    if args.repair_turns is not None:
+        if args.repair_turns < 0:
+            parser.error("--repair-turns must be non-negative")
+        args.max_turns = args.repair_turns + 1
+    if args.page_budget[0] > args.page_budget[1]:
+        parser.error("--page-budget MIN must not exceed MAX")
 
     config_name = args.configs.split(",")[0]
 
@@ -268,10 +351,10 @@ def main():
         else:
             config_name = "html_codegen"
         logger.info("HTML codegen mode: using config '%s'", config_name)
-    # If --skip-layout-design is set, use the heuristic-layout config.
+    # If --skip-layout-design is set, override to use codegen_no_layout config
     elif args.skip_layout_design and config_name == "codegen":
         config_name = "codegen_no_layout"
-        logger.info("Heuristic layout mode: --skip-layout-design -> using config '%s'", config_name)
+        logger.info("Ablation mode: --skip-layout-design -> using config '%s'", config_name)
 
     # Collect case IDs to run
     case_ids = []
@@ -286,7 +369,13 @@ def main():
         logger.info("Found %d PDFs in %s, creating cases...", len(pdf_files), papers_dir)
         for pdf_path in pdf_files:
             try:
-                case_id = ensure_case_from_pdf(str(pdf_path), args.cases_dir)
+                case_id = ensure_case_from_pdf(
+                    str(pdf_path), args.cases_dir,
+                    deck_type=args.deck_type,
+                    audience=args.audience,
+                    source_kind=args.source_kind,
+                    page_budget=args.page_budget,
+                )
                 case_ids.append(case_id)
                 logger.info("  Case ready: %s <- %s", case_id, pdf_path.name)
             except Exception as e:
@@ -319,6 +408,10 @@ def main():
                     run_single_case,
                     case_id, config_name, args.max_turns,
                     args.cases_dir, args.repair_strategy, args.run_suffix,
+                    args.codegen_prompt, args.theme_id, args.runs_dir, args.model,
+                    args.codegen_model, args.repair_model,
+                    args.prebuilt_blueprint, args.prebuilt_turn0_dir,
+                    args.style_pattern,
                 ): case_id
                 for case_id in case_ids
             }
@@ -347,6 +440,10 @@ def main():
             result = run_single_case(
                 case_id, config_name, args.max_turns,
                 args.cases_dir, args.repair_strategy, args.run_suffix,
+                args.codegen_prompt, args.theme_id, args.runs_dir, args.model,
+                args.codegen_model, args.repair_model,
+                args.prebuilt_blueprint, args.prebuilt_turn0_dir,
+                args.style_pattern,
             )
             all_results.append(result)
 
@@ -376,7 +473,8 @@ def main():
             print(f"  {case:40s} {status:10s} {elapsed:>6}s  {error}")
 
     # Save aggregate results
-    agg_path = Path("runs/batch_results.json")
+    agg_dir = Path(args.runs_dir) if args.runs_dir else Path("runs")
+    agg_path = agg_dir / "batch_results.json"
     agg_path.write_text(json.dumps(all_results, indent=2, ensure_ascii=False))
     print(f"\nAggregate results saved to: {agg_path}")
     print("=" * 80)

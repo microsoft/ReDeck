@@ -8,8 +8,11 @@ from .io_utils import ensure_dir
 class RunPaths:
     """Manages all paths for a single run."""
 
-    def __init__(self, base_dir: str | Path, run_id: str):
-        self.base = Path(base_dir) / "runs" / run_id
+    def __init__(self, base_dir: str | Path, run_id: str, runs_dir: str | Path | None = None):
+        if runs_dir:
+            self.base = Path(runs_dir) / run_id
+        else:
+            self.base = Path(base_dir) / "runs" / run_id
         ensure_dir(self.base)
 
     def turn_dir(self, turn_index: int) -> Path:
@@ -55,11 +58,6 @@ class RunPaths:
         return d
 
     def issues_path(self, turn: int) -> Path:
-        # Prefer issues_v6.jsonl (re-evaluated with per-slide evidence);
-        # fall back to issues.jsonl for backwards compatibility.
-        v6 = self.eval_dir(turn) / "issues_v6.jsonl"
-        if v6.exists():
-            return v6
         return self.eval_dir(turn) / "issues.jsonl"
 
     def rubric_reports_dir(self, turn: int) -> Path:

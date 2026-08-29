@@ -1,12 +1,11 @@
 {
   "name": "video",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Remotion source for the ReDeck research overview video",
   "scripts": {
-    "dev": "npx remotion studio src/index.ts",
-    "build": "npx remotion render src/index.ts DemoReel out/demo-reel.mp4",
-    "preview": "npx remotion preview src/index.ts"
+    "dev": "remotion studio src/index.ts",
+    "build": "remotion render src/index.ts ReDeckDemo ../demo/assets/redeck-demo.mp4 --codec=h264 --crf=18",
+    "narration:generate": "${COSYVOICE_PYTHON:-python} narration/generate-cosyvoice-assets.py --cues narration/v6-cues.json --prompt-wav narration/reference/ava-professional.wav --prompt-metadata narration/reference/ava-professional.json --output public/narration-v6 --speed 1.12"
   },
   "keywords": [],
   "author": "",
@@ -14,7 +13,6 @@
   "dependencies": {
     "@remotion/bundler": "^4.0.490",
     "@remotion/cli": "^4.0.490",
-    "@remotion/player": "^4.0.490",
     "@types/react": "^19.2.17",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

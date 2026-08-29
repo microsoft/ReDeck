@@ -1,0 +1,202 @@
+<!--
+  SKILL: Key Finding / Takeaway Emphasis
+  Use when: a slide should spotlight ONE main result or insight with
+  supporting evidence arranged around it
+
+  DIFFERENT FROM quote_block:
+  - quote_block: pull-quote style for conclusions
+  - key_finding: data-driven emphasis with number + supporting bullets
+
+  DIFFERENT FROM metric:
+  - metric: single metric card (part of a layout)
+  - key_finding: full-slide layout centered on one key result
+
+  KEY RULES:
+  - One HERO number or statement dominates the slide
+  - 3-4 supporting evidence points arranged below or beside
+  - Optional before/after or comparison context
+  - Clean, high-contrast design
+-->
+
+<style>
+  .kf-hero {
+    position: absolute;
+    left: 60px;
+    top: 120px;
+    width: 500px;
+  }
+  .kf-hero-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: ACCENT;
+    margin-bottom: 8px;
+  }
+  .kf-hero-value {
+    font-size: 64px;
+    font-weight: 800;
+    color: PRIMARY_DARK;
+    line-height: 1.1;
+    margin-bottom: 12px;
+  }
+  .kf-hero-context {
+    font-size: 16px;
+    line-height: 1.5;
+    color: #3a4a5c;
+    max-width: 420px;
+  }
+
+  /* Before/after comparison */
+  .kf-compare {
+    position: absolute;
+    left: 60px;
+    top: 340px;
+    display: flex;
+    gap: 20px;
+  }
+  .kf-compare-item {
+    padding: 12px 20px;
+    border-radius: 10px;
+    background: #f7f8fa;
+    min-width: 140px;
+  }
+  .kf-compare-item.highlight {
+    background: rgba(ACCENT_RGB, 0.06);
+    border: 1px solid rgba(ACCENT_RGB, 0.2);
+  }
+  .kf-compare-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #8896a6;
+    margin-bottom: 4px;
+  }
+  .kf-compare-item.highlight .kf-compare-label {
+    color: ACCENT;
+  }
+  .kf-compare-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: PRIMARY_DARK;
+  }
+  .kf-compare-desc {
+    font-size: 12px;
+    color: #5a6977;
+    margin-top: 2px;
+  }
+
+  /* Supporting evidence */
+  .kf-evidence {
+    position: absolute;
+    right: 50px;
+    top: 120px;
+    width: 380px;
+  }
+  .kf-evidence-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: PRIMARY_MID;
+    margin-bottom: 14px;
+  }
+  .kf-evidence-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .kf-evidence-num {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: rgba(PRIMARY_RGB, 0.06);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    color: PRIMARY_DARK;
+  }
+  .kf-evidence-text {
+    font-size: 13px;
+    line-height: 1.5;
+    color: #3a4a5c;
+  }
+  .kf-evidence-text strong {
+    color: PRIMARY_DARK;
+    font-weight: 700;
+  }
+</style>
+
+<!--
+  USAGE:
+
+  <div class="kf-hero">
+    <div class="kf-hero-label">Main result</div>
+    <div class="kf-hero-value">+7.0 pp</div>
+    <div class="kf-hero-context">
+      Skill-augmented synthetic computers outperform baseline by
+      7.0 percentage points on mean rubric score across 100 held-out evaluations.
+    </div>
+  </div>
+
+  <div class="kf-compare">
+    <div class="kf-compare-item">
+      <div class="kf-compare-label">Baseline</div>
+      <div class="kf-compare-value">61.6%</div>
+      <div class="kf-compare-desc">mean rubric score</div>
+    </div>
+    <div class="kf-compare-item highlight">
+      <div class="kf-compare-label">Skill-augmented</div>
+      <div class="kf-compare-value">68.6%</div>
+      <div class="kf-compare-desc">mean rubric score</div>
+    </div>
+    <div class="kf-compare-item">
+      <div class="kf-compare-label">Win rate</div>
+      <div class="kf-compare-value">83%</div>
+      <div class="kf-compare-desc">at 900 training computers</div>
+    </div>
+  </div>
+
+  <div class="kf-evidence">
+    <div class="kf-evidence-title">Supporting evidence</div>
+    <div class="kf-evidence-item">
+      <div class="kf-evidence-num">1</div>
+      <div class="kf-evidence-text"><strong>Consistent improvement:</strong> skill-augmented wins on 83 of 100 held-out computers</div>
+    </div>
+    <div class="kf-evidence-item">
+      <div class="kf-evidence-num">2</div>
+      <div class="kf-evidence-text"><strong>Scale effect:</strong> win rate grows from 48% to 83% with more training data</div>
+    </div>
+    <div class="kf-evidence-item">
+      <div class="kf-evidence-num">3</div>
+      <div class="kf-evidence-text"><strong>Generalization:</strong> improvement holds across all occupation categories</div>
+    </div>
+    <div class="kf-evidence-item">
+      <div class="kf-evidence-num">4</div>
+      <div class="kf-evidence-text"><strong>Trajectory signal:</strong> retrospective reports provide richer learning signal than final files alone</div>
+    </div>
+  </div>
+
+  DESIGN RULES:
+  - ONE hero number or statement, large (48-64px)
+  - Accent-colored label above the hero value
+  - 1-2 sentence context below hero
+  - Optional before/after comparison cards (2-3 cards)
+  - Right panel: 3-4 numbered evidence points
+  - This is a HIGHLIGHT slide — lots of white space
+
+  WHEN TO USE:
+  - Main result slide (the "headline" finding)
+  - Ablation summary ("removing X drops Y by Z%")
+  - Any slide where one metric tells the story
+
+  AVOID:
+  - Multiple competing hero numbers (use stat_dashboard)
+  - Long paragraphs (keep hero context to 2 sentences)
+  - Using for slides with tables/figures (use evidence_card)
+-->

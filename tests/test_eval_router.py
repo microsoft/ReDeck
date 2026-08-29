@@ -1,6 +1,7 @@
 """Tests for EvalRouter with mocked LLM calls."""
 
 import pytest
+import json
 from unittest.mock import MagicMock, patch
 
 from app.orchestrator.eval_router import EvalRouter
@@ -98,3 +99,39 @@ class TestEvalRouter:
             issues = router.evaluate(extractions, [], "brief", "summary")
             # In monolithic mode, only narrative judge is called
             assert mock_llm.call_text.call_count >= 1
+
+    def test_visual_judge_includes_exact_visible_text(self, mock_llm, default_config, extractions):
+        """Typography findings can be checked against extracted characters."""
+        with patch(
+            "app.modules.evaluators.base_judge.BaseJudge._load_prompt",
+            return_value="mock prompt",
+        ):
+            router = EvalRouter(mock_llm, default_config)
+            router.visual_judge.evaluate(extractions, [], scope_slides=[1])
+
+        user_content = mock_llm.call_text.call_args.kwargs["user_content"]
+        assert '"visible_text": "Content for slide 1"' in user_content
+
+    def test_local_coverage_probe_receives_deck_context(
+        self, mock_llm, default_config, extractions,
+    ):
+        from app.schemas.issue_types import PROBE_REGISTRY
+
+        with patch(
+            "app.modules.evaluators.base_judge.BaseJudge._load_prompt",
+            return_value="mock prompt",
+        ):
+            router = EvalRouter(mock_llm, default_config)
+            payload = router.svg_visual_probe._build_content_probe_content(
+                PROBE_REGISTRY["C03"],
+                [1],
+                extractions,
+                "source",
+                None,
+                None,
+                None,
+            )
+
+        data = json.loads(payload)
+        assert [slide["slide_id"] for slide in data["slide_content"]] == [1]
+        assert [slide["slide_id"] for slide in data["deck_context"]] == [1, 2]

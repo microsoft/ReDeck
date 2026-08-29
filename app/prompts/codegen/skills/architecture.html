@@ -1,0 +1,188 @@
+<!--
+  SKILL: Architecture Diagram
+  Use when: showing a system architecture with hierarchical or multi-level
+  structure (more complex than a linear pipeline)
+
+  DIFFERENT FROM pipeline:
+  - pipeline: LINEAR flow (A → B → C → D)
+  - architecture: HIERARCHICAL/MULTI-PATH structure with branches
+
+  KEY RULES:
+  - SVG-based diagram with labeled boxes and arrows
+  - 2-3 levels of hierarchy max
+  - Boxes: white fill + colored border (not solid dark fill)
+  - Arrows: thin, with optional labels
+  - 4-8 boxes total (not more)
+  - One "novel" component highlighted with accent border/fill
+-->
+
+<style>
+  .arch-diagram {
+    position: absolute;
+    left: 50px;
+    top: 100px;
+    width: 1180px;
+    height: 460px;
+  }
+
+  .arch-diagram svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Annotation panel for diagram */
+  .arch-notes {
+    position: absolute;
+    left: 60px;
+    bottom: 70px;
+    right: 60px;
+    display: flex;
+    gap: 30px;
+  }
+  .arch-note-item {
+    flex: 1;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .arch-note-icon {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+  }
+  .arch-note-text {
+    font-size: 13px;
+    line-height: 1.4;
+    color: #3a4a5c;
+  }
+  .arch-note-text strong {
+    color: PRIMARY_DARK;
+    display: block;
+    font-size: 14px;
+    margin-bottom: 2px;
+  }
+</style>
+
+<!--
+  SVG ARCHITECTURE TEMPLATE:
+
+  Key SVG building blocks:
+
+  1. Standard box (component):
+  <rect x="X" y="Y" width="W" height="H" rx="8"
+        fill="#fff" stroke="PRIMARY_MID" stroke-width="2"/>
+  <text x="CX" y="CY" text-anchor="middle"
+        font-size="13" font-weight="700" fill="PRIMARY_DARK">Label</text>
+
+  2. Highlighted box (novel component):
+  <rect x="X" y="Y" width="W" height="H" rx="8"
+        fill="rgba(ACCENT_RGB, 0.08)" stroke="ACCENT" stroke-width="2.5"/>
+  <text x="CX" y="CY" text-anchor="middle"
+        font-size="13" font-weight="700" fill="ACCENT">Our Module</text>
+
+  3. Arrow:
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="8"
+            refX="6" refY="4" orient="auto">
+      <path d="M0,1 L6,4 L0,7" fill="none" stroke="PRIMARY_LIGHT" stroke-width="1.5"/>
+    </marker>
+  </defs>
+  <line x1="X1" y1="Y1" x2="X2" y2="Y2"
+        stroke="PRIMARY_LIGHT" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+  4. Arrow with label:
+  <text x="MX" y="MY" text-anchor="middle"
+        font-size="10" fill="#666">edge label</text>
+
+  5. Grouping box (dashed border for a subsystem):
+  <rect x="X" y="Y" width="W" height="H" rx="12"
+        fill="none" stroke="#ccc" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <text x="X+8" y="Y+16" font-size="11" fill="#888">Subsystem name</text>
+
+  EXAMPLE — Two-stage framework:
+
+  <div class="arch-diagram">
+    <svg viewBox="0 0 1100 420">
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+          <path d="M0,1 L6,4 L0,7" fill="none" stroke="#8896a6" stroke-width="1.5"/>
+        </marker>
+      </defs>
+
+      <!-- Input -->
+      <rect x="20" y="170" width="120" height="60" rx="8" fill="#fff" stroke="PRIMARY_MID" stroke-width="2"/>
+      <text x="80" y="195" text-anchor="middle" font-size="13" font-weight="700" fill="PRIMARY_DARK">EEG Input</text>
+      <text x="80" y="215" text-anchor="middle" font-size="11" fill="#666">19 channels</text>
+
+      <!-- Arrow -->
+      <line x1="140" y1="200" x2="200" y2="200" stroke="#8896a6" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- Stage 1 group -->
+      <rect x="200" y="120" width="300" height="160" rx="12" fill="none" stroke="#ccc" stroke-width="1.5" stroke-dasharray="6,4"/>
+      <text x="220" y="140" font-size="11" font-weight="600" fill="#888">STAGE 1: Graph Construction</text>
+
+      <rect x="230" y="155" width="110" height="50" rx="8" fill="#fff" stroke="PRIMARY_MID" stroke-width="2"/>
+      <text x="285" y="185" text-anchor="middle" font-size="12" font-weight="600" fill="PRIMARY_DARK">Transformer</text>
+
+      <rect x="370" y="155" width="110" height="50" rx="8" fill="#fff" stroke="PRIMARY_MID" stroke-width="2"/>
+      <text x="425" y="185" text-anchor="middle" font-size="12" font-weight="600" fill="PRIMARY_DARK">MLP → Edges</text>
+
+      <line x1="340" y1="180" x2="370" y2="180" stroke="#8896a6" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- Arrow to Stage 2 -->
+      <line x1="500" y1="200" x2="560" y2="200" stroke="#8896a6" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- Stage 2 group (highlighted) -->
+      <rect x="560" y="120" width="280" height="160" rx="12" fill="rgba(ACCENT_RGB, 0.04)" stroke="ACCENT" stroke-width="2" stroke-dasharray="6,4"/>
+      <text x="580" y="140" font-size="11" font-weight="600" fill="ACCENT">STAGE 2: LLM Refinement (Ours)</text>
+
+      <rect x="590" y="155" width="220" height="50" rx="8" fill="rgba(ACCENT_RGB, 0.08)" stroke="ACCENT" stroke-width="2.5"/>
+      <text x="700" y="185" text-anchor="middle" font-size="13" font-weight="700" fill="ACCENT">LLM Edge Judge</text>
+
+      <!-- Arrow to output -->
+      <line x1="840" y1="200" x2="900" y2="200" stroke="#8896a6" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- Output -->
+      <rect x="900" y="170" width="140" height="60" rx="8" fill="PRIMARY_DARK" stroke="none"/>
+      <text x="970" y="195" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Refined Graph</text>
+      <text x="970" y="215" text-anchor="middle" font-size="11" fill="rgba(255,255,255,0.7)">→ GraphS4mer</text>
+    </svg>
+  </div>
+
+  <div class="arch-notes">
+    <div class="arch-note-item">
+      <div class="arch-note-icon" style="background:PRIMARY_MID;">1</div>
+      <div class="arch-note-text"><strong>Stage 1</strong>Transformer encodes channels, MLP predicts edges</div>
+    </div>
+    <div class="arch-note-item">
+      <div class="arch-note-icon" style="background:ACCENT;">2</div>
+      <div class="arch-note-text"><strong>Stage 2 (Novel)</strong>LLM judges each candidate edge with contextual reasoning</div>
+    </div>
+    <div class="arch-note-item">
+      <div class="arch-note-icon" style="background:PRIMARY_DARK;">3</div>
+      <div class="arch-note-text"><strong>Output</strong>Cleaner graph fed to downstream seizure detector</div>
+    </div>
+  </div>
+
+  DESIGN RULES:
+  - Use dashed grouping boxes for subsystems/stages
+  - Highlight the NOVEL component with accent color
+  - Max 8 total boxes in the diagram
+  - Labels: 2-4 words per box, font-size 12-13px
+  - Arrows: thin gray, with marker heads
+  - Optional annotation row below (arch-notes) for 2-3 key points
+  - ViewBox should give enough space: ~1100×420 for full-width
+
+  AVOID:
+  - More than 3 levels of nesting (too complex for one slide)
+  - Solid dark fills on most boxes (reserve for output/highlight)
+  - Crossing arrows (rearrange to avoid)
+  - More than 8 boxes total (simplify the architecture)
+-->
