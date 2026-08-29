@@ -1,0 +1,84 @@
+<!--
+  COMPARISON SLIDE — HTML Skill Pattern
+  Structure: Left data area (60%) + Right hero metric (40%)
+
+  VISUAL PRIORITY for .left (choose ONE):
+  1. ★ SVG Grouped Bar Chart — PREFERRED for numeric comparisons (3-5 models × 2-4 metrics)
+  2. Paper figure — when evidence provides one
+  3. HTML data table — fallback for dense numeric grids
+
+  CRITICAL RULES:
+  1. If this slide has a FIGURE/IMAGE: figure goes in .left, only 1-2 cards in .right
+  2. Table max 5 rows × 4 columns. Cell text max 4 words.
+  3. Right sidebar max 2 cards total
+  4. Total text max 120 words for the whole slide
+  5. Card descriptions: short phrases, NOT full sentences or paragraphs
+
+  ADAPT: Replace ALL colors with your palette. Replace ALL data with actual evidence.
+-->
+
+<style>
+  /* body zone: 720 - header(78) - bottom_bar(72) = 560px (with safety margin) */
+  .body { display:flex; gap:20px; height:560px; padding:20px 28px; overflow:hidden; }
+  .left { width:62%; overflow:hidden; display:flex; flex-direction:column; gap:12px; }
+  .right { width:38%; display:flex; flex-direction:column; gap:14px; overflow:hidden; }
+
+  /* — Comparison table with highlight row — */
+  .cmp-table { width:100%; border-collapse:collapse; font-size:12px; }
+  .cmp-table th {
+    background:PRIMARY_DARK; color:#fff; padding:9px 10px;
+    font-size:10px; text-transform:uppercase; letter-spacing:0.5px;
+  }
+  .cmp-table td { padding:8px 10px; border-bottom:1px solid #eee; }
+  .cmp-table tr.ours {
+    background:rgba(ACCENT_RGB, 0.10); font-weight:700;
+    border-left:3px solid ACCENT;
+  }
+
+  /* — Improvement hero (max 1 per slide) — */
+  .improve-card {
+    background:PRIMARY_DARK; border-radius:12px; padding:20px;
+    color:#fff; text-align:center;
+  }
+  .improve-card .delta { font-size:52px; font-weight:800; color:ACCENT; line-height:1; }
+  .improve-card .label { font-size:12px; margin-top:8px; opacity:0.85; }
+
+  /* — Discussion card (max 1, short bullets) — */
+  .discuss-card {
+    background:LIGHT_BG; border-radius:10px; padding:16px;
+    flex:1; overflow:hidden;
+  }
+  .discuss-card h4 { font-size:11px; text-transform:uppercase; color:PRIMARY_MID; margin:0 0 8px; }
+  .discuss-card li { font-size:11px; line-height:1.5; color:BODY_TEXT; margin-bottom:4px; }
+</style>
+
+<!--
+  ★ PREFERRED: SVG GROUPED BAR CHART in .left
+  Use when comparing methods/models on numeric metrics.
+
+  Template:
+  <svg width="100%" height="440" viewBox="0 0 700 440">
+    <text x="140" y="20" font-size="12" font-weight="700" fill="PRIMARY_DARK">METRIC NAME</text>
+    <!-- Grid lines -->
+    <line x1="140" y1="30" x2="140" y2="420" stroke="#e6e6ea" stroke-width="1"/>
+    <!-- Bar group: model name on left, colored bar, value on right -->
+    <text x="135" y="60" text-anchor="end" font-size="12" fill="#3a3a3a">Baseline</text>
+    <rect x="140" y="48" width="350" height="18" rx="3" fill="PRIMARY_MID" opacity="0.5"/>
+    <text x="498" y="62" font-size="11" font-weight="600" fill="BODY_TEXT">67.5</text>
+    <!-- Our method (highlighted) -->
+    <text x="135" y="90" text-anchor="end" font-size="12" font-weight="700" fill="PRIMARY_DARK">Ours</text>
+    <rect x="140" y="78" width="410" height="18" rx="3" fill="ACCENT"/>
+    <text x="558" y="92" font-size="11" font-weight="700" fill="ACCENT">73.7</text>
+  </svg>
+
+  RULES for SVG bar chart:
+  - Max 5 models/rows per group, max 2 metric groups side by side
+  - Our method's bars use ACCENT fill; baselines use PRIMARY_MID at 50% opacity
+  - Value labels to the right of each bar
+  - Y-axis model names left-aligned, right-anchor at x=135
+
+  WHEN SLIDE HAS A FIGURE:
+  - .left = figure container ONLY (sized per image formula)
+  - .right = 1 improve-card + 1 discuss-card (max 2 bullets each)
+  - NO footer bar that uses position:absolute
+-->

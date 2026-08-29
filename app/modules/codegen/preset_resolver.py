@@ -1,6 +1,7 @@
 """Preset Layout Resolver — maps slide roles to recommended layout configurations.
 
-Addresses the need for selecting layouts by narrative role.
+Addresses comment C5: "缺少按叙事角色选布局的能力"
+(lacking the ability to select layouts by narrative role).
 
 Instead of 20 separate JSON files, this module provides a structured
 lookup of layout presets keyed by narrative role. Each preset includes:

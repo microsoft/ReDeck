@@ -1,0 +1,71 @@
+<!--
+  CONTEXT SLIDE — HTML Skill Pattern
+  Structure: Left problem framing (60%) + Right key insight/hero sidebar (40%)
+
+  KEY: Context slides should have ONE dominant colored panel (dark or accent bg)
+  with the core claim/quote, PLUS 2-3 smaller supporting cards below.
+  The colored panel occupies 40-50% of the left column height.
+
+  DENSITY RULES:
+  - .claim-panel quote max 18 words
+  - .point-cards: max 3 cards, each max 15 words total (title + description)
+  - .insight-card number must be a real metric from evidence
+  - .why-card: max 2 bullets, 10 words each
+  - Total slide max 120 words
+  - Use noun phrases, NOT full sentences
+-->
+
+<style>
+  /* body zone: 720 - header(78) - bottom_bar(72) = 560px (with safety margin) */
+  .body { display:flex; gap:20px; height:560px; padding:20px 28px; overflow:hidden; }
+  .left { width:62%; display:flex; flex-direction:column; gap:14px; overflow:hidden; min-height:0; }
+  .right { width:38%; display:flex; flex-direction:column; gap:14px; overflow:hidden; min-height:0; }
+
+  /* — Core claim panel (dominant colored element) — */
+  .claim-panel {
+    background:PRIMARY_DARK; border-radius:12px; padding:24px 22px;
+    color:#fff;
+  }
+  .claim-panel .label { font-size:10px; text-transform:uppercase; letter-spacing:1px; opacity:0.7; margin-bottom:10px; }
+  .claim-panel .quote {
+    font-size:18px; font-weight:700; line-height:1.4; margin-bottom:12px;
+  }
+  .claim-panel .subtext { font-size:12px; opacity:0.85; line-height:1.5; }
+
+  /* — Challenge/Point cards (colored bg variants) — */
+  .point-cards { display:flex; gap:10px; flex:1; }
+  .point-card {
+    flex:1; border-radius:10px; padding:16px 14px; overflow:hidden;
+  }
+  .point-card.dark { background:PRIMARY_MID; color:#fff; }
+  .point-card.accent { background:ACCENT; color:#fff; }
+  .point-card.light { background:LIGHT_BG; color:BODY_TEXT; }
+  .point-card .num {
+    width:24px; height:24px; border-radius:50%; background:rgba(255,255,255,0.2);
+    display:flex; align-items:center; justify-content:center;
+    font-size:12px; font-weight:700; margin-bottom:8px;
+  }
+  .point-card h5 { font-size:13px; font-weight:700; margin:0 0 4px; }
+  .point-card p { font-size:11px; line-height:1.3; margin:0; opacity:0.9; }
+
+  /* — Right sidebar: hero + explanation — */
+  .insight-card {
+    background:ACCENT; border-radius:12px; padding:20px; color:#fff; text-align:center;
+  }
+  .insight-card .icon { font-size:24px; margin-bottom:8px; }
+  .insight-card .number { font-size:48px; font-weight:800; line-height:1; }
+  .insight-card .label { font-size:12px; margin-top:8px; opacity:0.85; }
+
+  .why-card {
+    background:LIGHT_BG; border-radius:10px; padding:16px; flex:1; overflow:hidden;
+  }
+  .why-card h4 { font-size:11px; text-transform:uppercase; color:PRIMARY_MID; margin:0 0 10px; }
+  .why-card li { font-size:11px; line-height:1.4; color:BODY_TEXT; margin-bottom:3px; }
+</style>
+
+<!--
+  VARIANT: Research gap framing
+  - .claim-panel shows "what prior work lacks"
+  - .point-cards show 2-3 specific gaps/challenges
+  - .insight-card shows "this paper's contribution" or key metric
+-->

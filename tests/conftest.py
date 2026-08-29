@@ -16,13 +16,32 @@ from app.schemas.intent import IntentState
 from app.schemas.issue import Issue, IssueEvidence
 from app.schemas.repair_unit import RepairUnit
 
-CASE_01_DIR = Path(__file__).resolve().parent.parent / "cases" / "case_01"
-
-
 @pytest.fixture
-def case_01_dir() -> Path:
-    """Path to cases/case_01."""
-    return CASE_01_DIR
+def case_01_dir(tmp_path):
+    """Create the minimal legacy case layout used by loader/indexer tests."""
+    case_dir = tmp_path / "cases" / "case_01"
+    table_dir = case_dir / "source_pack" / "extracted_tables"
+    table_dir.mkdir(parents=True)
+    (case_dir / "task_brief.md").write_text(
+        "# Multi-Modal Benchmark Review\n\n"
+        "## Must-Cover Points\n"
+        "- Benchmark model accuracy\n"
+        "- Latency and cost trade-offs\n\n"
+        "## Must-Avoid\n"
+        "- Unsupported marketing claims\n",
+        encoding="utf-8",
+    )
+    (case_dir / "constraints.json").write_text(
+        '{"case_id":"case_01","deck_type":"conference_talk",'
+        '"audience":"AI/ML researchers","page_budget":[8,10],'
+        '"editable_required":true}',
+        encoding="utf-8",
+    )
+    (table_dir / "benchmark_results.csv").write_text(
+        "Model,Accuracy,Latency\nBaseline,78.2,42\nProposed,84.7,31\n",
+        encoding="utf-8",
+    )
+    return case_dir
 
 
 @pytest.fixture

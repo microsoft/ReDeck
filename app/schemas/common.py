@@ -48,6 +48,7 @@ class EvalSplitLevel(str, Enum):
 
 class RenderBackendType(str, Enum):
     LINUX_LO_PDF = "linux_lo_pdf"
+    GRAPH_PDF = "graph_pdf"
     MAC_POWERPOINT_PDF = "mac_powerpoint_pdf"
     MAC_POWERPOINT_PNG = "mac_powerpoint_png"
 

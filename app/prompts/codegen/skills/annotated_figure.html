@@ -1,0 +1,100 @@
+<!--
+  SKILL: Annotated Figure
+  Use when: a figure needs callout labels, arrows, or highlighted regions
+
+  KEY RULES:
+  - Figure displayed at proper aspect ratio (compute from given ratio)
+  - Annotations are HTML/CSS overlays or SVG on top
+  - Keep annotations short (2-5 words each)
+  - Use leader lines or arrows connecting labels to figure regions
+  - Don't obscure the figure content
+-->
+
+<style>
+  .annotated-figure {
+    position: relative;
+    display: inline-block;
+  }
+  .annotated-figure img {
+    display: block;
+    object-fit: contain;
+  }
+  /* Annotation label — positioned absolutely over the figure */
+  .fig-annotation {
+    position: absolute;
+    font-size: 12px;
+    font-weight: 600;
+    color: PRIMARY_DARK;
+    background: rgba(255,255,255,0.9);
+    padding: 3px 8px;
+    border-radius: 3px;
+    border: 1px solid PRIMARY_MID;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  /* Arrow line (CSS approach — for simple cases) */
+  .fig-arrow {
+    position: absolute;
+    border-left: 2px solid PRIMARY_MID;
+    height: 30px;
+    width: 0;
+  }
+</style>
+
+<!--
+  BASIC ANNOTATED FIGURE:
+
+  <div class="annotated-figure" style="width:600px; height:300px;">
+    <img src="figure.png" style="width:600px; height:300px; object-fit:contain;"/>
+    <div class="fig-annotation" style="top:10%; left:15%;">Stage 1: Encoding</div>
+    <div class="fig-annotation" style="top:10%; left:60%;">Stage 2: Refinement</div>
+    <div class="fig-annotation" style="top:70%; left:35%;">Output graph</div>
+  </div>
+
+  FIGURE WITH SVG OVERLAY (for arrows):
+
+  <div style="position:relative; width:600px; height:300px;">
+    <img src="figure.png" style="width:600px; height:300px; object-fit:contain;"/>
+    <svg style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;">
+      <defs>
+        <marker id="ann-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6" fill="none" stroke="PRIMARY_MID" stroke-width="1.5"/>
+        </marker>
+      </defs>
+      <!-- Arrow from label to figure region -->
+      <line x1="120" y1="40" x2="180" y2="80" stroke="PRIMARY_MID"
+            stroke-width="1.5" marker-end="url(#ann-arrow)"/>
+      <text x="80" y="35" font-size="12" font-weight="600" fill="PRIMARY_DARK">Encoder</text>
+    </svg>
+  </div>
+
+  FIGURE + SIDE ANNOTATIONS (no overlay — safer):
+
+  <div style="display:flex; gap:24px; align-items:flex-start;">
+    <div style="flex:0 0 60%;">
+      <img src="figure.png" style="width:100%; object-fit:contain;
+           border:1px solid #eee; border-radius:4px;"/>
+    </div>
+    <div style="flex:1; font-size:13px; color:#444; line-height:1.7;">
+      <div style="font-size:11px; text-transform:uppercase; color:PRIMARY_MID;
+           letter-spacing:1px; margin-bottom:8px;">Figure reading</div>
+      <ul style="padding-left:16px;">
+        <li><strong>Top row:</strong> Raw EEG signals</li>
+        <li><strong>Middle:</strong> Graph construction stages</li>
+        <li><strong>Bottom:</strong> Refined output</li>
+      </ul>
+    </div>
+  </div>
+
+  DESIGN RULES:
+  - Annotations: max 5 per figure (more = cluttered)
+  - Label text: 2-5 words, bold, high contrast background
+  - Overlays on light figure regions — avoid blocking dark/detailed areas
+  - Side annotation (no overlay) is safer when figure is complex
+  - Always compute figure dimensions from aspect ratio
+
+  AVOID:
+  - Covering >20% of the figure with annotation labels
+  - Long annotation text (use side panel for detailed reading)
+  - Annotations without visual connection (arrow/position) to what they describe
+-->

@@ -24,9 +24,15 @@ from ...schemas.evidence import EvidenceState
 from ...schemas.experiment_config import ExperimentConfig
 from ...schemas.extraction import SlideExtraction
 from ...schemas.issue import Issue
-from ...schemas.issue_types import PROBE_REGISTRY, DECK_LEVEL_PROBES, get_atomic_check_registry
-from ...schemas.common import IssueStatus
+from ...schemas.issue_types import (
+    DECK_LEVEL_PROBES,
+    PROBE_REGISTRY,
+    IssueFamily,
+    get_atomic_check_registry,
+)
+from ...schemas.common import IssueStatus, Verdict
 from ...utils.image_ops import image_to_base64
+from ...utils.issue_identity import issues_share_target
 from .probe_runner import ProbeRunner
 
 if TYPE_CHECKING:
@@ -35,10 +41,34 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_CALLS = 12
+_CONTENT_CHANGE_SENSITIVE_FAMILIES = frozenset({IssueFamily.D, IssueFamily.E})
 _PROMPT_PATH = (
     Path(__file__).parent.parent.parent
     / "prompts" / "evaluator" / "probe_planner.system.md"
 )
+
+
+def _normalize_probe_text(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip().lower()
+
+
+def _quoted_wrong_candidates(issue: Issue, correct_norm: str) -> set[str]:
+    evidence = getattr(issue, "evidence", None)
+    fix_detail = getattr(issue, "fix_detail", None)
+    fields = (
+        getattr(evidence, "description", ""),
+        getattr(issue, "why_this_fails", ""),
+        getattr(issue, "planned_fix", ""),
+        getattr(fix_detail, "target_location", "") if fix_detail else "",
+    )
+    candidates: set[str] = set()
+    for field in fields:
+        for raw in re.findall(r"[\"'\u201c\u201d]([^\"'\u201c\u201d]{3,160})[\"'\u201c\u201d]", str(field or "")):
+            norm = _normalize_probe_text(raw)
+            if not norm or norm == correct_norm or correct_norm in norm:
+                continue
+            candidates.add(norm)
+    return candidates
 
 
 class ProbePlannerAgent:
@@ -174,6 +204,44 @@ class ProbePlannerAgent:
     # TOOL HANDLERS
     # ================================================================
 
+    def _eligible_slide_ids(self, probe_id: str, requested: list[int]) -> list[int]:
+        """Return valid slides on which this probe is meaningful this turn."""
+        available = [ext.slide_id for ext in self._extractions]
+        if probe_id in DECK_LEVEL_PROBES:
+            slide_ids = available
+        else:
+            available_set = set(available)
+            slide_ids = [
+                sid for sid in dict.fromkeys(requested)
+                if sid in available_set
+            ]
+
+        probe_def = PROBE_REGISTRY[probe_id]
+        if (
+            self._content_modified_slides is not None
+            and probe_def.family in _CONTENT_CHANGE_SENSITIVE_FAMILIES
+        ):
+            slide_ids = [
+                sid for sid in slide_ids
+                if sid in self._content_modified_slides
+            ]
+        return slide_ids
+
+    def _previous_issues_for_probe(
+        self,
+        probe_id: str,
+        slide_ids: list[int],
+    ) -> list[Issue] | None:
+        """Scope prior findings to the same issue type and eligible slides."""
+        if not self._previous_issues:
+            return None
+        issue_type = PROBE_REGISTRY[probe_id].name
+        return [
+            issue for issue in self._previous_issues
+            if issue.issue_type == issue_type
+            and any(sid in slide_ids for sid in (issue.affected_slides or []))
+        ] or None
+
     def _handle_run_probe(self, action: dict) -> str:
         """Handle a single run_probe call."""
         probe_id = action.get("probe_id", "")
@@ -182,22 +250,13 @@ class ProbePlannerAgent:
         if not probe_id or probe_id not in PROBE_REGISTRY:
             return f"Error: unknown probe_id '{probe_id}'. See probe catalog."
 
-        # Deck-level probes don't need slide_ids
-        if probe_id in DECK_LEVEL_PROBES:
-            slide_ids = [ext.slide_id for ext in self._extractions]
+        slide_ids = self._eligible_slide_ids(probe_id, slide_ids)
 
         if not slide_ids:
-            return f"Error: run_probe({probe_id}) requires slide_ids."
+            return f"SKIPPED: run_probe({probe_id}) has no eligible slides this turn."
 
         # Filter previous issues for this probe's issue type
-        probe_def = PROBE_REGISTRY[probe_id]
-        prev = None
-        if self._previous_issues:
-            prev = [
-                iss for iss in self._previous_issues
-                if iss.issue_type == probe_def.name
-                and any(s in slide_ids for s in (iss.affected_slides or []))
-            ] or None
+        prev = self._previous_issues_for_probe(probe_id, slide_ids)
 
         issues = self.probe_runner.run_probe(
             probe_id=probe_id,
@@ -232,21 +291,12 @@ class ProbePlannerAgent:
                     results[pid] = f"SKIPPED: unknown probe_id '{pid}'"
                     continue
 
-                sids = spec.get("slide_ids", [])
-                if pid in DECK_LEVEL_PROBES:
-                    sids = [ext.slide_id for ext in self._extractions]
+                sids = self._eligible_slide_ids(pid, spec.get("slide_ids", []))
                 if not sids:
-                    results[pid] = "SKIPPED: no slide_ids"
+                    results[pid] = "SKIPPED: no eligible slides this turn"
                     continue
 
-                probe_def = PROBE_REGISTRY[pid]
-                prev = None
-                if self._previous_issues:
-                    prev = [
-                        iss for iss in self._previous_issues
-                        if iss.issue_type == probe_def.name
-                        and any(s in sids for s in (iss.affected_slides or []))
-                    ] or None
+                prev = self._previous_issues_for_probe(pid, sids)
 
                 fut = pool.submit(
                     self.probe_runner.run_probe,
@@ -293,8 +343,11 @@ class ProbePlannerAgent:
 
         atomic_reg = get_atomic_check_registry()
 
-        # Group by (parent_probe, frozenset(slide_ids))
-        groups: dict[tuple[str, tuple], list[str]] = {}  # (probe_id, slide_ids_tuple) → [check_ids]
+        # One parent probe must run at most once per planner action. Atomic checks
+        # can request different slide subsets, but splitting those subsets into
+        # concurrent calls would triage and mutate the same previous Issue object
+        # multiple times in one repair turn.
+        groups: dict[str, dict[str, set]] = {}
         unknown = []
 
         for spec in checks:
@@ -312,11 +365,14 @@ class ProbePlannerAgent:
                     unknown.append(check_id)
                     continue
 
-            if parent in DECK_LEVEL_PROBES:
-                slide_ids = [ext.slide_id for ext in self._extractions]
+            slide_ids = self._eligible_slide_ids(parent, slide_ids)
 
-            key = (parent, tuple(sorted(slide_ids)))
-            groups.setdefault(key, []).append(check_id)
+            group = groups.setdefault(
+                parent,
+                {"slide_ids": set(), "check_ids": set()},
+            )
+            group["slide_ids"].update(slide_ids)
+            group["check_ids"].add(check_id)
 
         if not groups and unknown:
             return f"Error: unknown check_ids: {unknown}. Use IDs from the catalog (e.g., B03.1)."
@@ -326,20 +382,14 @@ class ProbePlannerAgent:
 
         with ThreadPoolExecutor(max_workers=4) as pool:
             futures = {}
-            for (probe_id, sids_tuple), check_ids in groups.items():
-                sids = list(sids_tuple)
+            for probe_id, group in groups.items():
+                sids = sorted(group["slide_ids"])
+                check_ids = sorted(group["check_ids"])
                 if not sids:
                     results[f"{probe_id}({','.join(check_ids)})"] = "SKIPPED: no slide_ids"
                     continue
 
-                probe_def = PROBE_REGISTRY[probe_id]
-                prev = None
-                if self._previous_issues:
-                    prev = [
-                        iss for iss in self._previous_issues
-                        if iss.issue_type == probe_def.name
-                        and any(s in sids for s in (iss.affected_slides or []))
-                    ] or None
+                prev = self._previous_issues_for_probe(probe_id, sids)
 
                 fut = pool.submit(
                     self.probe_runner.run_probe,
@@ -355,6 +405,7 @@ class ProbePlannerAgent:
                     source_store=self._source_store,
                     previous_issues=prev,
                     turn_index=self._turn_index,
+                    selected_check_ids=check_ids,
                 )
                 futures[fut] = (probe_id, check_ids, sids)
 
@@ -384,8 +435,6 @@ class ProbePlannerAgent:
     def _handle_legacy_probe(self, action: dict) -> str:
         """Handle legacy family-level probe calls by delegating to the router's judges."""
         tool_name = action.get("tool", "")
-        slide_ids = action.get("slide_ids", [])
-
         # Map legacy tool to family
         family_map = {
             "probe_visual": "B_visual",
@@ -412,12 +461,10 @@ class ProbePlannerAgent:
     # ================================================================
 
     def _dedup_collected(self) -> list[Issue]:
-        """Deduplicate collected issues by issue_id."""
-        seen: set[str] = set()
+        """Deduplicate repeated probe results by semantic repair target."""
         result: list[Issue] = []
         for iss in self._collected_issues:
-            if iss.issue_id not in seen:
-                seen.add(iss.issue_id)
+            if not any(issues_share_target(iss, existing) for existing in result):
                 result.append(iss)
         return result
 
@@ -445,9 +492,27 @@ class ProbePlannerAgent:
         for prev_iss in self._previous_issues:
             if prev_iss.issue_id in handled_ids:
                 continue
+            if prev_iss.issue_type == "svg_visual_defect":
+                # EvalRouter always runs the focused, enlarged B20 probe after
+                # the adaptive planner. Carrying an untriaged B20 here would
+                # incorrectly mark its slide as already evaluated and suppress
+                # that mandatory current-render check.
+                continue
             if prev_iss.status in (IssueStatus.RESOLVED, IssueStatus.WONT_FIX,
                                    IssueStatus.DEFERRED):
                 # Terminal status — don't carry forward
+                continue
+
+            if self._untriaged_content_issue_now_resolved(prev_iss):
+                prev_iss.status = IssueStatus.RESOLVED
+                prev_iss.verdict = Verdict.PASS
+                prev_iss.resolved_at_turn = self._turn_index
+                prev_iss.planned_fix = (
+                    f"[RESOLVED] (fallback text check at turn {self._turn_index}: "
+                    "judge-verified correction is present in current slide text)"
+                )
+                deduped.append(prev_iss)
+                handled_ids.add(prev_iss.issue_id)
                 continue
 
             # This issue was on a modified slide but no probe triaged it.
@@ -456,13 +521,9 @@ class ProbePlannerAgent:
                 f"[PERSISTED] (not triaged by probe planner at turn "
                 f"{self._turn_index})"
             )
-            prev_iss.persisted_turns += 1
-            if prev_iss.persisted_turns >= 2 and prev_iss.status == IssueStatus.OPEN:
-                prev_iss.status = IssueStatus.WONT_FIX
-                prev_iss.planned_fix = (
-                    f"[AUTO_WONT_FIX after {prev_iss.persisted_turns} "
-                    f"persisted turns] {prev_iss.planned_fix[:200]}"
-                )
+            # Planner omission is not evidence that a repair persisted. Only
+            # an actually executed probe may increment persisted_turns or
+            # escalate an issue to regen/WONT_FIX.
             deduped.append(prev_iss)
             handled_ids.add(prev_iss.issue_id)
             untriaged_count += 1
@@ -475,6 +536,57 @@ class ProbePlannerAgent:
             )
 
         return deduped
+
+    def _untriaged_content_issue_now_resolved(self, issue: Issue) -> bool:
+        """Resolve simple untriaged C/D/E text fixes from current extraction.
+
+        The planner deliberately carries untriaged issues forward, but that can
+        create stale false positives when a content patch was already applied
+        and the planner skipped the matching C/D/E probe. Use only exact,
+        judge-provided correction text and quoted bad-string evidence; anything
+        ambiguous remains open for normal probe triage.
+        """
+        family = (getattr(issue, "rubric_id", "") or "")[:1].upper()
+        if family not in {"C", "D", "E"}:
+            return False
+
+        fix_detail = getattr(issue, "fix_detail", None)
+        correct = getattr(fix_detail, "correct_content", "") if fix_detail else ""
+        correct_norm = _normalize_probe_text(correct)
+        if not correct_norm:
+            return False
+
+        current_norm = _normalize_probe_text(self._current_slide_text(issue))
+        if correct_norm not in current_norm:
+            return False
+
+        wrong_candidates = _quoted_wrong_candidates(issue, correct_norm)
+        if wrong_candidates:
+            return not any(candidate in current_norm for candidate in wrong_candidates)
+
+        issue_type = getattr(issue, "issue_type", "") or ""
+        if family == "C" or issue_type.startswith("missing_"):
+            return True
+
+        # For D/E corrections without an identifiable bad string, stay
+        # conservative; the correct text might have been added while the wrong
+        # claim remains elsewhere on the slide.
+        return False
+
+    def _current_slide_text(self, issue: Issue) -> str:
+        slide_ids = set(getattr(issue, "affected_slides", []) or [])
+        fragments: list[str] = []
+        for extraction in getattr(self, "_extractions", []) or []:
+            if slide_ids and extraction.slide_id not in slide_ids:
+                continue
+            title = getattr(extraction, "title", "") or ""
+            if title:
+                fragments.append(title)
+            for obj in getattr(extraction, "objects", []) or []:
+                text = getattr(obj, "text_content", "") or ""
+                if text:
+                    fragments.append(text)
+        return "\n".join(fragments)
 
     def _build_user_message(self, previous_issues: list[Issue] | None) -> list[dict]:
         """Build multimodal user message: slide PNGs + text context."""
@@ -503,6 +615,20 @@ class ProbePlannerAgent:
             text_parts.append(
                 f"## Modified slides this turn: {sorted(self._modified_slides)}\n"
             )
+            # B09 is mandatory on all modified slides — repair often fixes
+            # overflow/overlap but introduces new whitespace/density imbalance.
+            text_parts.append(
+                "## MANDATORY: Run B09.1 and B09.14 on ALL modified slides.\n"
+                "Repair frequently compresses content (fixing overflow) but leaves "
+                "unbalanced whitespace — especially in multi-column layouts where "
+                "one column ends much higher than another. Look carefully at:\n"
+                "- Large empty regions in any corner or side of the slide\n"
+                "- Columns that end at very different heights\n"
+                "- Content clustered in one area while another area is empty\n"
+                "- Elements that could be enlarged to fill available space\n"
+                "Report B09 even if the slide has many words — density imbalance "
+                "is about spatial distribution, not word count.\n"
+            )
         if self._content_modified_slides is not None:
             text_parts.append(
                 f"Content-modified slides (text changed): "
@@ -525,14 +651,24 @@ class ProbePlannerAgent:
 
         content.append({"type": "text", "text": "\n".join(text_parts)})
 
-        # Slide images (only modified slides for repair turns, all for T0)
+        # Slide images (modified slides + slides with open issues for repair turns, all for T0)
         if self._png_paths:
             slide_id_to_png = {}
             for ext, png in zip(self._extractions, self._png_paths):
                 slide_id_to_png[ext.slide_id] = png
 
-            target_slides = sorted(self._modified_slides) if self._modified_slides else \
-                [ext.slide_id for ext in self._extractions]
+            if self._modified_slides:
+                # Always include slides that have open issues from previous turns
+                # so the probe planner can verify/triage them.
+                open_issue_slides = set()
+                if previous_issues:
+                    for iss in previous_issues:
+                        if iss.status == IssueStatus.OPEN:
+                            for sid in (iss.affected_slides or []):
+                                open_issue_slides.add(sid)
+                target_slides = sorted(self._modified_slides | open_issue_slides)
+            else:
+                target_slides = [ext.slide_id for ext in self._extractions]
 
             for sid in target_slides:
                 png_path = slide_id_to_png.get(sid)

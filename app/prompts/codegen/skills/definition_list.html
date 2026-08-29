@@ -1,0 +1,110 @@
+<!--
+  SKILL: Definition List / Key-Value Pairs
+  Use when: presenting structured attribute-value information
+  (dataset properties, model hyperparameters, method components, experimental setup)
+
+  KEY RULES:
+  - Two-column layout: term on left, definition/value on right
+  - Clean alignment, no cards wrapping each pair
+  - Can use alternating row shading for readability
+  - Terms are bold, values are regular weight
+-->
+
+<style>
+  .def-list {
+    margin: 12px 0;
+  }
+  .def-row {
+    display: flex;
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f0;
+    align-items: baseline;
+  }
+  .def-row:last-child {
+    border-bottom: none;
+  }
+  .def-row .term {
+    flex: 0 0 180px;
+    font-size: 14px;
+    font-weight: 700;
+    color: PRIMARY_DARK;
+  }
+  .def-row .value {
+    flex: 1;
+    font-size: 14px;
+    color: #333;
+    line-height: 1.5;
+  }
+  .def-row .value strong {
+    color: PRIMARY_DARK;
+  }
+
+  /* Compact variant for narrow spaces */
+  .def-list.compact .def-row {
+    padding: 5px 0;
+  }
+  .def-list.compact .term {
+    font-size: 13px;
+    flex: 0 0 140px;
+  }
+  .def-list.compact .value {
+    font-size: 13px;
+  }
+</style>
+
+<!--
+  DATASET PROPERTIES:
+
+  <div class="def-list">
+    <div class="def-row">
+      <div class="term">Dataset</div>
+      <div class="value">TUSZ v1.5.2, <strong>5,612</strong> EEG recordings</div>
+    </div>
+    <div class="def-row">
+      <div class="term">Channels</div>
+      <div class="value"><strong>19</strong> EEG channels (standard 10-20 montage)</div>
+    </div>
+    <div class="def-row">
+      <div class="term">Annotations</div>
+      <div class="value"><strong>3,050</strong> seizure annotations</div>
+    </div>
+    <div class="def-row">
+      <div class="term">Backbone</div>
+      <div class="value">Modified GraphS4mer (unified across all experiments)</div>
+    </div>
+  </div>
+
+  EXPERIMENTAL SETUP:
+
+  <div class="def-list">
+    <div class="def-row">
+      <div class="term">Grounding</div>
+      <div class="value">User-specific computer environments with realistic file structures</div>
+    </div>
+    <div class="def-row">
+      <div class="term">Horizon</div>
+      <div class="value">Month-scale work, <strong>8+ hours</strong> runtime, <strong>2,000+ turns</strong></div>
+    </div>
+    <div class="def-row">
+      <div class="term">Scale</div>
+      <div class="value"><strong>1,000</strong> synthetic computers, 100 publicly released</div>
+    </div>
+  </div>
+
+  COMPARISON TABLE ALTERNATIVE (when a full table is overkill):
+
+  Use this instead of <table> when you have 3-6 simple pairs.
+  Use <table> when you have 5+ columns or need column headers.
+
+  DESIGN RULES:
+  - 3-8 rows max (fewer = use inline text, more = use a table)
+  - Term width: 140-200px depending on longest term
+  - Values can contain bold keywords
+  - Sits directly on white — no card wrapper
+  - Optional: light bottom border between rows for readability
+
+  AVOID:
+  - Using for data that needs column comparisons (use a table)
+  - Terms longer than 3 words (rephrase or abbreviate)
+  - Wrapping in a colored card
+-->

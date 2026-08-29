@@ -76,24 +76,40 @@ export const CoastBackdrop: React.FC<{
 
 export const SceneLabel: React.FC<{
   index: string;
-  children: React.ReactNode;
+  children?: React.ReactNode;
   inverse?: boolean;
 }> = ({ index, children, inverse = false }) => (
   <div
     style={{
       display: "flex",
       alignItems: "center",
-      gap: 14,
+      gap: 16,
       color: inverse ? "rgba(255,255,255,0.76)" : colors.inkSoft,
       fontFamily: fonts.body,
-      fontSize: 18,
-      fontWeight: 700,
+      fontSize: 20,
+      lineHeight: 1,
+      fontWeight: 800,
       textTransform: "uppercase",
     }}
   >
-    <span style={{ color: inverse ? colors.sand : colors.coral }}>{index}</span>
-    <span style={{ width: 44, height: 2, backgroundColor: inverse ? colors.seafoam : colors.coral }} />
-    <span>{children}</span>
+    <span style={{ color: inverse ? colors.sand : colors.coral, fontFamily: fonts.heading, fontSize: 29, fontWeight: 800 }}>{index}</span>
+    <span style={{ width: 54, height: 3, backgroundColor: inverse ? colors.seafoam : colors.coral }} />
+    {children ? <span>{children}</span> : null}
+  </div>
+);
+
+export const SceneHeading: React.FC<{
+  index: string;
+  title: React.ReactNode;
+  subtitle: string;
+  inverse?: boolean;
+}> = ({ index, title, subtitle, inverse = false }) => (
+  <div style={{ minHeight: 68, display: "flex", alignItems: "baseline", gap: 18 }}>
+    <span style={{ flex: "0 0 auto", color: inverse ? colors.sand : colors.coral, fontFamily: fonts.heading, fontSize: 29, lineHeight: 1, fontWeight: 800 }}>{index}</span>
+    <span style={{ flex: "0 0 auto", alignSelf: "center", width: 44, height: 3, backgroundColor: inverse ? colors.seafoam : colors.coral }} />
+    <div style={{ flex: "0 0 auto", color: inverse ? colors.white : colors.ink, fontFamily: fonts.heading, fontSize: 52, lineHeight: 1, fontWeight: 800, whiteSpace: "nowrap" }}>{title}</div>
+    <span style={{ flex: "0 0 auto", alignSelf: "center", width: 2, height: 44, margin: "0 4px", backgroundColor: inverse ? "rgba(255,255,255,0.28)" : colors.line }} />
+    <div style={{ minWidth: 0, color: inverse ? "rgba(255,255,255,0.9)" : colors.ink, fontSize: 32, lineHeight: 1.08, fontWeight: 750, whiteSpace: "nowrap" }}>{subtitle}</div>
   </div>
 );
 

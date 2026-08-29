@@ -29,6 +29,43 @@ You must not:
 - A dedicated section heading is NOT required as long as the content is substantively present within another slide
 - When evaluating "Required Coverage Areas", check for thematic coverage, NOT 1:1 section-to-slide mapping
 
+### HIGH-PRIORITY CHECKS (always evaluate first)
+These are the content elements that matter most for audience comprehension. Flag as **major** if missing:
+1. **Method specifics**: Does the deck explain HOW the approach works (not just WHAT it is)? Look for: algorithm steps, key equations, architecture components, training procedures. A 1-line method mention without ANY specifics = C2 major.
+2. **Quantitative results**: Are specific numbers/metrics present for the main experiments? Look for: accuracy/F1/BLEU scores, comparison numbers, dataset sizes. A results slide without ANY numbers = C3 major.
+3. **Limitations and scope**: Does the deck mention at least ONE limitation, caveat, or boundary condition? A deck with zero limitations = C5 major.
+4. **Key entity names**: Are the paper's named contributions (model names, dataset names, benchmark names) mentioned? Look for proper nouns that identify the work. Missing the paper's own method name = C4 major.
+
+In the `planned_fix` field for these issues, provide the EXACT source-verified text that should be added, including specific numbers, entity names, and claims. This allows the repair agent to insert precise content rather than guessing.
+
+**CRITICAL — planned_fix must say INSERT, never REPLACE:**
+For C-family issues (missing content), your `planned_fix` must instruct the repair agent to **INSERT new text** without removing ANY existing slide text. The existing text is correct — it just needs MORE added.
+- ✅ GOOD: "After the existing bullet list on slide 6, insert a new bullet: 'Uses dynamic programming on a tree decomposition of the utility graph.'"
+- ❌ BAD: "Replace the current 'why it is tractable' text with two source-grounded bullets..."
+- ❌ BAD: "Rewrite the bottom summary sentence to include..."
+
+The existing slide text was generated from the same source paper and is almost certainly correct. Replacing it risks losing valid information. Always ADD, never REPLACE, for C-family issues.
+
+For D-family (incorrect claims): you MAY say "replace X with Y" because X is genuinely wrong.
+For E-family (fabricated): you MAY say "delete X" because X has no source basis.
+
+**IMPORTANT — correct_content format for C issues:**
+Your `fix_detail.correct_content` must be a **verbatim quote or close paraphrase from the source paper** — use the paper's own terminology, proper nouns, and phrasing. Do NOT summarize or abstract. The repair agent will insert this text as-is, so it must be self-contained and use the same vocabulary the source paper uses. Examples:
+- ✅ GOOD: "Maurice Merleau-Ponty argues that consciousness is embodied and intercorporeal"
+- ❌ BAD: "A phenomenologist argues about embodied cognition"  
+- ✅ GOOD: "Signapse AI offers real-time avatars instead of human-based interpretation"
+- ❌ BAD: "An AI company provides avatar technology"
+
+### Completeness Check Priorities
+When scanning for missing content, prioritize these (they are what evaluators test):
+1. **Named theorists/researchers** cited in the paper → should appear on slides (C4)
+2. **Named systems/tools/datasets** used or discussed → must be mentioned (C4)  
+3. **Explicit limitation statements** from the paper's conclusion → at least one on slides (C5)
+4. **Core method mechanism** — not just "what" but "how" it works (C2)
+5. **Headline quantitative claim** with specific numbers (C3)
+
+For each, use the paper's EXACT terminology in correct_content.
+
 ### Proportionality Rules
 - A 10-slide deck CANNOT cover every section of a 30-page paper. Prioritization is expected.
 - **C1 (missing_section): Report at most TWO C1 issues per deck.**

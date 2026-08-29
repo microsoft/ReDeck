@@ -1,0 +1,72 @@
+<!-- Local skill: use only when one supplied alternative explicitly combines the other two attributes. -->
+<style>
+  .skill-synthesis {
+    display: grid;
+    grid-template-columns: 150px repeat(3, minmax(0, 1fr));
+    grid-template-rows: auto repeat(2, 92px);
+    column-gap: 18px;
+    align-items: center;
+    border-top: 3px solid var(--primary);
+  }
+  .skill-synthesis-head {
+    align-self: stretch;
+    padding: 12px 8px 9px;
+    border-bottom: 2px solid color-mix(in srgb, var(--secondary) 35%, transparent);
+    color: var(--primary-text);
+    font-size: 15px;
+    font-weight: 800;
+    text-align: center;
+    text-transform: uppercase;
+  }
+  .skill-synthesis-dimension {
+    color: var(--ink);
+    font-size: 16px;
+    font-weight: 750;
+  }
+  .skill-synthesis-cell {
+    position: relative;
+    align-self: stretch;
+    border-bottom: 1px solid color-mix(in srgb, var(--secondary) 28%, transparent);
+  }
+  .skill-synthesis-cell::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 2px;
+    background: color-mix(in srgb, var(--support) 70%, transparent);
+  }
+  .skill-synthesis-mark {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--secondary);
+    border: 4px solid var(--canvas);
+    transform: translate(-50%, -50%);
+  }
+  .skill-synthesis-cell.combined .skill-synthesis-mark {
+    width: 30px;
+    height: 30px;
+    background: var(--accent);
+    outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  .skill-synthesis-caption {
+    grid-column: 2 / 5;
+    margin-top: 12px;
+    padding-left: 14px;
+    border-left: 4px solid var(--accent);
+    color: var(--ink);
+    font-size: 17px;
+    line-height: 1.2;
+  }
+</style>
+<div class="skill-synthesis">
+  <div></div><div class="skill-synthesis-head">{{alternative_a}}</div><div class="skill-synthesis-head">{{alternative_b}}</div><div class="skill-synthesis-head">{{combined_alternative}}</div>
+  <div class="skill-synthesis-dimension">{{dimension_a}}</div><div class="skill-synthesis-cell"><i class="skill-synthesis-mark"></i></div><div class="skill-synthesis-cell"></div><div class="skill-synthesis-cell combined"><i class="skill-synthesis-mark"></i></div>
+  <div class="skill-synthesis-dimension">{{dimension_b}}</div><div class="skill-synthesis-cell"></div><div class="skill-synthesis-cell"><i class="skill-synthesis-mark"></i></div><div class="skill-synthesis-cell combined"><i class="skill-synthesis-mark"></i></div>
+  <p class="skill-synthesis-caption">{{supported_synthesis_takeaway}}</p>
+</div>

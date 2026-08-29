@@ -1,0 +1,107 @@
+<!--
+  SKILL: Side-by-Side Comparison
+  Use when: contrasting two approaches, before/after, problem/solution, or method A vs B
+
+  KEY RULES:
+  - Two columns separated by whitespace (or a thin vertical divider)
+  - Each side has its own header, aligned symmetrically
+  - NOT a table — this is for qualitative/visual comparison
+  - Headers can use contrasting colors (e.g., gray vs PRIMARY_DARK)
+-->
+
+<style>
+  .comparison-split {
+    display: flex;
+    gap: 40px;
+    margin: 20px 0;
+  }
+  .comparison-side {
+    flex: 1;
+  }
+  .comparison-side .side-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 8px;
+  }
+  .comparison-side .side-label.before { color: #888; }
+  .comparison-side .side-label.after  { color: PRIMARY_DARK; }
+  .comparison-side .side-header {
+    font-size: 18px; font-weight: 700;
+    margin-bottom: 12px; line-height: 1.3;
+  }
+  .comparison-side .side-content {
+    font-size: 13px; color: #444; line-height: 1.6;
+  }
+  .comparison-side .side-content li {
+    margin-bottom: 6px;
+  }
+  /* Optional thin divider between sides */
+  .comparison-divider {
+    width: 1px;
+    background: #e0e0e0;
+    margin: 0 -20px;
+  }
+</style>
+
+<!--
+  PROBLEM vs SOLUTION:
+
+  <div class="comparison-split">
+    <div class="comparison-side">
+      <div class="side-label before">Problem</div>
+      <div class="side-header" style="color:#666;">Noisy graph edges</div>
+      <div class="side-content">
+        <ul>
+          <li>Correlation-based methods produce <strong>spurious edges</strong></li>
+          <li>Graph learners overfit to noise</li>
+          <li>No external validation of edge quality</li>
+        </ul>
+      </div>
+    </div>
+    <div class="comparison-divider"></div>
+    <div class="comparison-side">
+      <div class="side-label after">Our Solution</div>
+      <div class="side-header" style="color:PRIMARY_DARK;">LLM edge refinement</div>
+      <div class="side-content">
+        <ul>
+          <li>LLM judges each edge for <strong>physiological plausibility</strong></li>
+          <li>Removes redundant connections</li>
+          <li>External reasoning validates structure</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  BEFORE / AFTER (with visuals):
+
+  <div class="comparison-split">
+    <div class="comparison-side">
+      <div class="side-label before">Before refinement</div>
+      <img src="..." style="width:100%; border:1px solid #eee; border-radius:4px;"/>
+      <div class="side-content">Dense, noisy adjacency</div>
+    </div>
+    <div class="comparison-side">
+      <div class="side-label after">After refinement</div>
+      <img src="..." style="width:100%; border:1px solid #eee; border-radius:4px;"/>
+      <div class="side-content">Sparse, clinically plausible</div>
+    </div>
+  </div>
+
+  METHOD A vs METHOD B:
+
+  Same structure but with neutral labels (both PRIMARY_DARK headers).
+  Use when comparing two valid approaches rather than problem/solution.
+
+  DESIGN RULES:
+  - Exactly 2 sides (not 3 — use a grid for that)
+  - Each side: 3-4 bullet points max
+  - Symmetric structure: same content types on each side
+  - Optional: use gray/muted color on the "worse" side, PRIMARY_DARK on the "better" side
+  - Divider is optional — whitespace (40px gap) usually suffices
+
+  AVOID:
+  - Unequal column widths (keep 50/50 or 45/55 at most)
+  - Dense paragraphs instead of bullets
+  - More than 2 sides (that's a grid or table, not a comparison)
+-->

@@ -1,0 +1,84 @@
+<!--
+  SKILL: Process/Pipeline Diagram
+  Use when: explaining a method with sequential steps
+
+  KEY RULES:
+  - SVG flow diagram with connected boxes and arrows
+  - Boxes have subtle gradient fills, rounded corners (rx="12"), and shadow
+  - Numbered step circles for visual progression
+  - Labels are SHORT (2-4 words per box)
+  - Arrows with markers connecting stages
+-->
+
+<style>
+  .pipeline-area {
+    margin: 20px 0;
+  }
+  .pipeline-area svg text {
+    font-family: 'Segoe UI', Arial, sans-serif;
+  }
+</style>
+
+<!--
+  SVG FLOW DIAGRAM with numbered circles and styled boxes:
+
+  <svg width="100%" height="300" viewBox="0 0 900 300">
+    <defs>
+      <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <path d="M0,0 L8,3 L0,6" fill="none" stroke="PRIMARY_MID" stroke-width="1.5"/>
+      </marker>
+      <linearGradient id="boxGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#ffffff"/>
+        <stop offset="100%" stop-color="rgba(PRIMARY_RGB,0.05)"/>
+      </linearGradient>
+      <filter id="boxShadow" x="-4%" y="-4%" width="108%" height="116%">
+        <feDropShadow dx="0" dy="2" stdDeviation="4" flood-opacity="0.08"/>
+      </filter>
+    </defs>
+
+    <!-- Step 1: Numbered circle + box -->
+    <circle cx="110" cy="40" r="16" fill="PRIMARY_DARK"/>
+    <text x="110" y="45" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">1</text>
+
+    <rect x="20" y="65" width="180" height="90" rx="12"
+          fill="url(#boxGrad)" stroke="PRIMARY_MID" stroke-width="1.5" filter="url(#boxShadow)"/>
+    <text x="110" y="100" text-anchor="middle"
+          font-size="14" font-weight="700" fill="PRIMARY_DARK">Stage Name</text>
+    <text x="110" y="120" text-anchor="middle"
+          font-size="11" fill="#555">brief description here</text>
+
+    <!-- Arrow between stages -->
+    <line x1="200" y1="110" x2="260" y2="110"
+          stroke="PRIMARY_MID" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <!-- Step 2: circle + box -->
+    <circle cx="350" cy="40" r="16" fill="PRIMARY_MID"/>
+    <text x="350" y="45" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">2</text>
+
+    <rect x="260" y="65" width="180" height="90" rx="12"
+          fill="url(#boxGrad)" stroke="PRIMARY_MID" stroke-width="1.5" filter="url(#boxShadow)"/>
+    <text x="350" y="100" text-anchor="middle"
+          font-size="14" font-weight="700" fill="PRIMARY_DARK">Next Stage</text>
+    <text x="350" y="120" text-anchor="middle"
+          font-size="11" fill="#555">another brief label</text>
+
+    <!-- Optional: dashed grouping border around related stages -->
+    <rect x="10" y="30" width="440" height="140" rx="16"
+          fill="none" stroke="#d0d8e4" stroke-width="1.5" stroke-dasharray="6,4"/>
+    <text x="230" y="185" text-anchor="middle" font-size="11" fill="#888">Phase 1: Preparation</text>
+  </svg>
+
+  DESIGN RULES:
+  - Max 4-5 stages horizontally, or 3 stages in an L-shape
+  - Numbered circles: 32px diameter, PRIMARY_DARK fill, white number
+  - Box: 140-200px wide, 80-100px tall, rx="12", subtle gradient fill + shadow
+  - Gap between boxes: 40-60px (room for arrow)
+  - Text inside boxes: title (14px bold) + optional 1-line label (11px)
+  - Dashed group border around related stages adds structure
+  - Arrow color: PRIMARY_MID
+
+  AVOID:
+  - All-dark filled boxes (too heavy)
+  - Too many boxes (>5) — simplify the process
+  - Boxes without numbers (loses sequence clarity)
+-->

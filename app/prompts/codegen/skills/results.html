@@ -1,0 +1,82 @@
+<!--
+  RESULTS SLIDE — HTML Skill Pattern
+  Structure: Left data visual (60-65%) + Right hero metric sidebar (35-40%)
+
+  VISUAL PRIORITY for .left (choose ONE):
+  1. Paper figure — when evidence includes a provided figure/chart
+  2. ★ SVG Bar Chart — PREFERRED for numeric comparisons without a paper figure
+  3. HTML data table — for dense multi-column numeric data (5+ columns)
+
+  CRITICAL RULES:
+  1. If this slide has a FIGURE/IMAGE: use the figure as the left panel, sidebar for 1-2 key metrics only
+  2. If NO figure: prefer SVG bar chart over table when ≤4 metrics per model
+  3. Each card max 20 words. Table cells max 4 words.
+  4. Right sidebar: max 2 cards (1 hero + 1 info). Do NOT stack 3+ cards.
+  5. Info card: max 2 bullets, each max 12 words. Use noun phrases, not sentences.
+  6. Total body max 120 words
+
+  ADAPT: Replace ALL colors with your palette. Replace ALL data with actual evidence.
+-->
+
+<style>
+  /* body zone: 720 - header(78) - bottom_bar(72) = 560px (with safety margin) */
+  .body { display:flex; gap:20px; height:560px; padding:20px 28px; overflow:hidden; }
+  .left { width:62%; overflow:hidden; display:flex; flex-direction:column; }
+  .right { width:38%; display:flex; flex-direction:column; gap:14px; overflow:hidden; }
+
+  /* — Data table with inline bars — */
+  .data-table { width:100%; border-collapse:collapse; font-size:13px; }
+  .data-table th {
+    background:PRIMARY_DARK; color:#fff; padding:10px 12px;
+    text-align:left; font-weight:600; font-size:11px; text-transform:uppercase;
+  }
+  .data-table tr:nth-child(even) { background:LIGHT_BG; }
+  .data-table tr.highlight { background:rgba(ACCENT_RGB, 0.12); font-weight:600; }
+  .data-table td { padding:8px 12px; border-bottom:1px solid #eee; }
+
+  /* — Hero metric card (max 1 per slide) — */
+  .hero-card {
+    background:PRIMARY_DARK; border-radius:12px; padding:20px 22px;
+    color:#fff; text-align:center;
+  }
+  .hero-card .label { font-size:11px; text-transform:uppercase; letter-spacing:1px; opacity:0.8; margin-bottom:8px; }
+  .hero-card .number { font-size:56px; font-weight:800; line-height:1; color:ACCENT; }
+  .hero-card .unit { font-size:13px; margin-top:8px; opacity:0.9; }
+
+  /* — Supporting info card (max 1, 2 bullets) — */
+  .info-card {
+    background:LIGHT_BG; border-radius:10px; padding:16px 18px;
+    flex:1; overflow:hidden;
+  }
+  .info-card h4 { font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:PRIMARY_MID; margin:0 0 10px; }
+  .info-card li { font-size:12px; line-height:1.5; color:BODY_TEXT; margin-bottom:4px; }
+</style>
+
+<!--
+  ★ SVG BAR CHART (PREFERRED when no paper figure):
+  <svg width="100%" height="440" viewBox="0 0 700 440">
+    <!-- Section title -->
+    <text x="140" y="20" font-size="12" font-weight="700" fill="PRIMARY_DARK">METRIC NAME</text>
+    <!-- Horizontal bars — one per model -->
+    <text x="135" y="55" text-anchor="end" font-size="12" fill="#3a3a3a">Baseline A</text>
+    <rect x="140" y="42" width="320" height="20" rx="3" fill="PRIMARY_MID" opacity="0.5"/>
+    <text x="468" y="57" font-size="11" font-weight="600" fill="BODY_TEXT">64.3</text>
+
+    <text x="135" y="85" text-anchor="end" font-size="12" font-weight="700" fill="PRIMARY_DARK">Ours</text>
+    <rect x="140" y="72" width="400" height="20" rx="3" fill="ACCENT"/>
+    <text x="548" y="87" font-size="11" font-weight="700" fill="ACCENT">73.7</text>
+  </svg>
+
+  SVG RULES:
+  - Max 6 bars (models). Ours uses ACCENT fill; baselines use PRIMARY_MID at 50% opacity
+  - Bar width proportional to value. Scale: min value maps to ~200px, max to ~450px
+  - Value labels right of each bar
+  - For multiple metrics: use 2 side-by-side groups OR stack vertically with section titles
+
+  WHEN SLIDE HAS A FIGURE:
+  - .left holds ONLY the <img> container (no table, no cards)
+  - .right holds 1 hero-card + 1 info-card (max 2 bullets)
+  - Do NOT add extra cards around or below the figure
+
+  Win badges (optional): <span style="background:ACCENT;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">+7.0pp</span>
+-->

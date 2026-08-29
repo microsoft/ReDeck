@@ -113,6 +113,8 @@ class TestTurnSettler:
             verify_report=verify_report,
             artifact_paths={},
         )
+        # With simplified logic: applied=1 and open=1 → should continue
+        # (regression detection was removed from _should_continue)
         assert summary.should_continue is True
 
     def test_should_stop_when_no_repairs_applied(self):
@@ -151,6 +153,29 @@ class TestTurnSettler:
             verify_report=None,
             artifact_paths={},
         )
+        assert summary.should_continue is True
+
+    def test_current_svg_defect_bypasses_good_enough_stop(self):
+        settler = TurnSettler(good_enough_threshold=10)
+        issue = _make_issue("svg-current", severity=Severity.MINOR)
+        issue.rubric_id = "B20"
+        issue.issue_type = "svg_visual_defect"
+        repair_units = [RepairUnit(
+            repair_unit_id="r1",
+            issue_cluster=[issue.issue_id],
+            repair_type="layout_repair",
+            status="applied",
+        )]
+
+        summary = settler.settle(
+            turn_index=1,
+            issues=[issue],
+            previous_issues=[issue.model_copy(deep=True)],
+            repair_units=repair_units,
+            verify_report=None,
+            artifact_paths={},
+        )
+
         assert summary.should_continue is True
 
     def test_issue_counts(self):

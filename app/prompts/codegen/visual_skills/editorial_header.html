@@ -1,0 +1,36 @@
+<!-- Local skill: adapt the grid split and omit .skill-headstat when no decisive value exists. -->
+<style>
+  .skill-header {
+    max-width: 930px;
+  }
+  .skill-eyebrow {
+    margin: 0 0 8px;
+    color: var(--primary-text);
+    font-size: 15px;
+    line-height: 1.1;
+    font-weight: 750;
+    text-transform: uppercase;
+    letter-spacing: 0;
+  }
+  .skill-headline {
+    margin: 0;
+    max-width: 900px;
+    color: var(--ink);
+    font-size: 46px;
+    line-height: 1.02;
+    font-weight: 800;
+    letter-spacing: 0;
+  }
+  .skill-deck {
+    margin: 10px 0 0;
+    max-width: 820px;
+    color: var(--ink);
+    font-size: 17px;
+    line-height: 1.25;
+  }
+</style>
+<header class="skill-header">
+  <p class="skill-eyebrow">{{section_or_scope}}</p>
+  <h1 class="skill-headline">{{supported_thesis}}</h1>
+  <p class="skill-deck">{{one_line_context}}</p>
+</header>

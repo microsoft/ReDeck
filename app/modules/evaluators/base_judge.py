@@ -16,6 +16,7 @@ from ...schemas.issue import FixDetail, Issue, IssueEvidence
 from ...schemas.issue_types import VALID_ISSUE_TYPES, ALL_VALID_TYPES, SpatialThresholds
 from ...utils.io_utils import read_text
 from ...utils.json_utils import strip_code_fences
+from ...utils.issue_identity import issues_share_target, stable_issue_id
 
 logger = logging.getLogger(__name__)
 
@@ -492,7 +493,7 @@ class BaseJudge:
                     "Check if the SPECIFIC direction still applies. "
                     "If the slide was 'too dense' but is now 'too sparse', "
                     "the original issue is RESOLVED — report sparseness as a new_issue "
-                    "(density_imbalance sub_type: underutilized_space)."
+                    "(density_imbalance sub_type: sparse_content)."
                 )
             elif iss.issue_type == "overlap":
                 lines.append(
@@ -768,15 +769,13 @@ class BaseJudge:
         marks an old issue RESOLVED but the fresh judge re-detects the
         same problem, the fresh detection should win (the problem is real).
         """
-        prev_sigs: set[tuple[str, frozenset[int]]] = {
-            (iss.issue_type, frozenset(iss.affected_slides))
-            for iss in triaged_issues
-            if iss.status != IssueStatus.RESOLVED  # Don't block new detections
-        }
+        open_previous = [
+            issue for issue in triaged_issues
+            if issue.status != IssueStatus.RESOLVED
+        ]
         deduped = []
         for iss in new_issues:
-            sig = (iss.issue_type, frozenset(iss.affected_slides))
-            if sig in prev_sigs:
+            if any(issues_share_target(iss, previous) for previous in open_previous):
                 logger.info(
                     "Dedup: new issue %s [%s] matches triaged issue — skipping",
                     iss.issue_id, iss.issue_type,
@@ -889,15 +888,6 @@ class BaseJudge:
         # Support both "issues" (turn 0 format) and "new_issues" (differential format)
         issues_data = data.get("new_issues", data.get("issues", []))
 
-        # Build a set of (issue_type, frozenset(slides)) from carried-forward
-        # previous issues to deduplicate: if the judge re-reports the same
-        # problem under a new ID, skip it.
-        prev_signatures: set[tuple[str, frozenset[int]]] = set()
-        for ri in result_issues:
-            prev_signatures.add(
-                (ri.issue_type, frozenset(ri.affected_slides))
-            )
-
         for i, item in enumerate(issues_data):
             raw_issue_type = item.get("issue_type", "unknown")
             normalized_type = self._normalize_issue_type(raw_issue_type, self.rubric_family)
@@ -907,16 +897,26 @@ class BaseJudge:
                     raw_issue_type, normalized_type, self.rubric_family,
                 )
 
+            raw_evidence = item.get("evidence", "")
+            if isinstance(raw_evidence, dict):
+                issue_evidence = IssueEvidence(
+                    render_ref=str(raw_evidence.get("render_ref", "")),
+                    object_refs=[str(ref) for ref in raw_evidence.get("object_refs", [])],
+                    source_refs=[str(ref) for ref in raw_evidence.get("source_refs", [])],
+                    description=str(raw_evidence.get("description", "")),
+                )
+            else:
+                issue_evidence = IssueEvidence(description=str(raw_evidence or ""))
+
             issue = Issue(
-                issue_id=f"{item.get('rubric_id', self.rubric_family)}_slide{'_'.join(str(s) for s in item.get('affected_slides', scope_slides))}_{i:02d}",
+                issue_id="pending",
                 rubric_id=item.get("rubric_id", ""),
                 issue_type=normalized_type,
+                sub_type=item.get("sub_type", ""),
                 severity=Severity(item.get("severity", "minor")),
                 confidence=Confidence(item.get("confidence", "medium")),
                 affected_slides=item.get("affected_slides", scope_slides),
-                evidence=IssueEvidence(
-                    description=item.get("evidence", ""),
-                ),
+                evidence=issue_evidence,
                 suspected_module=item.get("suspected_root_cause", "unknown"),
                 verdict=Verdict.FAIL,
                 why_this_fails=item.get("why_this_fails", ""),
@@ -927,13 +927,19 @@ class BaseJudge:
                 action_rationale=item.get("action_rationale", ""),
                 source_probe_id=f"{self.module_name}_{item.get('rubric_id', self.rubric_family)}",
             )
+            issue.issue_id = stable_issue_id(
+                issue, item.get("rubric_id", self.rubric_family),
+            )
 
             # Dedup: skip if this new issue matches a carried-forward previous
             # issue by (issue_type, affected_slides). This prevents the same
             # problem from appearing twice when the judge re-reports it under
             # a new ID instead of returning a verdict for the old one.
-            sig = (issue.issue_type, frozenset(issue.affected_slides))
-            if previous_issues and sig in prev_signatures:
+            if previous_issues and any(
+                previous.status != IssueStatus.RESOLVED
+                and issues_share_target(issue, previous)
+                for previous in result_issues
+            ):
                 logger.info(
                     "Dedup: new issue %s [%s] on slides %s matches a "
                     "carried-forward previous issue — skipping duplicate",

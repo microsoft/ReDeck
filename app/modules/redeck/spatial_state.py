@@ -31,6 +31,7 @@ class ContentBlock:
     var_name: str           # tag name (HTML) or code variable (legacy)
     shape_type: str         # textbox, shape, picture, table, chart, title
     css_selector: str = ""  # CSS selector to locate in code: "#id" or ".class" or "tag"
+    css_classes: tuple[str, ...] = ()  # complete normalized DOM class signature
     x: float = 0.0
     y: float = 0.0
     w: float = 0.0
@@ -70,6 +71,7 @@ class ContentBlock:
     client_h_px: int = 0       # clientHeight (visible content area)
     scroll_w_px: int = 0       # scrollWidth (full content width)
     scroll_h_px: int = 0       # scrollHeight (full content height)
+    true_scroll_h_px: int = 0  # scrollHeight with overflow:hidden temporarily removed
     font_size_px: float = 0.0  # CSS font-size in px (not pt)
     # Blind-spot detection fields
     is_ellipsized: bool = False        # text-overflow:ellipsis truncation
@@ -78,6 +80,16 @@ class ContentBlock:
     is_in_svg: bool = False            # element is inside an <svg> (for filter tuning)
     effective_font_size_px: float = 0.0  # font-size * transform scale factor
     img_crop_pct: float = 0.0         # % of image content cropped by object-fit:cover
+    img_natural_w_px: int = 0          # intrinsic image width, from browser naturalWidth
+    img_natural_h_px: int = 0          # intrinsic image height, from browser naturalHeight
+    img_object_fit: str = ""           # computed object-fit value
+    # Visible bitmap area inside the <img> content box. For object-fit:contain,
+    # this excludes internal letterbox bands that do not contain image pixels.
+    img_rendered_content_bbox_px: tuple[int, int, int, int] = (0, 0, 0, 0)
+    img_letterbox_top_px: int = 0
+    img_letterbox_right_px: int = 0
+    img_letterbox_bottom_px: int = 0
+    img_letterbox_left_px: int = 0
     dom_path: str = ""                # DOM path for parent-child relationship detection
     # Cross-card paint-over: True for synthetic blocks recovered by the paint-over
     # scan (an empty filled box — e.g. a chart bar — that escaped its own card and
@@ -132,6 +144,22 @@ class SlideState:
     occlusion_pairs: list[tuple[str, str]] = field(default_factory=list)
     # New: viewport exceedances — elements (incl. empty divs) that exceed canvas bounds
     viewport_exceedances: list[dict] = field(default_factory=list)
+    # Semantic DOM records for every element that exceeds the canvas, including
+    # records already attributed to a visible parent. These are diagnostic-only:
+    # they preserve ownership/class/text for allocation reasoning without
+    # participating in overlap, occupancy, or ordinary block detectors.
+    off_canvas_elements: list[dict] = field(default_factory=list)
+    # Rendered top-level SVG regions used to create enlarged VLM inspection crops.
+    svg_regions: list[dict] = field(default_factory=list)
+    # Issues detected inside external SVG assets referenced through <img>.
+    # Browser DOM extraction cannot see inside those files, so the HTML spatial
+    # extractor scans local SVG assets separately and stores actionable findings
+    # here for verify_layout / deterministic repair feedback.
+    svg_asset_issues: list[dict] = field(default_factory=list)
+    # Ordered text runs that produced visible pixels in the rendered slide.
+    # Unlike source-level HTML parsing, this excludes text hidden by CSS or a
+    # hidden/transparent ancestor and is therefore suitable for repair guards.
+    visible_text_runs: list[str] = field(default_factory=list)
 
 
 def format_spatial_state(state: SlideState) -> str:

@@ -21,8 +21,8 @@ def _format_spatial_signal(state) -> dict:
     sig: dict = {}
     if state.overlap_pairs:
         sig["overlap_pairs"] = [
-            {"a": a, "b": b, "area_sq_in": round(area, 2)}
-            for a, b, area in state.overlap_pairs
+            {"a": a, "b": b, "overlap_fraction_of_smaller": round(ratio, 3)}
+            for a, b, ratio in state.overlap_pairs
         ]
     if state.overflow_blocks:
         overflow_info = []
@@ -55,6 +55,8 @@ def _format_spatial_signal(state) -> dict:
         sig["low_contrast"] = contrast_info
     if state.clipped_blocks:
         sig["clipped_blocks"] = list(state.clipped_blocks)
+    if getattr(state, "svg_regions", None):
+        sig["svg_regions"] = list(state.svg_regions)
     return sig
 
 
@@ -87,12 +89,14 @@ class VisualJudge(BaseJudge):
                 min_font = 999
                 max_font = 0
                 has_image = False
+                text_fragments: list[str] = []
                 for obj in ext.objects:
                     if obj.has_image:
                         has_image = True
                     if obj.text_content:
                         words = len(obj.text_content.split())
                         total_words += words
+                        text_fragments.append(obj.text_content.strip())
                     if obj.font_sizes_pt:
                         for fs in obj.font_sizes_pt:
                             if fs > 0:
@@ -106,6 +110,9 @@ class VisualJudge(BaseJudge):
                     "text_length": ext.total_text_length,
                     "total_words": total_words,
                     "has_image": has_image,
+                    # Ground exact-text judgments in DOM/PPT extraction so
+                    # the vision model does not invent spelling/case errors.
+                    "visible_text": "\n".join(text_fragments)[:3000],
                 }
                 if min_font < 999:
                     info["min_font_pt"] = round(min_font, 1)

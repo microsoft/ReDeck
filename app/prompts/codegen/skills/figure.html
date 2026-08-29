@@ -1,0 +1,55 @@
+<!--
+  SKILL: Figure/Image Placement
+  Use when: slide has a paper figure or diagram to display
+
+  KEY RULES:
+  - Figure container must match image aspect ratio (width/aspect = height)
+  - NO card wrapper with rounded corners around the figure
+  - Simple presentation: optional 1px border or subtle shadow
+  - Annotations/interpretation sit as plain text beside or below — NOT in cards
+  - Caption below figure in small gray text (11px)
+-->
+
+<style>
+  .figure-container {
+    /* Width and height computed from aspect ratio */
+    overflow: hidden;
+    border: 1px solid #e8e8e8;
+    border-radius: 4px; /* subtle, not card-like */
+  }
+  .figure-container img {
+    width: 100%; height: 100%;
+    object-fit: contain;
+  }
+  .figure-caption {
+    font-size: 11px; color: #666; margin-top: 6px;
+    font-style: italic;
+  }
+  /* Annotations beside the figure — plain text, no boxes */
+  .figure-notes {
+    font-size: 13px; color: #333; line-height: 1.6;
+  }
+  .figure-notes strong {
+    color: PRIMARY_DARK; font-weight: 700;
+  }
+</style>
+
+<!--
+  LAYOUT OPTIONS (choose based on image aspect ratio):
+
+  WIDE image (aspect > 2:1):
+    - Full-width placement, text annotations BELOW
+    - Container width: 80-100% of content area
+
+  SQUARE/TALL image (aspect 0.5-1.5):
+    - Side-by-side: image 50-60% width, text 40-50% beside it
+    - Text sits as plain paragraphs with bold section headers
+
+  MULTIPLE images:
+    - Grid of 2-3 images in a row, shared caption below
+
+  NEVER:
+    - Put image inside a heavy rounded card (>6px border-radius)
+    - Make image fill the entire slide (leave room for context)
+    - Stack 3+ images vertically (takes too much height)
+-->

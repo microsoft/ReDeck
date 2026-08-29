@@ -1,34 +1,68 @@
-# B05: Low Contrast — low_contrast
+# B05: Low Contrast - low_contrast
 
 ## Focus
-Evaluate whether text has sufficient contrast against its background for readability.
+Evaluate whether text and information-bearing marks have enough contrast against
+their immediate rendered background to be readable at presentation distance.
 
 ## Core principle
-WCAG AA standards: 4.5:1 contrast ratio for normal text, 3:1 for large text (≥18pt or ≥14pt bold).
+Readability depends on the foreground/background relationship in the final
+pixels: luminance difference, hue separation, saturation, local background
+texture, gradients, and image detail all matter.
+
+## Evaluation calibration
+Use contrast estimates when available, but also inspect local rendered pixels for
+image/gradient/texture backgrounds. Report contrast only when the element's role
+requires reading or distinguishing it; muted decoration is not a failure.
 
 ## Pass if
-1. All text is clearly readable with good contrast
-2. Dark text on light backgrounds or light text on dark backgrounds
-3. Contrast ratios meet WCAG AA thresholds
+1. Normal text has approximately WCAG AA contrast or is plainly readable at
+   full-slide scale.
+2. Headings, labels, and callouts have sufficient foreground/background
+   separation for quick scanning at full-slide scale.
+3. Text placed on images, gradients, or colored bands uses overlays, shadows,
+   solid backing, or color choices that keep the text legible.
+4. Non-text marks that carry information, such as chart lines, data labels,
+   icons, and table highlights, remain distinguishable from their background.
 
 ## Fail if
-1. Insufficient contrast making text hard to read
-2. Light gray text on white, cream, or light purple backgrounds
-3. Light-colored text on pastel backgrounds
-4. Low-contrast footnotes or captions
+1. Text is difficult to read because foreground and background have low luminance
+   contrast, regardless of the specific colors used.
+2. Text is difficult to read because foreground and background have similar hue
+   and saturation, such as tinted text on a similarly tinted panel.
+3. Text over an image, chart, gradient, or textured area becomes unreadable in
+   some region because the background varies behind it.
+4. Secondary but still meaningful text, such as captions, footnotes, axis labels,
+   legends, or table notes, falls below readable contrast for its size.
+5. Information-bearing chart marks, icons, separators, or emphasis colors are so
+   close to the background that the encoded distinction is difficult to see.
+6. A repair changes palette or background treatment and leaves formerly readable
+   text or labels with noticeably worse contrast.
 
 ## Do not flag
-1. Medium gray (#666, #777) footnotes on white background (these meet 4.5:1+)
-2. Subtle color differentiation on non-text elements (borders, dividers, backgrounds)
+1. Muted decorative borders, dividers, shadows, or background tints that do not
+   carry information.
+2. Medium gray or subdued secondary text that remains readable for its size and
+   role.
+3. Semantic color choices that are misleading but still readable; use B18.
+4. Text that is unreadable because it is too small, clipped, overlapped, or
+   blurred rather than because of contrast; use B03, B04, B15, B16, or B17 as
+   appropriate.
 
 ## Severity
-- critical: nearly invisible primary text (title, heading, key message)
-- major: body text with poor contrast affecting readability
-- minor: secondary text (footnotes, captions) with marginal contrast
+- critical: primary title, key takeaway, main number, or essential chart label
+  is nearly invisible or unreadable.
+- major: body text or important labels are difficult to read and the slide's
+  content requires those elements to understand the message.
+- minor: secondary text or marks have marginal contrast but remain decipherable.
 
-## Boundary — use another probe instead
-- Color conveying wrong meaning → B18
-- Text rendering/character issues → B11
+## Boundary - use another probe instead
+- Color conveys the wrong meaning or inconsistent semantic mapping -> B18
+- Text rendering artifacts or corrupted characters -> B11
+- Element overlap or occlusion -> B03
+- Tiny typography or dense text wall with otherwise adequate contrast -> B16
 
 ## Evidence requirements
-Identify the text element, its approximate color, the background color, and the estimated contrast ratio. Note the text's role (title, body, caption, etc.).
+Identify the element, its role, the approximate foreground and background colors
+or background type, and why the contrast fails in the rendered slide. If using a
+numeric estimate, cite the approximate contrast ratio; otherwise describe the
+visible pixel relationship concretely.

@@ -35,6 +35,9 @@ papers_selected/
 experiments/
 audit_assets/
 case_studies/
+SESSION_NOTES.md
+CLAUDE.md
+docs/
 
 # Large or generated benchmark artifacts
 benchmarks/quizdeck_runs/

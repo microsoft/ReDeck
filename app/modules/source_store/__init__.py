@@ -41,6 +41,7 @@ def build_source_store(
     *,
     cache: bool = True,
     model: str | None = None,
+    source_kind: str = "paper",
 ) -> SourceStore:
     """One-shot build: parse PDF → LLM block planning → validate → index.
 
@@ -50,6 +51,8 @@ def build_source_store(
         cache: If True (default), persist to / load from
             ``source_pack/source_store.json``.
         model: Optional model override for the block planner LLM call.
+        source_kind: Semantic source class. ``document`` avoids academic-paper
+            assumptions for reports, filings, and existing presentations.
 
     Returns:
         Fully constructed ``SourceStore`` (without bundles — those are
@@ -68,6 +71,32 @@ def build_source_store(
     if cache and cache_path.exists():
         try:
             store = SourceStore.model_validate_json(cache_path.read_text("utf-8"))
+            try:
+                builder = AnchoredDocumentBuilder()
+                discovered_assets = builder._load_assets(source_dir)
+                refreshed = _refresh_cached_asset_paths(
+                    store.assets, discovered_assets,
+                )
+                if refreshed:
+                    store.summary_index = ResourceSummaryIndexBuilder().build(
+                        store.doc_block_plan, store.assets, store.table_data,
+                    )
+                    try:
+                        cache_path.write_text(
+                            store.model_dump_json(indent=2), "utf-8",
+                        )
+                    except OSError as e:
+                        logger.warning(
+                            "Could not persist refreshed asset paths: %s", e,
+                        )
+                    logger.info(
+                        "Refreshed %d cached SourceStore asset path(s)",
+                        refreshed,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Could not refresh cached SourceStore asset paths: %s", e,
+                )
             logger.info(
                 "Loaded cached SourceStore (%d blocks, %d doc_blocks)",
                 len(store.atomic_blocks),
@@ -88,7 +117,8 @@ def build_source_store(
     # ── Step 2: LLM Document Block Planning ──
     planner = LLMDocumentBlockPlanner(llm)
     plan = planner.plan(
-        anchored_doc, blocks, assets, tables, model=model,
+        anchored_doc, blocks, assets, tables,
+        model=model, source_kind=source_kind,
     )
     logger.info(
         "LLMDocumentBlockPlanner: %d doc blocks, profile=%s",
@@ -129,3 +159,42 @@ def build_source_store(
             logger.warning("Failed to cache SourceStore: %s", e)
 
     return store
+
+
+def _refresh_cached_asset_paths(
+    cached_assets: list[Asset],
+    discovered_assets: list[Asset],
+) -> int:
+    """Repair stale or empty paths without changing cached asset IDs.
+
+    Existing document-block plans refer to canonical A### IDs, so cached IDs
+    must remain stable. Figure metadata provides a stronger match than ordinal
+    position; the ID is used only as a final compatibility fallback.
+    """
+    available = [
+        asset for asset in discovered_assets
+        if asset.image_path and Path(asset.image_path).is_file()
+    ]
+    refreshed = 0
+
+    for cached in cached_assets:
+        if cached.image_path and Path(cached.image_path).is_file():
+            continue
+
+        matches = [
+            asset for asset in available
+            if asset.type == cached.type
+            and asset.page == cached.page
+            and asset.bbox == cached.bbox
+        ]
+        if len(matches) != 1:
+            matches = [
+                asset for asset in available
+                if asset.type == cached.type
+                and asset.asset_id == cached.asset_id
+            ]
+        if len(matches) == 1:
+            cached.image_path = matches[0].image_path
+            refreshed += 1
+
+    return refreshed

@@ -21,7 +21,7 @@ class DeterministicGeomChecks:
 
     def __init__(
         self,
-        min_font_pt: float = 10.0,
+        min_font_pt: float = 14.0,
         slide_width_emu: int = SlideDimensions.WIDTH_EMU,
         slide_height_emu: int = SlideDimensions.HEIGHT_EMU,
         margin_emu: int = 0,
@@ -31,13 +31,20 @@ class DeterministicGeomChecks:
         self.slide_width = slide_width_emu
         self.slide_height = slide_height_emu
         self.margin = margin_emu
+        # HTML-to-PPTX conversion can produce minor boundary misalignment;
+        # add 0.15" tolerance (~20px) to avoid false-positive OOB in HTML mode.
         self.html_mode = html_mode
+        if self.html_mode and self.margin == 0:
+            self.margin = int(0.15 * SlideDimensions.EMU_PER_INCH)
 
-    def check_all(self, extractions: list[SlideExtraction]) -> list[Issue]:
+    def check_all(self, extractions: list[SlideExtraction], source_text: str = "") -> list[Issue]:
         """Run all deterministic checks on all slides."""
         issues = []
         for ext in extractions:
             issues.extend(self._check_slide(ext))
+        # Deck-level entity coverage check
+        if source_text:
+            issues.extend(self._check_entity_coverage(extractions, source_text))
         # Tag all geom issues with source_probe_id for regression tracking
         for iss in issues:
             if not iss.source_probe_id:
@@ -174,6 +181,18 @@ class DeterministicGeomChecks:
         if self._is_background_rect(a) or self._is_background_rect(b):
             return True
 
+        # Pattern 1b: full-slide wrapper div (HTML mode).
+        # In HTML→PPTX, the outermost <body> or <div class="slide"> becomes
+        # a text_box covering ≥90% of the slide. Every child overlaps with it.
+        if self.html_mode:
+            slide_area = self.slide_width * self.slide_height
+            if slide_area > 0:
+                for obj in (a, b):
+                    if len(obj.bbox_emu) >= 4:
+                        _, _, w, h = obj.bbox_emu[:4]
+                        if (w * h) / slide_area >= SpatialThresholds.BG_AREA_RATIO:
+                            return True
+
         # Pattern 2: accent line ADJACENT to content (title underline)
         # Only exempt if the accent line is near the top/bottom edge of
         # the other shape — NOT if it cuts through the shape's interior.
@@ -202,6 +221,23 @@ class DeterministicGeomChecks:
         # <li>/<p>/<td>/<div>/<h1-h6> is normal nesting, not a real overlap.
         # The inline element is always fully contained in the block parent.
         if self.html_mode and self._is_html_inline_containment(a, b):
+            return True
+
+        # HTML block-in-block containment: In HTML slides, nested <div>s
+        # (parent container with child content div) both have text content
+        # but the overlap is intentional CSS nesting, not visual conflict.
+        # If one element is ≥85% contained in the other, it's parent-child.
+        # (Slightly lowered from 0.95 for HTML mode where minor overflow from
+        # padding/margin mismatch in conversion is common.)
+        if (
+            self.html_mode
+            and both_text_with_content
+            and self._is_containment(
+                a,
+                b,
+                threshold=SpatialThresholds.CONTAINMENT_RATIO,
+            )
+        ):
             return True
 
         if not both_text_with_content and self._is_containment(a, b):
@@ -241,12 +277,15 @@ class DeterministicGeomChecks:
 
     @staticmethod
     def _is_html_inline_containment(a, b) -> bool:
-        """Return True if one element is an HTML inline element contained in a block parent.
+        """Return True if one element is an HTML inline element inside a block or another inline.
 
         In HTML slides, <strong>, <span>, <em>, <a>, <code> inside
         <li>, <p>, <td>, <div>, <h1>-<h6> create 100% overlap in the
         DOM bounding box model — but this is normal nesting, not a real
         spatial conflict.
+
+        Also catches inline-inside-inline nesting (e.g. <strong> wrapping
+        <sub>) which produces the same phantom overlap.
         """
         _INLINE_TAGS = frozenset({"strong", "span", "em", "a", "code", "b", "i", "u", "mark", "sub", "sup"})
         _BLOCK_TAGS = frozenset({"li", "p", "td", "th", "div", "h1", "h2", "h3", "h4", "h5", "h6", "section", "header", "footer", "figcaption", "blockquote"})
@@ -260,16 +299,23 @@ class DeterministicGeomChecks:
         if b_tag in _INLINE_TAGS and a_tag in _BLOCK_TAGS:
             return True
 
+        # inline inside inline (e.g. <strong> wrapping <sub>)
+        if a_tag in _INLINE_TAGS and b_tag in _INLINE_TAGS:
+            return True
+
         return False
 
     @staticmethod
-    def _is_containment(a, b) -> bool:
+    def _is_containment(a, b, threshold: float = None) -> bool:
         """Return True if one object is largely contained within the other.
 
         Catches card patterns: header bar (Rectangle) inside card (Rounded Rectangle),
         image (Picture) inside card, table inside card, etc.
-        A containment ratio ≥ 85% of the smaller object means intentional nesting.
+        A containment ratio ≥ threshold of the smaller object means intentional nesting.
+        Default threshold is SpatialThresholds.CONTAINMENT_RATIO (0.85).
         """
+        if threshold is None:
+            threshold = SpatialThresholds.CONTAINMENT_RATIO
         if len(a.bbox_emu) < 4 or len(b.bbox_emu) < 4:
             return False
 
@@ -304,40 +350,27 @@ class DeterministicGeomChecks:
         intersection = (ix_right - ix_left) * (iy_bottom - iy_top)
         containment_ratio = intersection / child_area
 
-        return containment_ratio >= SpatialThresholds.CONTAINMENT_RATIO
+        return containment_ratio >= threshold
 
-    @staticmethod
-    def _is_title_subtitle_adjacency(a, b) -> bool:
-        """Return True if two TextBoxes are vertically adjacent title/subtitle.
+    def _is_title_subtitle_adjacency(self, a, b) -> bool:
+        """Return True if two elements are vertically adjacent with shallow overlap.
 
-        Detects when allocated TextBox heights cause phantom overlap between
-        a title and subtitle that are visually separate.  Conditions:
-        - Both are TextBoxes
-        - Both are in the top 2 inches of the slide
-        - Vertical overlap is < 0.3 inch (274320 EMU)
-        - Both span a wide portion of the slide (> 6 inches)
+        In HTML slides, adjacent vertically-stacked elements (title/subtitle,
+        table/summary, section/footer) often have bounding boxes that slightly
+        overlap due to padding, margins, or allocated height exceeding rendered
+        content. This is not a visual conflict.
+
+        For HTML mode: any two elements with < 0.3" vertical overlap AND
+        overlap area < 25% of the smaller element are considered adjacency.
+
+        For PPTX mode (legacy): retains the stricter conditions requiring
+        top-zone placement and wide textboxes.
         """
-        a_is_tb = (getattr(a, 'object_type', '') == "text_box"
-                   or "textbox" in a.object_id.lower())
-        b_is_tb = (getattr(b, 'object_type', '') == "text_box"
-                   or "textbox" in b.object_id.lower())
-        if not a_is_tb or not b_is_tb:
-            return False
         if len(a.bbox_emu) < 4 or len(b.bbox_emu) < 4:
             return False
 
         a_l, a_t, a_w, a_h = a.bbox_emu[:4]
         b_l, b_t, b_w, b_h = b.bbox_emu[:4]
-
-        # Both must be in the top portion of the slide (top < 2 inches = 1828800 EMU)
-        top_zone = SpatialThresholds.TITLE_TOP_ZONE_EMU
-        if a_t > top_zone or b_t > top_zone:
-            return False
-
-        # Both must be wide (> 6 inches = 5486400 EMU) — typical for title/subtitle
-        wide_threshold = SpatialThresholds.TITLE_WIDE_EMU
-        if a_w < wide_threshold or b_w < wide_threshold:
-            return False
 
         # Compute vertical overlap
         upper = a if a_t <= b_t else b
@@ -349,9 +382,36 @@ class DeterministicGeomChecks:
         if vertical_overlap <= 0:
             return False  # No overlap
 
-        # Allow a small amount of title phantom overlap.
-        max_phantom = SpatialThresholds.TITLE_PHANTOM_OVERLAP_EMU
-        return vertical_overlap <= max_phantom
+        if self.html_mode:
+            # HTML mode: generalized adjacency check.
+            # Tight vertical stacking with < 0.3" vertical overlap is normal
+            # CSS layout — padding/margins cause bbox overlap without visual
+            # conflict. Guard: also require overlap area < 25% of smaller.
+            ADJACENCY_EMU = 274320  # 0.3 inches
+            if vertical_overlap > ADJACENCY_EMU:
+                return False
+            # Check area overlap percentage
+            overlap_pct = self._overlap_percentage(a.bbox_emu, b.bbox_emu)
+            return overlap_pct < 0.25
+        else:
+            # PPTX mode: strict title/subtitle check (legacy behavior)
+            a_is_tb = (getattr(a, 'object_type', '') == "text_box"
+                       or "textbox" in a.object_id.lower())
+            b_is_tb = (getattr(b, 'object_type', '') == "text_box"
+                       or "textbox" in b.object_id.lower())
+            if not a_is_tb or not b_is_tb:
+                return False
+
+            top_zone = SpatialThresholds.TITLE_TOP_ZONE_EMU
+            if a_t > top_zone or b_t > top_zone:
+                return False
+
+            wide_threshold = SpatialThresholds.TITLE_WIDE_EMU
+            if a_w < wide_threshold or b_w < wide_threshold:
+                return False
+
+            max_phantom = SpatialThresholds.TITLE_PHANTOM_OVERLAP_EMU
+            return vertical_overlap <= max_phantom
 
     def _check_empty_slide(self, ext: SlideExtraction) -> list[Issue]:
         """Check for empty slides."""
@@ -396,11 +456,73 @@ class DeterministicGeomChecks:
             if obj.object_type in ("chart", "table", "picture"):
                 continue
 
+            # In HTML mode, skip large container divs that contain child
+            # elements (images, text, etc.) — they are positioning wrappers,
+            # not empty placeholders. A container div that has children with
+            # content is intentional, even if the div itself has no text.
+            if self.html_mode:
+                obj_l, obj_t, obj_w, obj_h = (obj.bbox_emu[:4]
+                                               if len(obj.bbox_emu) >= 4
+                                               else (0, 0, 0, 0))
+                has_contained_content = False
+                for other in ext.objects:
+                    if other is obj:
+                        continue
+                    if not (other.text_content and other.text_content.strip()) and not other.has_image:
+                        continue
+                    if len(other.bbox_emu) < 4:
+                        continue
+                    o_l, o_t, o_w, o_h = other.bbox_emu[:4]
+                    # Check if other is largely contained within obj
+                    if (o_l >= obj_l and o_t >= obj_t and
+                        o_l + o_w <= obj_l + obj_w + 5000 and  # 5000 EMU tolerance
+                        o_t + o_h <= obj_t + obj_h + 5000):
+                        has_contained_content = True
+                        break
+                if has_contained_content:
+                    continue
+
+                # Also skip divs that overlap with a Picture (figure container pattern).
+                # In HTML→PPTX conversion, a <div> wrapping an <img> becomes a separate
+                # shape from the Picture. The div has styling (background, border-radius)
+                # but no text — it's not truly "empty", it's a figure frame.
+                has_adjacent_picture = False
+                for other in ext.objects:
+                    if other is obj:
+                        continue
+                    if other.object_type != "picture" and not other.has_image:
+                        continue
+                    if len(other.bbox_emu) < 4:
+                        continue
+                    # Check overlap between obj and the picture
+                    o_l, o_t, o_w, o_h = other.bbox_emu[:4]
+                    ix_left = max(obj_l, o_l)
+                    iy_top = max(obj_t, o_t)
+                    ix_right = min(obj_l + obj_w, o_l + o_w)
+                    iy_bottom = min(obj_t + obj_h, o_t + o_h)
+                    if ix_right > ix_left and iy_bottom > iy_top:
+                        intersection = (ix_right - ix_left) * (iy_bottom - iy_top)
+                        pic_area = o_w * o_h
+                        if pic_area > 0 and intersection / pic_area > 0.3:
+                            has_adjacent_picture = True
+                            break
+                if has_adjacent_picture:
+                    continue
+
             # Check size
             if len(obj.bbox_emu) < 4:
                 continue
             w_in = obj.bbox_emu[2] / EMU_PER_INCH
             h_in = obj.bbox_emu[3] / EMU_PER_INCH
+
+            # Skip full-width thin bands (decorative headers/footers/accent bars)
+            if self.html_mode and w_in >= 12.0 and h_in < 1.5:
+                continue
+
+            # Skip full-slide wrapper divs (the outermost body container)
+            if self.html_mode and w_in >= 12.0 and h_in >= 7.0:
+                continue
+
             if w_in > MIN_W_IN and h_in > MIN_H_IN:
                 issues.append(Issue(
                     issue_id=f"B_geom_slide{ext.slide_id}_empty_placeholder_{obj.object_id}",
@@ -451,6 +573,24 @@ class DeterministicGeomChecks:
 
                 overlap_pct = self._overlap_percentage(a.bbox_emu, b.bbox_emu)
                 if overlap_pct > SpatialThresholds.OVERLAP_MIN_PCT:  # significant overlap
+
+                    # HTML mode: filter out overlaps with small absolute area.
+                    # HTML→PPTX conversion produces many minor positional inaccuracies
+                    # (especially for vertically adjacent elements) that are not visible
+                    # at presentation scale. Only flag overlaps > 0.5 sq inch.
+                    if self.html_mode and len(a.bbox_emu) >= 4 and len(b.bbox_emu) >= 4:
+                        a_l, a_t, a_w, a_h = a.bbox_emu[:4]
+                        b_l, b_t, b_w, b_h = b.bbox_emu[:4]
+                        ix_left = max(a_l, b_l)
+                        iy_top = max(a_t, b_t)
+                        ix_right = min(a_l + a_w, b_l + b_w)
+                        iy_bottom = min(a_t + a_h, b_t + b_h)
+                        if ix_right > ix_left and iy_bottom > iy_top:
+                            overlap_area_sqin = ((ix_right - ix_left) * (iy_bottom - iy_top)
+                                                 / (SlideDimensions.EMU_PER_INCH ** 2))
+                            if overlap_area_sqin < SpatialThresholds.OVERLAP_TRIVIAL_AREA:
+                                continue
+
                     severity = Severity.MAJOR if overlap_pct > SpatialThresholds.OVERLAP_MAJOR_PCT else Severity.MINOR
 
                     # Generate pattern-specific planned_fix for actionable repair
@@ -790,7 +930,11 @@ class DeterministicGeomChecks:
                 continue
             text = obj.text_content.strip()
             # Count list items and bullet-prefixed lines
-            tag = (obj.shape_type or "").lower()
+            tag = (
+                getattr(obj, "shape_type", "")
+                or getattr(obj, "object_type", "")
+                or ""
+            ).lower()
             if tag in ("li", "listitem"):
                 bullet_count += 1
             elif text.startswith(("•", "–", "-", "▸", "●")):
@@ -817,3 +961,82 @@ class DeterministicGeomChecks:
                 verdict=Verdict.FAIL,
             )]
         return []
+
+    def _check_entity_coverage(self, extractions: list[SlideExtraction], source_text: str) -> list[Issue]:
+        """Check if key entities from source paper appear in slides."""
+        import re as _re
+        from ...schemas.issue import FixDetail
+
+        # Gather all slide text
+        all_slide_text = ""
+        for ext in extractions:
+            for obj in ext.objects:
+                if obj.text_content:
+                    all_slide_text += obj.text_content.lower() + " "
+
+        # Extract proper nouns (multi-word capitalized) from source
+        proper_nouns = set(_re.findall(
+            r'[A-Z][a-z]+(?:[-\s][A-Z][a-z]+)+', source_text
+        ))
+        # Extract hyphenated technical terms
+        hyphenated = set(_re.findall(r'\b[a-z]+-[a-z]+(?:-[a-z]+)*\b', source_text.lower()))
+
+        source_lower = source_text.lower()
+        missing = []
+        for term in proper_nouns:
+            count = source_lower.count(term.lower())
+            if count >= 2 and term.lower() not in all_slide_text:
+                missing.append((term, count))
+        for term in hyphenated:
+            if len(term) > 8:
+                count = source_lower.count(term)
+                if count >= 3 and term not in all_slide_text:
+                    missing.append((term, count))
+
+        if not missing:
+            return []
+
+        missing.sort(key=lambda x: -x[1])
+        top_missing = missing[:5]
+
+        logger.info(
+            "Entity coverage: %d missing entities: %s",
+            len(top_missing), [e[0] for e in top_missing],
+        )
+
+        # Create issues
+        issues = []
+        mid_slide = extractions[len(extractions)//2].slide_id if extractions else 1
+
+        for entity, count in top_missing:
+            target_sid = mid_slide
+            entity_words = set(entity.lower().split())
+            best_overlap = 0
+            for ext in extractions:
+                slide_text = " ".join(o.text_content or "" for o in ext.objects).lower()
+                overlap = sum(1 for w in entity_words if w in slide_text)
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    target_sid = ext.slide_id
+
+            issues.append(Issue(
+                issue_id=f"C4_ent_{entity[:12].replace(' ','_').replace('-','_')}",
+                rubric_id="C4",
+                issue_type="missing_entity",
+                severity=Severity.MAJOR,
+                confidence=Confidence.HIGH,
+                affected_slides=[target_sid],
+                evidence=IssueEvidence(
+                    description=(
+                        f"The source paper mentions '{entity}' {count} times "
+                        f"but it does not appear on any slide."
+                    ),
+                    source_refs=[],
+                ),
+                status=IssueStatus.OPEN,
+                verdict=Verdict.FAIL,
+                planned_fix=f"After an existing bullet on slide {target_sid}, insert: '{entity}'",
+                fix_detail=FixDetail(correct_content=entity),
+            ))
+
+        return issues

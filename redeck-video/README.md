@@ -1,54 +1,35 @@
-# Remotion video
+# ReDeck research overview video
 
-<p align="center">
-  <a href="https://github.com/remotion-dev/logo">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://github.com/remotion-dev/logo/raw/main/animated-logo-banner-dark.apng">
-      <img alt="Animated Remotion Logo" src="https://github.com/remotion-dev/logo/raw/main/animated-logo-banner-light.gif">
-    </picture>
-  </a>
-</p>
+This Remotion project contains the source for one public video: an 84-second
+English-narrated overview with burned-in English captions.
 
-Welcome to your Remotion project!
+## Build
 
-## Commands
-
-**Install Dependencies**
-
-```console
-npm i
+```bash
+npm install
+npm run build
 ```
 
-**Start Preview**
+The build writes `../demo/assets/redeck-demo.mp4` at 1920×1168. It preserves the
+native 1920×1080 picture with a 16 px top bar and a 72 px caption bar. Burned-in
+English captions use 36 px type.
 
-```console
+## Preview
+
+```bash
 npm run dev
 ```
 
-**Render video**
+The only composition is `ReDeckDemo`.
 
-```console
-npx remotion render
+## Narration
+
+The committed narration assets live in `public/narration-v6/`. To regenerate
+them with Fun-CosyVoice3, set `COSYVOICE_PYTHON` and run:
+
+```bash
+npm run narration:generate
 ```
 
-**Upgrade Remotion**
-
-```console
-npx remotion upgrade
-```
-
-## Docs
-
-Get started with Remotion by reading the [fundamentals page](https://www.remotion.dev/docs/the-fundamentals).
-
-## Help
-
-We provide help on our [Discord server](https://discord.gg/6VzzNDwUwV).
-
-## Issues
-
-Found an issue with Remotion? [File an issue here](https://github.com/remotion-dev/remotion/issues/new).
-
-## License
-
-Note that for some entities a company license is needed. [Read the terms here](https://github.com/remotion-dev/remotion/blob/main/LICENSE.md).
+The music credit and modification notice are in
+`public/audio/INSPIRED_LICENSE.md`.

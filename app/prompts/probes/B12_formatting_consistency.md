@@ -17,7 +17,7 @@ Within a single text block or group of same-role elements, formatting should be 
 2. Line spacing varies within a single text block
 3. Capitalization is inconsistent across similar elements (some titles capitalized, others not)
 4. Visible formatting artifacts (extra spaces, broken formatting)
-5. Footnote-level elements using body-text-sized fonts instead of appropriately smaller sizing
+5. Footnote-level elements using body-text-sized fonts (≥14pt)
 6. LaTeX rendering artifacts: raw `$...$` syntax visible, backslash commands showing as text
 
 ## Severity

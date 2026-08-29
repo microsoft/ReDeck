@@ -1,0 +1,90 @@
+<!--
+  SKILL: Content Grid
+  Use when: listing contributions, features, model components, or dataset properties
+
+  KEY RULES:
+  - Equal-weight items in a 2×2, 3×2, or 2×3 grid
+  - Items are SHORT (header + 1-2 lines)
+  - Minimal styling: icon/number + bold header + brief text
+  - NO heavy card wrappers — use whitespace or thin borders to separate
+-->
+
+<style>
+  .content-grid {
+    display: grid;
+    gap: 20px 30px;
+    margin: 16px 0;
+  }
+  /* 2 columns */
+  .content-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+  /* 3 columns */
+  .content-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+  .grid-item {
+    /* Option A: borderless — separated only by whitespace */
+    padding: 0;
+  }
+  .grid-item.bordered {
+    /* Option B: subtle border (use if >4 items need visual separation) */
+    border: 1px solid #e8e8e8;
+    border-radius: 6px;
+    padding: 16px 18px;
+  }
+
+  .grid-item .item-marker {
+    /* Numbered circle or small icon */
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: PRIMARY_DARK; color: #fff;
+    font-size: 13px; font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .grid-item .item-header {
+    font-size: 15px; font-weight: 700; color: PRIMARY_DARK;
+    margin-bottom: 4px;
+  }
+  .grid-item .item-text {
+    font-size: 13px; color: #555; line-height: 1.5;
+  }
+</style>
+
+<!--
+  NUMBERED GRID (contributions, steps):
+
+  <div class="content-grid cols-3">
+    <div class="grid-item">
+      <div class="item-marker">1</div>
+      <div class="item-header">Two-stage framework</div>
+      <div class="item-text">Graph construction followed by LLM refinement</div>
+    </div>
+    <div class="grid-item">
+      <div class="item-marker">2</div>
+      <div class="item-header">Edge refinement</div>
+      <div class="item-text">LLM judges each edge for plausibility</div>
+    </div>
+    ...
+  </div>
+
+  ICON-HEADER GRID (features, datasets):
+
+  <div class="content-grid cols-2">
+    <div class="grid-item">
+      <div class="item-header">19 EEG Channels</div>
+      <div class="item-text">Standard 10-20 montage covering frontal, temporal, and parietal regions</div>
+    </div>
+    ...
+  </div>
+
+  DESIGN RULES:
+  - 3-6 items total (fewer = use bullets instead, more = use a table)
+  - Each item: header (2-5 words) + description (8-15 words)
+  - Prefer borderless (Option A) for ≤4 items, bordered (Option B) for 5-6
+  - Numbered markers: use when items have logical sequence
+  - No numbered markers: use when items are parallel/unordered
+
+  AVOID:
+  - Colored fill on every grid item (dashboard look)
+  - Items with paragraphs of text (>2 lines each)
+  - Grid of 8+ items (use a table or paginate)
+  - Icons/emojis in place of numbers (keep it academic)
+-->

@@ -38,14 +38,18 @@ class TestSourceIndexer:
         assert len(table.headers) > 0
         assert table.row_count > 0
 
-    def test_numeric_fact_field_defaults_empty(self, case_01_dir):
-        """Numeric facts default to an empty list."""
+    def test_numeric_fact_extraction(self, case_01_dir):
+        """NumericFact extraction was removed (toy-quality regex).
+        Verify the field is present but empty.
+        """
         indexer = SourceIndexer()
         evidence = indexer.index(case_01_dir)
         assert evidence.numeric_facts == []
 
-    def test_entity_registry_defaults_empty(self, case_01_dir):
-        """Entity registry defaults to an empty list."""
+    def test_entity_extraction(self, case_01_dir):
+        """EntityEntry extraction was removed (toy-quality regex).
+        Verify the field is present but empty.
+        """
         indexer = SourceIndexer()
         evidence = indexer.index(case_01_dir)
         assert evidence.entity_registry == []
@@ -126,13 +130,13 @@ class TestSourceIndexer:
         assert len(chunks) == 1
         assert chunks[0].content == "This is plain text content."
 
-    def test_extract_numeric_facts_is_not_public_api(self):
-        """Numeric fact extraction is not part of the public indexer API."""
+    def test_extract_numeric_facts_removed(self):
+        """Verify _extract_numeric_facts has been removed (toy-quality regex)."""
         indexer = SourceIndexer()
         assert not hasattr(indexer, '_extract_numeric_facts')
 
-    def test_extract_entities_is_not_public_api(self):
-        """Entity extraction is not part of the public indexer API."""
+    def test_extract_entities_removed(self):
+        """Verify _extract_entities has been removed (toy-quality regex)."""
         indexer = SourceIndexer()
         assert not hasattr(indexer, '_extract_entities')
 

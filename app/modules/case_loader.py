@@ -193,7 +193,10 @@ class CaseLoader:
                             content=content,
                             caption=tbl_data.get("caption", ""),
                             description="",
-                            headers=rows[0] if rows else [],
+                            headers=[
+                                "" if h is None else str(h)
+                                for h in (rows[0] if rows else [])
+                            ],
                             row_count=len(rows),
                             page_number=tbl_data.get("page"),
                         ))
@@ -218,33 +221,63 @@ class CaseLoader:
                             source_file=asset.get("source_file", ""),
                             image_path=img_path,
                             caption=asset.get("caption", ""),
-                            description=asset.get("description", ""),
-                            page_number=asset.get("page_number"),
+                            description=asset.get("description", asset.get("summary", "")),
+                            page_number=asset.get("page_number", asset.get("page")),
                             width=asset.get("width"),
                             height=asset.get("height"),
-                            figure_type=asset.get("figure_type", "figure"),
+                            figure_type=asset.get("figure_type", asset.get("type", "figure")),
                         ))
                 if figures:
                     logger.info("Loaded %d figures from source_store assets", len(figures))
             except Exception as e:
                 logger.warning("Failed to load assets from source_store: %s", e)
 
-        # Fallback: scan figures/ and screenshots/ directories
-        if not figures:
-            for subdir, fig_type in [("figures", "figure"), ("screenshots", "page_screenshot")]:
-                fig_dir = source_pack / subdir
-                if fig_dir.exists():
-                    for img in sorted(fig_dir.glob("*.png")):
-                        figures.append(FigureRef(
-                            figure_id=img.stem,
-                            source_file="paper.pdf",
-                            image_path=str(img),
-                            caption=img.stem.replace("_", " "),
-                            description=f"Extracted {fig_type} from paper",
-                            figure_type=fig_type,
-                        ))
-            if figures:
-                logger.info("Loaded %d figures from dirs (fallback)", len(figures))
+        # Always supplement the cache from disk. Old source_store.json files
+        # may contain empty paths for native JPEG/WebP figures.
+        known_paths = {
+            str(Path(fig.image_path).resolve())
+            for fig in figures if fig.image_path
+        }
+        image_suffixes = {".png", ".jpg", ".jpeg", ".webp"}
+        for subdir, fig_type in [
+            ("figures", "figure"),
+            ("screenshots", "page_screenshot"),
+        ]:
+            fig_dir = source_pack / subdir
+            if not fig_dir.exists():
+                continue
+            for img in sorted(fig_dir.iterdir()):
+                if not img.is_file() or img.suffix.lower() not in image_suffixes:
+                    continue
+                resolved = str(img.resolve())
+                if resolved in known_paths:
+                    continue
+
+                metadata = {}
+                sidecar = img.with_suffix(".json")
+                if sidecar.exists():
+                    try:
+                        metadata = json.loads(sidecar.read_text())
+                    except (json.JSONDecodeError, OSError):
+                        metadata = {}
+                figures.append(FigureRef(
+                    figure_id=metadata.get("figure_id", img.stem),
+                    source_file="paper.pdf",
+                    image_path=str(img),
+                    caption=metadata.get("caption", img.stem.replace("_", " ")),
+                    description=f"Extracted {fig_type} from paper",
+                    page_number=metadata.get("page"),
+                    bbox=metadata.get("bbox", []),
+                    width=metadata.get("width"),
+                    height=metadata.get("height"),
+                    figure_type=(
+                        "page_screenshot" if fig_type == "page_screenshot"
+                        else metadata.get("figure_type", "figure")
+                    ),
+                ))
+                known_paths.add(resolved)
+        if figures:
+            logger.info("Loaded %d figures from cache and asset dirs", len(figures))
 
         return EvidenceState(chunks=chunks, tables=tables, figures=figures)
 

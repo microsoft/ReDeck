@@ -1,0 +1,44 @@
+<!-- Local skill: vary metric width and emphasis; do not turn the rail into equal KPI cards. -->
+<style>
+  .skill-metric-rail {
+    display: grid;
+    grid-template-columns: 1.35fr 1fr 1fr;
+    align-items: stretch;
+    border-top: 2px solid var(--support);
+    border-bottom: 2px solid var(--support);
+    padding: 14px 0;
+  }
+  .skill-metric {
+    min-width: 0;
+    padding: 0 20px;
+    border-left: 1px solid color-mix(in srgb, var(--secondary) 45%, transparent);
+  }
+  .skill-metric:first-child { padding-left: 0; border-left: 0; }
+  .skill-metric-kicker {
+    color: var(--primary-text);
+    font-size: 13px;
+    line-height: 1.1;
+    font-weight: 750;
+    text-transform: uppercase;
+  }
+  .skill-metric strong {
+    display: block;
+    margin: 5px 0 3px;
+    color: var(--ink);
+    font-size: 34px;
+    line-height: 1;
+    font-weight: 800;
+  }
+  .skill-metric.lead strong { color: var(--accent-text); font-size: 54px; }
+  .skill-metric p {
+    margin: 0;
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.2;
+  }
+</style>
+<div class="skill-metric-rail">
+  <section class="skill-metric lead"><span class="skill-metric-kicker">{{lead_metric_label}}</span><strong>{{lead_value}}</strong><p>{{lead_interpretation}}</p></section>
+  <section class="skill-metric"><span class="skill-metric-kicker">{{support_label}}</span><strong>{{support_value}}</strong><p>{{distinct_supporting_fact}}</p></section>
+  <section class="skill-metric"><span class="skill-metric-kicker">{{support_label}}</span><strong>{{support_value}}</strong><p>{{distinct_supporting_fact}}</p></section>
+</div>

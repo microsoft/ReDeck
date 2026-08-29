@@ -1,0 +1,178 @@
+<!--
+  SKILL: Grouped / Clustered Bar Chart
+  Use when: comparing multiple metrics across models/methods simultaneously
+
+  DIFFERENT FROM chart:
+  - chart: single-metric bar chart (one bar per model)
+  - grouped_bar: multi-metric comparison (2-4 bars per model, side by side)
+
+  KEY RULES:
+  - Pure SVG, no external library
+  - 2-4 metrics per group (more = unreadable)
+  - Color-coded bars with a clean legend
+  - Horizontal or vertical orientation
+  - Highlight the best model's group with a subtle background
+  - Always label axes and show values
+-->
+
+<style>
+  .gbar-container {
+    position: absolute;
+    left: 50px;
+    top: 100px;
+    width: 720px;
+    height: 460px;
+  }
+  .gbar-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: PRIMARY_MID;
+    margin-bottom: 12px;
+  }
+
+  /* Legend */
+  .gbar-legend {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 14px;
+  }
+  .gbar-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #555;
+  }
+  .gbar-legend-swatch {
+    width: 14px;
+    height: 10px;
+    border-radius: 2px;
+  }
+
+  /* Interpretation panel */
+  .gbar-interpret {
+    position: absolute;
+    right: 50px;
+    top: 110px;
+    width: 340px;
+  }
+  .gbar-interpret-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: PRIMARY_MID;
+    margin-bottom: 12px;
+  }
+  .gbar-interpret-text {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #3a4a5c;
+    margin-bottom: 14px;
+  }
+  .gbar-interpret-callout {
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: rgba(ACCENT_RGB, 0.05);
+    border-left: 3px solid ACCENT;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #2c3e50;
+  }
+</style>
+
+<!--
+  USAGE (vertical grouped bars, 3 metrics × 4 models):
+
+  <div class="gbar-container">
+    <div class="gbar-title">Performance across benchmarks</div>
+    <div class="gbar-legend">
+      <div class="gbar-legend-item">
+        <div class="gbar-legend-swatch" style="background:PRIMARY_DARK;"></div>Precision
+      </div>
+      <div class="gbar-legend-item">
+        <div class="gbar-legend-swatch" style="background:PRIMARY_MID;"></div>Recall
+      </div>
+      <div class="gbar-legend-item">
+        <div class="gbar-legend-swatch" style="background:ACCENT;"></div>F1
+      </div>
+    </div>
+
+    <svg width="680" height="340" viewBox="0 0 680 340">
+      <!-- Y-axis -->
+      <line x1="60" y1="10" x2="60" y2="270" stroke="#ddd" stroke-width="1"/>
+      <text x="55" y="20" text-anchor="end" font-size="10" fill="#999">100</text>
+      <text x="55" y="140" text-anchor="end" font-size="10" fill="#999">50</text>
+      <text x="55" y="270" text-anchor="end" font-size="10" fill="#999">0</text>
+
+      <!-- Group 1: Model A -->
+      <rect x="80" y="108" width="28" height="162" rx="2" fill="PRIMARY_DARK" opacity="0.8"/>
+      <rect x="112" y="130" width="28" height="140" rx="2" fill="PRIMARY_MID" opacity="0.7"/>
+      <rect x="144" y="97" width="28" height="173" rx="2" fill="ACCENT" opacity="0.85"/>
+      <text x="80" y="100" font-size="10" font-weight="700" fill="#333">62.3</text>
+      <text x="112" y="122" font-size="10" font-weight="700" fill="#333">53.8</text>
+      <text x="144" y="89" font-size="10" font-weight="700" fill="ACCENT">66.5</text>
+      <text x="126" y="295" text-anchor="middle" font-size="11" fill="#555">Model A</text>
+
+      <!-- Group 2: Model B -->
+      <rect x="220" y="81" width="28" height="189" rx="2" fill="PRIMARY_DARK" opacity="0.8"/>
+      <rect x="252" y="97" width="28" height="173" rx="2" fill="PRIMARY_MID" opacity="0.7"/>
+      <rect x="284" y="65" width="28" height="205" rx="2" fill="ACCENT" opacity="0.85"/>
+      <text x="220" y="73" font-size="10" font-weight="700" fill="#333">72.7</text>
+      <text x="252" y="89" font-size="10" font-weight="700" fill="#333">66.5</text>
+      <text x="284" y="57" font-size="10" font-weight="700" fill="ACCENT">78.9</text>
+      <text x="266" y="295" text-anchor="middle" font-size="11" fill="#555">Model B</text>
+
+      <!-- Group 3: Our Method (highlighted background) -->
+      <rect x="350" y="0" width="120" height="280" rx="4"
+            fill="ACCENT" opacity="0.04"/>
+      <rect x="360" y="38" width="28" height="232" rx="2" fill="PRIMARY_DARK"/>
+      <rect x="392" y="43" width="28" height="227" rx="2" fill="PRIMARY_MID"/>
+      <rect x="424" y="22" width="28" height="248" rx="2" fill="ACCENT"/>
+      <text x="360" y="30" font-size="10" font-weight="700" fill="#333">89.2</text>
+      <text x="392" y="35" font-size="10" font-weight="700" fill="#333">87.3</text>
+      <text x="424" y="14" font-size="10" font-weight="700" fill="ACCENT">95.4</text>
+      <text x="406" y="295" text-anchor="middle" font-size="12" font-weight="700" fill="PRIMARY_DARK">Ours</text>
+
+      <!-- X-axis line -->
+      <line x1="60" y1="270" x2="660" y2="270" stroke="#ddd" stroke-width="1"/>
+    </svg>
+  </div>
+
+  <div class="gbar-interpret">
+    <div class="gbar-interpret-title">Key findings</div>
+    <div class="gbar-interpret-text">
+      Our method achieves the highest scores across all three metrics,
+      with the largest margin on F1 score (+16.5 over Model B).
+    </div>
+    <div class="gbar-interpret-callout">
+      Consistent gains across Precision, Recall, and F1 show the
+      improvement is not metric-specific but reflects genuine
+      quality improvement.
+    </div>
+  </div>
+
+  DESIGN RULES:
+  - 2-4 metrics per group (each gets a distinct color)
+  - 3-6 model groups along the x-axis
+  - Bar width: 24-32px per metric bar
+  - Gap between bars in same group: 4px
+  - Gap between groups: 40-60px
+  - Legend above the chart, horizontal layout
+  - Highlight best model group with subtle background rect
+  - Always show numeric values above/beside bars
+  - Color palette: PRIMARY_DARK, PRIMARY_MID, ACCENT, then #8896a6
+
+  WHEN TO USE:
+  - Multi-metric model comparison (BLEU + ROUGE + BERTScore)
+  - Cross-dataset evaluation (acc on Dataset1 + Dataset2 + Dataset3)
+  - Before/after with multiple measures
+
+  AVOID:
+  - More than 4 metrics (bars become too narrow)
+  - More than 6 groups (chart becomes too wide)
+  - Mixing percentage and absolute scales in same chart
+  - Use a table instead when there are many metrics × many models
+-->

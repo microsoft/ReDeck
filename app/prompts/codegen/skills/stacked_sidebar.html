@@ -1,0 +1,107 @@
+<!--
+  SKILL: Stacked Sidebar Cards
+  Use when: main content (table/figure/text) fills 55-65% left,
+  and 2-3 supporting elements stack vertically on the right.
+
+  This is the MOST COMMON layout in real academic PPT:
+  Left: primary content (table, figure, or main text)
+  Right: 2-3 stacked cards with different roles
+
+  KEY RULES:
+  - Right sidebar takes 35-40% width
+  - 2-3 cards stacked vertically with 16-20px gaps
+  - ONE card can be dark-filled (PRIMARY_DARK bg, white text) for the hero element
+  - Other cards: white bg with subtle border
+  - Cards have rounded corners (12-14px) and light shadow
+-->
+
+<style>
+  .main-sidebar-layout {
+    display: flex;
+    gap: 24px;
+    margin: 16px 0;
+    align-items: flex-start;
+  }
+  .main-content {
+    flex: 0 0 60%;
+    /* table, figure, or text block goes here */
+  }
+  .sidebar-stack {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .sidebar-card {
+    background: #fff;
+    border: 1px solid #d7e0ea;
+    border-radius: 14px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    padding: 16px 18px;
+  }
+  .sidebar-card h4 {
+    font-size: 16px; font-weight: 700; color: PRIMARY_DARK;
+    margin-bottom: 8px;
+  }
+  .sidebar-card p, .sidebar-card li {
+    font-size: 14px; color: #333; line-height: 1.5;
+  }
+
+  /* Dark hero card — use for the KEY metric or finding */
+  .sidebar-card.hero-dark {
+    background: PRIMARY_DARK;
+    color: #fff;
+    border: none;
+  }
+  .sidebar-card.hero-dark h4 { color: #fff; }
+  .sidebar-card.hero-dark .hero-value {
+    font-size: 36px; font-weight: 800; margin: 8px 0;
+  }
+  .sidebar-card.hero-dark p {
+    color: rgba(255,255,255,0.9); font-size: 14px;
+  }
+</style>
+
+<!--
+  EXAMPLE: Table left + 3 sidebar cards right
+
+  <div class="main-sidebar-layout">
+    <div class="main-content">
+      <h3 style="...">Main results table</h3>
+      <table>...</table>
+    </div>
+    <div class="sidebar-stack">
+      <div class="sidebar-card hero-dark">
+        <h4>Highlighted metric</h4>
+        <div class="hero-value">α ≈ 1.53</div>
+        <p>Ingredient usage follows a Zipf-like heavy tail</p>
+      </div>
+      <div class="sidebar-card">
+        <h4>Interpretation</h4>
+        <ul><li>A small set of ingredients dominates...</li></ul>
+      </div>
+      <div class="sidebar-card">
+        <h4>Takeaway</h4>
+        <p>Multiple independent laws converge in one corpus.</p>
+      </div>
+    </div>
+  </div>
+
+  CARD ROLE COMBINATIONS (pick 2-3):
+  - Hero metric (dark card) + Interpretation bullets + Takeaway
+  - Key finding (dark card) + Method context + Limitations
+  - Compact table + Hero number + Bullets
+  - Figure reading + Key metric + Model contrast
+
+  DESIGN RULES:
+  - Max 3 cards in sidebar (more = too cramped at 720px height)
+  - Exactly ONE dark-filled card (for visual anchor)
+  - Other cards: white with subtle border, no colored fills
+  - Each card: header (16px bold) + 2-4 lines of content
+  - Total sidebar width: 35-40% of slide
+
+  AVOID:
+  - All 3 cards dark-filled (looks like a dashboard)
+  - Cards with >5 bullets each (too dense)
+  - Sidebar wider than main content (unbalanced)
+-->

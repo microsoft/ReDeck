@@ -2,7 +2,7 @@
 
 *Generate presentation slides from documents — then automatically detect and repair spatial layout issues through render-grounded feedback, without manual intervention.*
 
-[![Paper](https://img.shields.io/badge/Paper-arXiv-b31b1b)](https://arxiv.org/abs/XXXX.XXXXX) [![Project Page](https://img.shields.io/badge/Project%20Page-ReDeck-4285f4)](https://microsoft.github.io/ReDeck/) [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Project Page](https://img.shields.io/badge/Project%20Page-ReDeck-4285f4)](https://microsoft.github.io/ReDeck/) [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
@@ -173,6 +173,7 @@ python scripts/redeck_repair.py --dir path/to/slides/ -o repaired/ --model gpt-4
 python scripts/run_pdf_pipeline.py \
     --case my_document \
     --html-codegen \
+    --html-theme demo_curated \
     --max-turns 3
 
 # Multi-turn repair loop on existing slides
@@ -180,6 +181,37 @@ python scripts/redeck_loop.py \
     --dir path/to/slides \
     --max-turns 3
 ```
+
+### HTML Design Profile
+
+Default HTML generation uses the demo-derived `demo_curated` palette pool and
+selects a content-driven composition grammar for each slide. The default set
+includes editorial statements, annotated figures, quantitative stories,
+comparative fields, process/system diagrams, timelines, evidence dashboards,
+and structured evidence grids. The generated design contract specifies the
+dominant object, evidence structure, visual devices, spatial rhythm, and depth
+strategy instead of selecting a fixed slide template.
+
+The compiler also retrieves two or three component-level HTML visual skills for
+each slide. These are compact CSS/HTML/SVG references for elements such as
+editorial headers, inspectable figures, process topology, metric rails, ranked
+evidence rows, quantitative tables, comparison fields, and phase paths. Skills
+describe local element language and composition affordances; they do not
+provide whole-page coordinates. A deck keeps one deterministic palette while
+its slides may compose different skills and layouts.
+
+Use `--html-theme coral_tide` on the PDF pipeline CLI, or set `html_theme`
+in an experiment config to control palette selection:
+
+```json
+{
+  "use_html_codegen": true,
+  "html_theme": "coral_tide"
+}
+```
+
+Use `"legacy"` to select from the original five-theme pool, or pin any concrete
+theme ID such as `"ocean_breeze"`, `"sea_glass"`, or `"editorial_slate"`.
 
 ### Input Format
 

@@ -1,0 +1,108 @@
+<!--
+  SKILL: Callout / Highlight Box
+  Use when: emphasizing a key finding, limitation, or insight
+
+  KEY RULES:
+  - ONE callout per slide maximum
+  - Multiple style options from subtle to strong
+  - Short text (1-2 sentences)
+  - Can be placed inline, at bottom, or beside a figure/table
+-->
+
+<style>
+  /* Style A: Left-border callout (subtle, academic) */
+  .callout-border {
+    border-left: 4px solid PRIMARY_DARK;
+    background: rgba(PRIMARY_RGB, 0.04);
+    padding: 14px 20px;
+    margin: 16px 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #2c3e50;
+    border-radius: 0 8px 8px 0;
+  }
+  .callout-border strong {
+    color: PRIMARY_DARK;
+  }
+
+  /* Style B: Tinted box with icon (for key takeaways) */
+  .callout-tinted {
+    background: rgba(PRIMARY_RGB, 0.06);
+    border-radius: 10px;
+    padding: 14px 20px 14px 48px;
+    font-size: 14px;
+    line-height: 1.5;
+    position: relative;
+  }
+  .callout-tinted::before {
+    content: "✦";
+    position: absolute;
+    left: 18px; top: 14px;
+    font-size: 16px;
+    color: PRIMARY_DARK;
+  }
+
+  /* Style C: Warning/limitation (amber tint) */
+  .callout-warning {
+    background: #fef9e7;
+    border-left: 4px solid #f0b429;
+    padding: 12px 18px;
+    font-size: 13px;
+    border-radius: 0 8px 8px 0;
+  }
+
+  /* Style D: Full-width strong conclusion (dark bg, white text) */
+  .callout-strong {
+    background: PRIMARY_DARK;
+    color: #fff;
+    padding: 14px 28px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.5;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.12);
+  }
+  .callout-strong .icon {
+    display: inline-block;
+    margin-right: 8px;
+    opacity: 0.7;
+  }
+</style>
+
+<!--
+  USAGE PATTERNS:
+
+  Key finding (beside a table or chart):
+    <div class="callout-border">
+      <strong>Key finding:</strong> Our method outperforms all baselines
+      by 12.3% on the primary metric while using 40% fewer parameters.
+    </div>
+
+  Takeaway with icon:
+    <div class="callout-tinted">
+      LLMs can serve as <strong style="color:PRIMARY_DARK">structural judges</strong>
+      for clinical graph refinement.
+    </div>
+
+  Limitation / caveat:
+    <div class="callout-warning">
+      <strong>Limitation:</strong> Results on Dataset B show higher
+      variance due to class imbalance in the test split.
+    </div>
+
+  Strong conclusion (full-width, dark):
+    <div class="callout-strong">
+      <span class="icon">→</span>
+      LLM-refined graphs consistently outperform traditional construction, with gains scaling with model capacity.
+    </div>
+
+  PLACEMENT:
+  - Bottom of slide: full-width summary (Style D for strong conclusions)
+  - Beside a visual: in the right column next to a figure/chart (Style A or B)
+  - Inline: between two content sections (Style B)
+
+  AVOID:
+  - More than 1 callout per slide
+  - Callout longer than 2 sentences
+  - Using Style D on every slide (save for key conclusions)
+-->

@@ -295,16 +295,21 @@
       },
       {
         "id": "B01.5",
+        "text": "Full-width title bands or title rules alternate between Primary, Accent, Secondary, or Support hues across body slides; filled and light treatments may vary, but their structural hue must stay Primary",
+        "source": "fail_if"
+      },
+      {
+        "id": "B01.6",
         "text": "deck-wide inconsistency across multiple dimensions (type, color, spacing)",
         "source": "severity_critical"
       },
       {
-        "id": "B01.6",
+        "id": "B01.7",
         "text": "clear inconsistency in one dimension across multiple slides",
         "source": "severity_major"
       },
       {
-        "id": "B01.7",
+        "id": "B01.8",
         "text": "subtle inconsistency noticeable only on close inspection",
         "source": "severity_minor"
       }
@@ -317,42 +322,47 @@
     "checks": [
       {
         "id": "B02.1",
-        "text": "Important content squeezed into a wrong layout type",
+        "text": "The slide uses a layout skeleton that does not match the content task, such as a process shown as unrelated cards, a comparison shown as disconnected prose, or a figure-centric point placed in a layout that prevents figure inspection.",
         "source": "fail_if"
       },
       {
         "id": "B02.2",
-        "text": "No clear reading path — viewer cannot determine where to look first",
+        "text": "The slide has no identifiable first focal region or reading path because co-equal regions share similar size/weight/placement and lack sequence, hierarchy labels, or grouping cues.",
         "source": "fail_if"
       },
       {
         "id": "B02.3",
-        "text": "Secondary element dominates while the core message is compressed",
+        "text": "A secondary region, note, decoration, metadata block, or supporting image is larger, darker, more central, or more saturated than the actual core message, causing the core message to be compressed or visually subordinated.",
         "source": "fail_if"
       },
       {
         "id": "B02.4",
-        "text": "4+ competing visual elements with no hierarchy",
+        "text": "Multiple major regions, typically four or more, are presented as competing peers even though titles, labels, or content semantics indicate hierarchy, sequence, or grouping.",
         "source": "fail_if"
       },
       {
         "id": "B02.5",
-        "text": "Subtitle styled too close to the title (insufficient visual distinction)",
+        "text": "Title and subtitle/body roles are structurally ambiguous because they use near-identical placement, size, weight, and spacing, making the heading stack read as one undifferentiated block.",
         "source": "fail_if"
       },
       {
         "id": "B02.6",
-        "text": "layout completely wrong for content type, message incomprehensible",
-        "source": "severity_critical"
+        "text": "A slide that needs side-by-side comparison, ordered stages, or input-output reasoning uses a free-form scatter of boxes/text/images that forces the viewer to infer the relationships from content alone.",
+        "source": "fail_if"
       },
       {
         "id": "B02.7",
-        "text": "layout clearly inappropriate, reading path confused",
-        "source": "severity_major"
+        "text": "the layout skeleton makes the main message or content relationship incomprehensible.",
+        "source": "severity_critical"
       },
       {
         "id": "B02.8",
-        "text": "layout suboptimal but message still comes through",
+        "text": "the layout choice visibly works against the content task and slows or confuses reading.",
+        "source": "severity_major"
+      },
+      {
+        "id": "B02.9",
+        "text": "one local structural choice slows reading, but the intended message and reading path remain recoverable.",
         "source": "severity_minor"
       }
     ]
@@ -364,37 +374,47 @@
     "checks": [
       {
         "id": "B03.1",
-        "text": "Content elements overlap making text or data unreadable",
+        "text": "A text block, label, number, icon, table cell, chart mark, legend, or image is visibly covered by another element and the covered content becomes unreadable, ambiguous, or only partially inspectable.",
         "source": "fail_if"
       },
       {
         "id": "B03.2",
-        "text": "Decorative shape covers meaningful content",
+        "text": "A foreground/background layering choice lacks the contrast, padding, or overlay treatment needed to make the foreground content readable.",
         "source": "fail_if"
       },
       {
         "id": "B03.3",
-        "text": "Chart labels overlap each other",
+        "text": "Chart internals collide: labels overlap labels, labels cover data marks, a legend covers plotted data, or axis/tick text collides with marks or captions.",
         "source": "fail_if"
       },
       {
         "id": "B03.4",
-        "text": "Image placed on top of text, obscuring it",
+        "text": "An image, screenshot, figure, or video frame is placed over nearby text or a panel so that either the image or the text/panel cannot be inspected.",
         "source": "fail_if"
       },
       {
         "id": "B03.5",
-        "text": "primary content completely hidden or unreadable due to overlap",
-        "source": "severity_critical"
+        "text": "Decorative shapes, dividers, diagonal rules, badges, header/footer bands, or container backgrounds cut through or cover meaningful content.",
+        "source": "fail_if"
       },
       {
         "id": "B03.6",
-        "text": "significant content partially obscured",
-        "source": "severity_major"
+        "text": "A repair moves or scales an element so that a previously readable neighbor is now partially hidden, even if the moved element itself looks larger or more prominent.",
+        "source": "fail_if"
       },
       {
         "id": "B03.7",
-        "text": "minor overlap with minimal readability impact",
+        "text": "primary content, key data, or the main figure is hidden enough that the slide cannot be interpreted.",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B03.8",
+        "text": "meaningful content is partially occluded and reading or inspection is clearly impaired.",
+        "source": "severity_major"
+      },
+      {
+        "id": "B03.9",
+        "text": "non-primary overlap affects a local label, icon, or decorative-adjacent element, but the main message remains recoverable.",
         "source": "severity_minor"
       }
     ]
@@ -438,37 +458,47 @@
     "checks": [
       {
         "id": "B05.1",
-        "text": "Insufficient contrast making text hard to read",
+        "text": "Text is difficult to read because foreground and background have low luminance contrast, regardless of the specific colors used.",
         "source": "fail_if"
       },
       {
         "id": "B05.2",
-        "text": "Light gray text on white, cream, or light purple backgrounds",
+        "text": "Text is difficult to read because foreground and background have similar hue and saturation, such as tinted text on a similarly tinted panel.",
         "source": "fail_if"
       },
       {
         "id": "B05.3",
-        "text": "Light-colored text on pastel backgrounds",
+        "text": "Text over an image, chart, gradient, or textured area becomes unreadable in some region because the background varies behind it.",
         "source": "fail_if"
       },
       {
         "id": "B05.4",
-        "text": "Low-contrast footnotes or captions",
+        "text": "Secondary but still meaningful text, such as captions, footnotes, axis labels, legends, or table notes, falls below readable contrast for its size.",
         "source": "fail_if"
       },
       {
         "id": "B05.5",
-        "text": "nearly invisible primary text (title, heading, key message)",
-        "source": "severity_critical"
+        "text": "Information-bearing chart marks, icons, separators, or emphasis colors are so close to the background that the encoded distinction is difficult to see.",
+        "source": "fail_if"
       },
       {
         "id": "B05.6",
-        "text": "body text with poor contrast affecting readability",
-        "source": "severity_major"
+        "text": "A repair changes palette or background treatment and leaves formerly readable text or labels with noticeably worse contrast.",
+        "source": "fail_if"
       },
       {
         "id": "B05.7",
-        "text": "secondary text (footnotes, captions) with marginal contrast",
+        "text": "primary title, key takeaway, main number, or essential chart label is nearly invisible or unreadable.",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B05.8",
+        "text": "body text or important labels are difficult to read and the slide's content requires those elements to understand the message.",
+        "source": "severity_major"
+      },
+      {
+        "id": "B05.9",
+        "text": "secondary text or marks have marginal contrast but remain decipherable.",
         "source": "severity_minor"
       }
     ]
@@ -480,37 +510,47 @@
     "checks": [
       {
         "id": "B06.1",
-        "text": "Source material has available figures/tables/charts that are not used when they would help",
+        "text": "The slide is essentially a single image, screenshot, or figure without caption, annotation, title linkage, or takeaway text that states why the visual supports the claim.",
         "source": "fail_if"
       },
       {
         "id": "B06.2",
-        "text": "Visuals dominate the slide without aiding understanding",
+        "text": "Dense prose or bullets are used for content that naturally requires visual structure, such as process steps, model architecture, causal flow, grouped factors, or spatial relationships.",
         "source": "fail_if"
       },
       {
         "id": "B06.3",
-        "text": "Decorative imagery displaces meaningful content",
+        "text": "Relevant source figures, tables, charts, or diagrams are available and central to the slide's stated point, but the slide replaces them with less effective prose.",
         "source": "fail_if"
       },
       {
         "id": "B06.4",
-        "text": "Communication mode is mismatched to the content type",
+        "text": "Decorative imagery, background photography, or large icons occupy one of the main content regions while adding no label, evidence, relationship, or explanatory role, causing meaningful text or data to be reduced.",
         "source": "fail_if"
       },
       {
         "id": "B06.5",
-        "text": "Secondary element is louder/more prominent than the core message",
+        "text": "A slide uses a visual as the main communication mode, but missing labels, callouts, legend, or explanatory text prevent the visual from being read as evidence for the title/claim.",
         "source": "fail_if"
       },
       {
         "id": "B06.6",
-        "text": "significant missed opportunity to use available visuals, or visuals completely dominate with no substance",
-        "source": "severity_major"
+        "text": "The slide uses prose as the main communication mode even though the same visible content already contains named categories, relationships, stages, or evidence that should be organized visually for scanning.",
+        "source": "fail_if"
       },
       {
         "id": "B06.7",
-        "text": "slight imbalance but message still communicates",
+        "text": "the chosen communication mode prevents the main point from being understood.",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B06.8",
+        "text": "the slide needs a specific missing text or visual role for comprehension or source-grounded explanation.",
+        "source": "severity_major"
+      },
+      {
+        "id": "B06.9",
+        "text": "one text/visual role is under-specified, but the slide remains readable and interpretable.",
         "source": "severity_minor"
       }
     ]
@@ -522,72 +562,67 @@
     "checks": [
       {
         "id": "B07.1",
-        "text": "Chart type inappropriate for the data (pie chart for trends, line chart for unordered categories)",
+        "text": "The form encodes the wrong relationship, such as using a pie chart for a trend, a line chart for unordered categories, or a flowchart for unrelated peer facts.",
         "source": "fail_if"
       },
       {
         "id": "B07.2",
-        "text": "Table or chart creates confusion rather than clarity",
+        "text": "A table, chart, or diagram makes the intended comparison, trend, composition, distribution, relationship, process, hierarchy, or architecture harder to perceive than structured text would.",
         "source": "fail_if"
       },
       {
         "id": "B07.3",
-        "text": "Visual adds no information beyond what text already states (occupying >25% of slide)",
+        "text": "The visual encoding creates low discrimination for important differences, such as compressed bar/line variation, inappropriate axis domain, excessive aggregation, or too many nearly indistinguishable series.",
         "source": "fail_if"
       },
       {
         "id": "B07.4",
-        "text": "Flowchart used for non-sequential information",
+        "text": "The axis or scale minimizes meaningful differences by using an inappropriate range, baseline, transformation, or aggregation for the stated claim.",
         "source": "fail_if"
       },
       {
         "id": "B07.5",
-        "text": "Bar chart where all bars are nearly the same height (<10% difference between values)",
+        "text": "The axis or scale exaggerates minor differences by truncating, stretching, or transforming values without clear labeling and justification.",
         "source": "fail_if"
       },
       {
         "id": "B07.6",
-        "text": "Y-axis range minimizes or exaggerates actual differences",
+        "text": "A process, causal, or architecture diagram has semantic connector errors, such as wrong arrow direction, missing input/output, false sequence, or unlabeled component interactions.",
         "source": "fail_if"
       },
       {
         "id": "B07.7",
-        "text": "Flowchart has semantic errors (wrong arrow directions, illogical flow)",
+        "text": "Diagram elements do not match the concepts they represent, such as using hierarchy/nesting for non-hierarchical items or peer boxes for parent-child relationships.",
         "source": "fail_if"
       },
       {
         "id": "B07.8",
-        "text": "Diagram elements don't match the concepts they represent",
+        "text": "The visual merely restates adjacent text while occupying a main content region and adding no structural relationship, lookup value, or pattern perception.",
         "source": "fail_if"
       },
       {
         "id": "B07.9",
-        "text": "Architecture diagram used for non-hierarchical data",
+        "text": "A chart or diagram is not interpretable because essential labels are missing, such as both axis labels and value labels, unexplained units, or unlabeled series/legend.",
         "source": "fail_if"
       },
       {
         "id": "B07.10",
-        "text": "Diagram merely restates adjacent text with no added structure",
+        "text": "A multi-metric or multi-series result is encoded in a form that prevents fair comparison because scales, baselines, or groupings are inconsistent.",
         "source": "fail_if"
       },
       {
         "id": "B07.11",
-        "text": "Unreadable chart — no axis labels AND no value labels",
-        "source": "fail_if"
-      },
-      {
-        "id": "B07.12",
-        "text": "visual form actively misleads about the data",
+        "text": "the form actively misleads about the data, process, hierarchy, or system relationship.",
         "source": "severity_critical"
       },
       {
-        "id": "B07.13",
-        "text": "form clearly wrong for the data type, impedes understanding",
+        "id": "B07.12",
+        "text": "the form encodes the relationship incorrectly enough to impede interpretation.",
         "source": "severity_major"
       },
       {
-        "id": "B07.14",
-        "text": "suboptimal form choice but data still interpretable",
+        "id": "B07.13",
+        "text": "one local encoding choice reduces clarity, but the intended relationship remains recoverable.",
         "source": "severity_minor"
       }
     ]
@@ -636,17 +671,102 @@
     "checks": [
       {
         "id": "B09.1",
-        "text": "slide is completely chaotic or essentially empty when it shouldn't be",
-        "source": "severity_critical"
+        "text": "Substantive content is clustered in a corner, edge, or narrow band while a contiguous blank region of comparable or larger visual weight has no framing, counterweight, directional role, or hierarchy function.",
+        "source": "fail_if"
       },
       {
         "id": "B09.2",
-        "text": "clear density problem affecting comprehension",
-        "source": "severity_major"
+        "text": "The element implied by the title or claim as focal is smaller, less central, or lower contrast than secondary notes, decorations, or blank space, and its details are not comfortably inspectable.",
+        "source": "fail_if"
       },
       {
         "id": "B09.3",
-        "text": "slight density issue noticeable but not harmful",
+        "text": "A contiguous blank region sits between title and body, between related groups, or along the expected reading path, causing the visible sequence to break.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B09.4",
+        "text": "Related existing elements lack a shared container, alignment axis, proximity, or scale relationship, so they read as isolated fragments rather than one composition.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B09.5",
+        "text": "The visible elements do not establish a primary focal area or complete group structure for the slide's stated task, even though the issue can be fixed by rearranging/rescaling existing elements rather than adding new content.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B09.6",
+        "text": "Multiple groups occupy the same visual zone with similar size/color weight and no separator, container, label, or spacing cue that assigns priority.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B09.7",
+        "text": "Gaps between semantic groups are comparable to or smaller than internal line, item, or label gaps, so group boundaries are not distinguishable at full-slide scale.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B09.8",
+        "text": "Content is technically visible, but scanning requires reading many adjacent elements of similar weight before the main sequence or grouping can be found.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B09.9",
+        "text": "A repair increases element size or adds structure but leaves neighboring groups with insufficient separation, causing a new crowding problem.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B09.10",
+        "text": "A chart, image, table, diagram, or focal panel cannot be inspected comfortably at full-slide scale.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B09.11",
+        "text": "The element is described or titled as central, but its rendered size makes it visually secondary to captions, side notes, decorations, or whitespace.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B09.12",
+        "text": "The element occupies much less visual weight than its assigned region while surrounding blank space, captions, notes, or decoration draw more attention.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B09.13",
+        "text": "Enlarging the element within its region would improve inspection and hierarchy without causing overlap, clipping, or loss of visible content.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B09.14",
+        "text": "Repeated peer panels, columns, cards, or list groups have no visible semantic reason for large differences in emptiness, height, density, or visual weight.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B09.15",
+        "text": "One peer region is compressed while another has avoidable internal slack, weakening comparison or reading order.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B09.16",
+        "text": "Equal-role peer groups use inconsistent scale or whitespace allocation that makes one item appear more important without semantic reason.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B09.17",
+        "text": "The mismatch is visible at the group level; it is not just a few pixels of bottom-edge difference or normal variation in text length.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B09.18",
+        "text": "the slide is effectively unusable because density/canvas use blocks reading, inspection, or basic composition.",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B09.19",
+        "text": "the imbalance is visible at first glance and materially harms scanning, interpretation, or comparison.",
+        "source": "severity_major"
+      },
+      {
+        "id": "B09.20",
+        "text": "the imbalance is clear but non-blocking; do not report personal style preference.",
         "source": "severity_minor"
       }
     ]
@@ -658,32 +778,47 @@
     "checks": [
       {
         "id": "B10.1",
-        "text": "Many numeric results presented in prose where a chart would be more effective",
+        "text": "Five or more numeric results, percentages, measurements, model scores, or benchmark values are presented mainly as prose or unaligned bullets and the slide asks the viewer to compare them.",
         "source": "fail_if"
       },
       {
         "id": "B10.2",
-        "text": "Trends are hard to perceive from a long list of numbers",
+        "text": "A trend, before/after change, ablation, ranking, distribution, or multi-metric result is described in text but not visually organized, so the viewer must compare values manually to see the pattern.",
         "source": "fail_if"
       },
       {
         "id": "B10.3",
-        "text": "Large raw table presented without any visual summary",
+        "text": "A raw quantitative table with multiple rows/columns/groups is shown without grouping, highlighting, sorting, sparklines, heatmap treatment, or summary structure, so the key result is not visually discoverable.",
         "source": "fail_if"
       },
       {
         "id": "B10.4",
-        "text": "Data-heavy content increases cognitive load unnecessarily",
+        "text": "Numeric evidence is central to the slide's claim, but the current prose makes the viewer manually compute direction, magnitude, or relative importance.",
         "source": "fail_if"
       },
       {
         "id": "B10.5",
-        "text": "significant data that would clearly benefit from visualization presented as text",
-        "source": "severity_major"
+        "text": "Multiple datasets, methods, conditions, cohorts, or time points are compared in sentences where an aligned chart/table/matrix would materially reduce cognitive load.",
+        "source": "fail_if"
       },
       {
         "id": "B10.6",
-        "text": "moderate data where visualization would help but text is still functional",
+        "text": "A repair preserves numeric prose but still fails to expose the intended quantitative pattern or comparison.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B10.7",
+        "text": "central quantitative evidence is impossible or highly error-prone to interpret because it is not visually organized.",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B10.8",
+        "text": "the current prose/table form slows or obscures interpretation of a central quantitative comparison, trend, ranking, or result pattern.",
+        "source": "severity_major"
+      },
+      {
+        "id": "B10.9",
+        "text": "visualization would improve scanning, but the numeric message remains understandable.",
         "source": "severity_minor"
       }
     ]
@@ -767,7 +902,7 @@
       },
       {
         "id": "B12.5",
-        "text": "Footnote-level elements using body-text-sized fonts instead of smaller sizing",
+        "text": "Footnote-level elements using body-text-sized fonts (≥14pt)",
         "source": "fail_if"
       },
       {
@@ -794,52 +929,57 @@
     "checks": [
       {
         "id": "B13.1",
-        "text": "Near-miss alignment — elements almost aligned but visibly off",
+        "text": "Same-role peers that should share an edge, centerline, baseline, width, or height visibly deviate from that shared anchor, weakening comparison or making the peer set read as unrelated placements.",
         "source": "fail_if"
       },
       {
         "id": "B13.2",
-        "text": "Inconsistent alignment strategy within a group (some left-aligned, some centered)",
+        "text": "Repeating peer items have visibly uneven gaps that are not explained by hierarchy, content length, or grouping structure.",
         "source": "fail_if"
       },
       {
         "id": "B13.3",
-        "text": "Title-body misalignment",
+        "text": "A label/value, icon/text, figure/caption, title/body, or callout/target pair uses mismatched anchors or a larger-than-peer gap, weakening the association.",
         "source": "fail_if"
       },
       {
         "id": "B13.4",
-        "text": "Column bottom-edge mismatch",
+        "text": "A related element is orphaned from its logical group because it is farther from its group than comparable group members are, lacks their shared anchor, or sits outside the group boundary/proximity cue.",
         "source": "fail_if"
       },
       {
         "id": "B13.5",
-        "text": "Different logical levels using different alignment (title centered, body left-aligned)",
+        "text": "Unrelated elements appear grouped because they are closer to each other, share an anchor, sit in the same container, or align more strongly with each other than with their true groups.",
         "source": "fail_if"
       },
       {
         "id": "B13.6",
-        "text": "Single element positioned at a corner",
+        "text": "A natural group lacks a visible grouping cue, such as proximity, shared boundary, consistent padding, repeated alignment, or connector, so the viewer must infer the grouping only from text.",
         "source": "fail_if"
       },
       {
         "id": "B13.7",
-        "text": "Deliberate indentation for hierarchy",
+        "text": "Peer panels, columns, or cards with equal semantic role use inconsistent internal padding, edge rhythm, label placement, or slack distribution that weakens comparison or implies a role difference not supported by content.",
         "source": "fail_if"
       },
       {
         "id": "B13.8",
-        "text": "multiple dimensions fail — slide looks chaotic",
-        "source": "severity_critical"
+        "text": "A repair fixes one element's position but leaves the peer set with a new near-miss alignment, uneven gap rhythm, or broken parent-child association.",
+        "source": "fail_if"
       },
       {
         "id": "B13.9",
-        "text": "one dimension clearly fails — noticeable spatial problem",
-        "source": "severity_major"
+        "text": "spatial contract failures make the slide's grouping, comparison, or reading path materially ambiguous.",
+        "source": "severity_critical"
       },
       {
         "id": "B13.10",
-        "text": "subtle design-conscious catch in one dimension",
+        "text": "a visible group-level alignment, gap, anchor, or proximity failure harms scanning, comparison, association, or reading order.",
+        "source": "severity_major"
+      },
+      {
+        "id": "B13.11",
+        "text": "a local spatial inconsistency is visible but the group relationship and message remain clear.",
         "source": "severity_minor"
       }
     ]
@@ -943,31 +1083,46 @@
   "B17": {
     "issue_type": "raw_figure",
     "family": "B_visual",
-    "summary": "Raw figure — paper figure embedded without adaptation",
+    "summary": "Raw figure adaptation — source figure fails the slide-scale task",
     "checks": [
       {
         "id": "B17.1",
-        "text": "Figure text is <10pt and would be unreadable when projected",
+        "text": "Essential figure text, labels, legends, tick marks, node labels, or panel labels are unreadable at full-slide scale, and the slide relies on those details for its claim.",
         "source": "fail_if"
       },
       {
         "id": "B17.2",
-        "text": "Dense source formatting clashes with the deck's style",
+        "text": "The slide asks the viewer to compare or locate specific panels, series, branches, stages, or marks inside a dense figure, but the relevant targets cannot be found from the rendered image and surrounding text.",
         "source": "fail_if"
       },
       {
         "id": "B17.3",
-        "text": "Figure has key findings but no visual emphasis or annotation to guide the viewer",
+        "text": "The intended subject is mixed with source-page margins, partial neighboring panels, clipped prose, or extraction artifacts that weaken the figure frame.",
         "source": "fail_if"
       },
       {
         "id": "B17.4",
-        "text": "figure text is unreadable at presentation size, or key findings are buried without emphasis",
-        "source": "severity_major"
+        "text": "A key trend, branch, or result is present but not highlighted or annotated, while surrounding slide text does not guide the viewer to it.",
+        "source": "fail_if"
       },
       {
         "id": "B17.5",
-        "text": "style mismatch with no readability impact",
+        "text": "The figure is presented as the primary evidence, but the rendered image is so miniaturized, blurred, cropped, or internally cluttered that the specific evidence named by the slide cannot be identified.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B17.6",
+        "text": "the figure is essential evidence and is effectively unusable or misleading in the rendered slide.",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B17.7",
+        "text": "the unreadable or unadapted figure materially harms inspection, hierarchy, or takeaway discovery.",
+        "source": "severity_major"
+      },
+      {
+        "id": "B17.8",
+        "text": "the adaptation weakness is visible but the slide remains understandable; do not report personal style preference.",
         "source": "severity_minor"
       }
     ]
@@ -979,27 +1134,52 @@
     "checks": [
       {
         "id": "B18.1",
-        "text": "Green and red used for neutral parallel items (implying good/bad where none exists)",
+        "text": "The same semantic role changes hue or accent treatment within a slide or related slide sequence, making categories, states, or importance ambiguous.",
         "source": "fail_if"
       },
       {
         "id": "B18.2",
-        "text": "Same-type containers use inconsistent hero colors (suggesting different importance)",
+        "text": "The same color is used for different meanings in the same slide or nearby related slides, causing the viewer to infer a false relationship.",
         "source": "fail_if"
       },
       {
         "id": "B18.3",
-        "text": "Strong accent color highlights a non-conclusive or neutral number",
+        "text": "Neutral peer items use value-laden colors, such as success, danger, warning, or strong accent colors, implying good/bad/risk/priority where the content is merely parallel.",
         "source": "fail_if"
       },
       {
         "id": "B18.4",
-        "text": "color actively misleads the viewer about meaning or importance",
-        "source": "severity_major"
+        "text": "A strong accent falsely highlights a neutral, tentative, non-conclusive, or low-priority number or claim as if it were the main result.",
+        "source": "fail_if"
       },
       {
         "id": "B18.5",
-        "text": "color is inconsistent but not actively misleading",
+        "text": "Same-type containers, cards, process steps, or result blocks use inconsistent hero colors that imply different state, importance, or category without a content reason.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B18.6",
+        "text": "A categorical, ordered, or divergent palette maps colors to categories or values in a way that reverses, confuses, or obscures the intended meaning.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B18.7",
+        "text": "Cross-slide color semantics change for a recurring category, method, condition, or state while labels/legends do not define a new mapping, causing the recurring item to appear to mean something different.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B18.8",
+        "text": "color semantics reverse or materially falsify the meaning of a key result, state, category, or comparison.",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B18.9",
+        "text": "color mapping or emphasis misleads the viewer about importance, category, state, or value judgment.",
+        "source": "severity_major"
+      },
+      {
+        "id": "B18.10",
+        "text": "color semantics are inconsistent or noisy but the content meaning is still recoverable.",
         "source": "severity_minor"
       }
     ]

@@ -382,7 +382,7 @@ class TestCompileManifest:
             pptx_path="output.pptx",
             total_slides=3,
         )
-        assert cm.compile_backend == "html_codegen"
+        assert cm.compile_backend == "python_pptx"
         assert cm.objects == []
         assert cm.warnings == []
 
@@ -471,13 +471,27 @@ class TestExperimentConfig:
         assert ec.use_html_codegen is True
         assert ec.repair_strategy == "redeck"
         assert ec.layout_strategy == "template"
-        assert ec.models.default == "gpt-4o"
+        assert ec.models.default == "gpt-5.5"
 
     def test_model_config_get_model(self):
-        mc = ModelConfig(default="gpt-4o", narrative_judge="gpt-4o")
-        assert mc.get_model("narrative_judge") == "gpt-4o"
+        mc = ModelConfig(default="gpt-4o", narrative_judge="gpt-5.4")
+        assert mc.get_model("narrative_judge") == "gpt-5.4"
         assert mc.get_model("visual_judge") == "gpt-4o"
         assert mc.get_model("nonexistent") == "gpt-4o"
+
+    def test_slide_repair_model_is_independent(self):
+        mc = ModelConfig(
+            default="gpt-5.5",
+            slide_codegen="gpt-5.4",
+            slide_repair="gpt-5.5",
+        )
+        assert mc.get_model("slide_codegen") == "gpt-5.4"
+        assert mc.get_model("slide_repair") == "gpt-5.5"
+        assert mc.get_slide_repair_model() == "gpt-5.5"
+
+    def test_slide_repair_model_inherits_codegen_for_legacy_configs(self):
+        mc = ModelConfig(default="gpt-5.5", slide_codegen="gpt-5.4")
+        assert mc.get_slide_repair_model() == "gpt-5.4"
 
 
 # ─── RenderResult Tests ──────────────────────────────────────────────────────
@@ -545,12 +559,12 @@ class TestModuleCallLog:
     def test_serialization(self):
         log = ModuleCallLog(
             module="deck_planner",
-            model="gpt-4o",
+            model="gpt-5.4",
             timing_sec=1.23,
             token_usage={"prompt_tokens": 100, "completion_tokens": 50},
         )
         d = log.model_dump()
-        assert d["model"] == "gpt-4o"
+        assert d["model"] == "gpt-5.4"
         assert d["token_usage"]["prompt_tokens"] == 100
 
 

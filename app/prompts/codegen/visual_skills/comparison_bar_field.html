@@ -1,0 +1,15 @@
+<!-- Local skill: normalize every bar to one stated scale and calculate widths from supplied values. -->
+<style>
+  .skill-bars { display: grid; gap: 10px; }
+  .skill-bar-row { display: grid; grid-template-columns: minmax(140px, .8fr) minmax(280px, 2.4fr) 58px; gap: 14px; align-items: center; }
+  .skill-bar-label { color: var(--ink); font-size: 17px; line-height: 1.1; font-weight: 750; }
+  .skill-bar-track { height: 25px; border-bottom: 1px solid color-mix(in srgb, var(--secondary) 35%, transparent); }
+  .skill-bar-fill { height: 18px; margin-top: 2px; min-width: 4px; border-radius: 0 8px 8px 0; background: var(--secondary); }
+  .skill-bar-row.focus .skill-bar-fill { background: var(--accent); }
+  .skill-bar-value { color: var(--ink); font-size: 18px; font-weight: 800; text-align: right; font-variant-numeric: tabular-nums; }
+</style>
+<div class="skill-bars" role="img" aria-label="{{supported_comparison_description}}">
+  <div class="skill-bar-row focus"><span class="skill-bar-label">{{label}}</span><div class="skill-bar-track"><div class="skill-bar-fill" style="width:{{normalized_percent}}%"></div></div><strong class="skill-bar-value">{{value}}</strong></div>
+  <div class="skill-bar-row"><span class="skill-bar-label">{{label}}</span><div class="skill-bar-track"><div class="skill-bar-fill" style="width:{{normalized_percent}}%"></div></div><strong class="skill-bar-value">{{value}}</strong></div>
+  <div class="skill-bar-row"><span class="skill-bar-label">{{label}}</span><div class="skill-bar-track"><div class="skill-bar-fill" style="width:{{normalized_percent}}%"></div></div><strong class="skill-bar-value">{{value}}</strong></div>
+</div>

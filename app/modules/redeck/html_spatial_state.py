@@ -9,15 +9,16 @@ import logging
 import re
 import os
 import tempfile
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 from ...schemas.issue_types import SlideDimensions
 
 from .spatial_state import (
     ContentBlock,
     SlideState,
-    AlignmentIssue,
     SLIDE_WIDTH,
     SLIDE_HEIGHT,
     USABLE_LEFT,
@@ -25,6 +26,364 @@ from .spatial_state import (
     USABLE_TOP,
     USABLE_BOTTOM,
 )
+
+
+def _search_roots() -> list[Path]:
+    """Return local roots used to resolve slide image assets."""
+    cwd = Path(os.getcwd()).resolve()
+    roots = [cwd]
+    probe = cwd
+    for _ in range(6):
+        if (probe / "cases").is_dir() or (probe / "app").is_dir():
+            if probe != cwd:
+                roots.append(probe)
+            break
+        if probe.parent == probe:
+            break
+        probe = probe.parent
+    return roots
+
+
+def _resolve_local_img_src(
+    src: str,
+    html_base_dir: str | Path | None = None,
+    asset_base_dirs: list[str | Path] | tuple[str | Path, ...] | None = None,
+) -> Path | None:
+    """Resolve a local <img src> to a filesystem path when possible."""
+    if not src:
+        return None
+    raw = src.strip()
+    if raw.startswith("data:") or re.match(r"https?://", raw):
+        return None
+    if raw.startswith("file://"):
+        parsed = urlparse(raw)
+        raw = unquote(parsed.path or raw[7:])
+    raw = raw.split("#", 1)[0].split("?", 1)[0]
+    if not raw:
+        return None
+
+    candidate = Path(raw).expanduser()
+    candidates: list[Path] = []
+    base_dirs = [Path(p).expanduser() for p in (asset_base_dirs or [])]
+    if html_base_dir is not None:
+        base_dirs.append(Path(html_base_dir).expanduser())
+
+    if candidate.is_absolute():
+        candidates.append(candidate)
+        parts = candidate.parts
+        if "generated_assets" in parts:
+            idx = parts.index("generated_assets")
+            suffix = Path(*parts[idx:])
+            for base in base_dirs:
+                candidates.append(base / suffix.name)
+                candidates.append(base / suffix)
+    else:
+        for base in base_dirs:
+            candidates.append(base / candidate)
+            candidates.append(base.parent / candidate)
+        for root in _search_roots():
+            candidates.append(root / candidate)
+        parts = candidate.parts
+        if "generated_assets" in parts:
+            asset_name = candidate.name
+            for base in base_dirs:
+                candidates.append(base / asset_name)
+                candidates.append(base / "generated_assets" / asset_name)
+                candidates.append(base.parent / "generated_assets" / asset_name)
+            for root in _search_roots():
+                candidates.extend(root.glob(f"runs/**/generated_assets/{asset_name}"))
+
+    if candidate.name:
+        for root in _search_roots():
+            for rel in (
+                Path("source_pack") / "figures",
+                Path("source_pack") / "tables",
+                Path("source_pack") / "screenshots",
+                Path("images"),
+            ):
+                candidates.append(root / rel / candidate.name)
+
+    seen: set[Path] = set()
+    for path in candidates:
+        try:
+            resolved = path.resolve()
+        except OSError:
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if resolved.exists() and resolved.is_file():
+            return resolved
+    return None
+
+
+def _normalize_local_img_srcs(
+    html_code: str,
+    html_base_dir: str | Path | None = None,
+    asset_base_dirs: list[str | Path] | tuple[str | Path, ...] | None = None,
+) -> str:
+    """Convert resolvable local image src values to file:// URLs."""
+    def _replace(match: re.Match) -> str:
+        prefix, src, suffix = match.group(1), match.group(2), match.group(3)
+        if src.startswith(("file://", "http://", "https://", "data:")):
+            return match.group(0)
+        resolved = _resolve_local_img_src(src, html_base_dir, asset_base_dirs)
+        if resolved is None:
+            return match.group(0)
+        return f"{prefix}file://{resolved}{suffix}"
+
+    return re.sub(
+        r'(<img\s[^>]*src=["\'])([^"\']+)(["\'])',
+        _replace,
+        html_code,
+        flags=re.IGNORECASE,
+    )
+
+
+def _svg_tag(el: ET.Element) -> str:
+    return el.tag.rsplit("}", 1)[-1]
+
+
+def _svg_style(el: ET.Element) -> dict[str, str]:
+    raw = el.attrib.get("style", "")
+    out: dict[str, str] = {}
+    for part in raw.split(";"):
+        if ":" not in part:
+            continue
+        key, value = part.split(":", 1)
+        out[key.strip()] = value.strip()
+    return out
+
+
+def _svg_attr_float(
+    el: ET.Element,
+    name: str,
+    default: float | None = None,
+) -> float | None:
+    raw = el.attrib.get(name)
+    if raw is None:
+        raw = _svg_style(el).get(name)
+    if raw is None:
+        return default
+    match = re.match(r"\s*(-?\d+(?:\.\d+)?)", raw)
+    if not match:
+        return default
+    return float(match.group(1))
+
+
+def _svg_inherited_float(
+    el: ET.Element,
+    ancestors: list[ET.Element],
+    name: str,
+    default: float,
+) -> float:
+    for node in [el, *ancestors]:
+        value = _svg_attr_float(node, name, None)
+        if value is not None:
+            return value
+    return default
+
+
+def _svg_inherited_attr(
+    el: ET.Element,
+    ancestors: list[ET.Element],
+    name: str,
+    default: str,
+) -> str:
+    for node in [el, *ancestors]:
+        if name in node.attrib:
+            return node.attrib[name]
+        styled = _svg_style(node).get(name)
+        if styled:
+            return styled
+    return default
+
+
+def _svg_text_width_estimate(text: str, font_size: float) -> float:
+    """Approximate SVG text width well enough to catch clear local overflows."""
+    width_em = 0.0
+    for ch in text:
+        if ch.isspace():
+            width_em += 0.33
+        elif ch in "-–—→←↔/\\|:.·":
+            width_em += 0.35
+        elif ch in "ilI1![](){}'`":
+            width_em += 0.25
+        elif ch in "mwMW@#%&":
+            width_em += 0.82
+        elif ord(ch) > 0x2E7F:
+            width_em += 1.0
+        elif ch.isupper():
+            width_em += 0.62
+        else:
+            width_em += 0.54
+    return width_em * font_size
+
+
+def _svg_text_content(el: ET.Element) -> str:
+    return re.sub(r"\s+", " ", "".join(el.itertext())).strip()
+
+
+def _scan_svg_text_fit(svg: str, asset_path: Path, img_src: str) -> list[dict]:
+    """Detect clear text-vs-rect overflow inside one SVG asset."""
+    try:
+        root = ET.fromstring(svg)
+    except ET.ParseError:
+        return []
+
+    issues: list[dict] = []
+
+    def text_lines(
+        text_el: ET.Element,
+        ancestors: list[ET.Element],
+    ) -> list[tuple[str, float, float, float, str]]:
+        parent_font = _svg_inherited_float(text_el, ancestors, "font-size", 14.0)
+        parent_x = _svg_attr_float(text_el, "x", 0.0) or 0.0
+        parent_y = _svg_attr_float(text_el, "y", 0.0) or 0.0
+        anchor = _svg_inherited_attr(text_el, ancestors, "text-anchor", "start")
+        tspans = [child for child in list(text_el) if _svg_tag(child) == "tspan"]
+        if tspans:
+            lines = []
+            current_y = parent_y
+            for span in tspans:
+                label = _svg_text_content(span)
+                if not label:
+                    continue
+                span_y = _svg_attr_float(span, "y", None)
+                if span_y is None:
+                    dy = _svg_attr_float(span, "dy", 0.0) or 0.0
+                    current_y += dy
+                    span_y = current_y
+                else:
+                    current_y = span_y
+                lines.append((
+                    label,
+                    _svg_attr_float(span, "x", parent_x) or parent_x,
+                    span_y,
+                    _svg_attr_float(span, "font-size", parent_font) or parent_font,
+                    _svg_inherited_attr(span, [text_el, *ancestors], "text-anchor", anchor),
+                ))
+            return lines
+        label = _svg_text_content(text_el)
+        if not label:
+            return []
+        return [(label, parent_x, parent_y, parent_font, anchor)]
+
+    def walk(group: ET.Element, ancestors: list[ET.Element]) -> None:
+        if _svg_tag(group) not in {"svg", "g"}:
+            return
+        previous_rects: list[ET.Element] = []
+        for child in list(group):
+            tag = _svg_tag(child)
+            if tag == "defs":
+                continue
+            if tag == "rect":
+                previous_rects.append(child)
+                continue
+            if tag == "text":
+                for label, x, y, font_size, anchor in text_lines(child, ancestors):
+                    candidates = []
+                    for rect in previous_rects:
+                        rx = _svg_attr_float(rect, "x", 0.0) or 0.0
+                        ry = _svg_attr_float(rect, "y", 0.0) or 0.0
+                        rw = _svg_attr_float(rect, "width")
+                        rh = _svg_attr_float(rect, "height")
+                        if rw is None or rh is None or rw <= 0 or rh <= 0:
+                            continue
+                        if (
+                            rx - 1 <= x <= rx + rw + 1
+                            and ry - font_size <= y <= ry + rh + font_size
+                        ):
+                            candidates.append((rx, ry, rw, rh))
+                    if not candidates:
+                        continue
+                    rx, ry, rw, rh = min(candidates, key=lambda rect: rect[2] * rect[3])
+                    est_width = _svg_text_width_estimate(label, font_size)
+                    if anchor == "middle":
+                        left, right = x - est_width / 2.0, x + est_width / 2.0
+                    elif anchor == "end":
+                        left, right = x - est_width, x
+                    else:
+                        left, right = x, x + est_width
+                    tolerance = max(2.0, font_size * 0.18)
+                    overflow_left = max(0.0, (rx - tolerance) - left)
+                    overflow_right = max(0.0, right - (rx + rw + tolerance))
+                    if overflow_left <= 0 and overflow_right <= 0:
+                        continue
+                    slug = re.sub(r"[^A-Za-z0-9]+", "_", label.lower()).strip("_")[:48]
+                    issue_id = (
+                        f"svg_asset:{asset_path.name}:{slug}:"
+                        f"{round(rx)}:{round(ry)}:{round(rw)}"
+                    )
+                    issues.append({
+                        "id": issue_id,
+                        "kind": "svg_text_overflow",
+                        "img_src": img_src,
+                        "asset_path": str(asset_path),
+                        "asset_name": asset_path.name,
+                        "label": label,
+                        "rect": {
+                            "x": round(rx, 1), "y": round(ry, 1),
+                            "width": round(rw, 1), "height": round(rh, 1),
+                        },
+                        "text_x": round(x, 1),
+                        "text_y": round(y, 1),
+                        "font_size": round(font_size, 1),
+                        "estimated_width": round(est_width, 1),
+                        "available_width": round(rw, 1),
+                        "overflow_left": round(overflow_left, 1),
+                        "overflow_right": round(overflow_right, 1),
+                        "suggestion": (
+                            "Wrap the label with separate <tspan> lines, widen "
+                            "the owning rect, or reduce local font size while "
+                            "keeping the annotation readable."
+                        ),
+                    })
+            if tag in {"svg", "g"}:
+                walk(child, [group, *ancestors])
+
+    walk(root, [])
+    return issues
+
+
+def _collect_svg_asset_issues(
+    html_code: str,
+    html_base_dir: str | Path | None = None,
+    asset_base_dirs: list[str | Path] | tuple[str | Path, ...] | None = None,
+) -> list[dict]:
+    """Scan local external SVG assets referenced by <img> tags."""
+    issues: list[dict] = []
+    seen: set[Path] = set()
+    for match in re.finditer(
+        r'<img\b[^>]*\bsrc\s*=\s*["\']([^"\']+)["\']',
+        html_code,
+        flags=re.IGNORECASE,
+    ):
+        src = match.group(1).strip()
+        src_path = src.split("#", 1)[0].split("?", 1)[0]
+        if not src_path.lower().endswith(".svg"):
+            continue
+        path = _resolve_local_img_src(src, html_base_dir, asset_base_dirs)
+        if path is None:
+            continue
+        try:
+            resolved = path.resolve()
+        except OSError:
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        try:
+            svg = resolved.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            try:
+                svg = resolved.read_text(encoding="utf-8-sig")
+            except Exception:
+                continue
+        except Exception:
+            continue
+        issues.extend(_scan_svg_text_fit(svg, resolved, src))
+    return issues
 
 # ── Shared scan JS: cross-card paint-over + slide-bottom truncation ──────────
 # Single source of truth for the two extraction-layer "blind-spot" recovery
@@ -35,6 +394,89 @@ from .spatial_state import (
 # context is open) lacked these scans and silently reported 0 paint-over defects.
 # Keep this as plain JS with SINGLE braces; never embed it directly in an f-string.
 _PAINTOVER_C3_SCAN_MARKER = "/* __PAINTOVER_C3_SCAN__ */"
+_SVG_REGIONS_SCAN_MARKER = "/* __SVG_REGIONS_SCAN__ */"
+_VISIBLE_TEXT_SCAN_MARKER = "/* __VISIBLE_TEXT_SCAN__ */"
+_VIEWPORT_EXCEEDANCE_SCAN_MARKER = "/* __VIEWPORT_EXCEEDANCE_SCAN__ */"
+_VIEWPORT_EXCEEDANCE_SCAN_JS = r"""
+                // Viewport exceedance scan. Keep semantic identity and DOM
+                // ownership even when an element is entirely below/right of
+                // the canvas and therefore excluded from ordinary detectors.
+                const exceedanceDomPath = (el) => {
+                    const path = [];
+                    let node = el;
+                    while (node && node !== document.body) {
+                        const tag = node.tagName.toLowerCase();
+                        const siblings = Array.from(
+                            node.parentElement?.children || []
+                        ).filter(sibling => sibling.tagName === node.tagName);
+                        const index = siblings.indexOf(node);
+                        const svgGeometryAttrs = [
+                            'x', 'y', 'cx', 'cy', 'r', 'rx', 'ry',
+                            'width', 'height'
+                        ].filter(name => node.hasAttribute?.(name))
+                         .map(name => name + '=' + node.getAttribute(name));
+                        let segment = tag + '[' + index + ']';
+                        if (node.id) {
+                            segment = tag + '#' + node.id;
+                        } else if (node.namespaceURI?.includes('/svg') && svgGeometryAttrs.length) {
+                            segment = tag + '[' + svgGeometryAttrs.join(',') + ']';
+                        }
+                        path.unshift(segment);
+                        node = node.parentElement;
+                    }
+                    return path.join('/');
+                };
+                const exceedances = [];
+                for (const el of document.body.querySelectorAll('*')) {
+                    const st = window.getComputedStyle(el);
+                    if (st.display === 'none' || st.visibility === 'hidden') continue;
+                    if (parseFloat(st.opacity) === 0) continue;
+                    const r = el.getBoundingClientRect();
+                    if (r.width < 3 || r.height < 3) continue;
+                    const exR = Math.round(Math.max(0, r.right - 1280));
+                    const exB = Math.round(Math.max(0, r.bottom - 720));
+                    if (exR <= 5 && exB <= 5) continue;
+
+                    const classText = typeof el.className === 'string'
+                        ? el.className
+                        : (el.getAttribute?.('class') || '');
+                    let directText = '';
+                    for (const child of el.childNodes) {
+                        if (child.nodeType === 3) directText += child.textContent;
+                    }
+                    directText = directText.trim();
+                    let label = el.id || classText.split(/\s+/).filter(Boolean)[0] || '';
+                    if (!label) {
+                        let parent = el.parentElement;
+                        while (parent && parent !== document.body && !label) {
+                            label = parent.id || '';
+                            parent = parent.parentElement;
+                        }
+                    }
+                    let renderedLines = 0;
+                    if (directText.length > 10) {
+                        try { renderedLines = countLines(el); } catch (e) {}
+                    }
+                    exceedances.push({
+                        tag: el.tagName.toLowerCase(),
+                        id: el.id || '',
+                        classes: classText,
+                        label: label.substring(0, 80),
+                        text: directText.substring(0, 500),
+                        fullText: (el.innerText || el.textContent || '').trim().substring(0, 1000),
+                        domPath: exceedanceDomPath(el),
+                        renderedLines,
+                        right: Math.round(r.right),
+                        bottom: Math.round(r.bottom),
+                        exRight: exR,
+                        exBottom: exB,
+                        x: Math.round(r.x),
+                        y: Math.round(r.y),
+                        w: Math.round(r.width),
+                        h: Math.round(r.height),
+                    });
+                }
+"""
 _PAINTOVER_C3_SCAN_JS = r"""
                 // ── Slide-bottom truncation scan (C3) ──────────────────────
                 // A filled content card whose bottom passes the SLIDE ROOT's
@@ -113,6 +555,261 @@ _PAINTOVER_C3_SCAN_JS = r"""
                   }
                 }
                 for (const b of truncBlocks) results.push(b);
+"""
+
+
+# Extract only a generic rendered SVG region inventory. Visual quality is judged
+# by the dedicated VLM probe from enlarged crops; no diagram-specific rules live
+# here. Keep this shared between normal and subprocess Playwright paths.
+_SVG_REGIONS_SCAN_JS = r"""
+                const svgRegions = [];
+                for (const [index, svg] of Array.from(document.querySelectorAll('svg')).entries()) {
+                  if (svg.parentElement && svg.parentElement.closest('svg')) continue;
+                  const rect = svg.getBoundingClientRect();
+                  const style = window.getComputedStyle(svg);
+                  if (rect.width < 24 || rect.height < 24 || style.display === 'none' ||
+                      style.visibility === 'hidden' || parseFloat(style.opacity) === 0) continue;
+                  const visible = Array.from(svg.querySelectorAll(
+                    'path,line,polyline,polygon,rect,circle,ellipse,text,foreignObject,image,use'
+                  )).filter(el => !el.closest('defs') && window.getComputedStyle(el).display !== 'none');
+                  const labels = Array.from(svg.querySelectorAll('text, foreignObject'))
+                    .map(el => (el.textContent || '').trim()).filter(Boolean).slice(0, 20);
+                  const roundMetric = value => (
+                    Number.isFinite(value) ? Math.round(value * 10) / 10 : null
+                  );
+                  const rectRecord = value => ({
+                    x: roundMetric(value.x), y: roundMetric(value.y),
+                    width: roundMetric(value.width), height: roundMetric(value.height),
+                  });
+                  const bboxGap = (first, second) => {
+                    const dx = Math.max(first.left - second.right, second.left - first.right, 0);
+                    const dy = Math.max(first.top - second.bottom, second.top - first.bottom, 0);
+                    return Math.sqrt(dx * dx + dy * dy);
+                  };
+                  const vb = svg.viewBox && svg.viewBox.baseVal;
+                  const hasViewBox = !!(vb && Number.isFinite(vb.width) && vb.width > 0 &&
+                    Number.isFinite(vb.height) && vb.height > 0);
+                  const viewBox = hasViewBox ? {
+                    x: roundMetric(vb.x), y: roundMetric(vb.y),
+                    width: roundMetric(vb.width), height: roundMetric(vb.height),
+                  } : {
+                    x: 0, y: 0,
+                    width: roundMetric(svg.clientWidth), height: roundMetric(svg.clientHeight),
+                  };
+                  const textElements = Array.from(svg.querySelectorAll('text'))
+                    .filter(el => !el.closest('defs') && (el.textContent || '').trim());
+                  const rectElements = visible.filter(
+                    el => el.tagName.toLowerCase() === 'rect'
+                  );
+                  const lineElements = visible.filter(
+                    el => el.tagName.toLowerCase() === 'line'
+                  );
+                  const textMetrics = [];
+                  for (const textEl of textElements.slice(0, 40)) {
+                    const label = (textEl.textContent || '').trim().slice(0, 160);
+                    const textRect = textEl.getBoundingClientRect();
+                    if (!label || textRect.width <= 0 || textRect.height <= 0) continue;
+                    let localBBox = null;
+                    try { localBBox = textEl.getBBox(); } catch (_) {}
+                    const metric = {
+                      label,
+                      label_bbox: rectRecord(textRect),
+                      svg_bbox: localBBox ? rectRecord(localBBox) : null,
+                      viewbox_edge_gaps: null,
+                      nearest_rect: null,
+                      nearest_line: null,
+                    };
+                    if (localBBox && viewBox && viewBox.width > 0 && viewBox.height > 0) {
+                      metric.viewbox_edge_gaps = {
+                        left: roundMetric(localBBox.x - viewBox.x),
+                        top: roundMetric(localBBox.y - viewBox.y),
+                        right: roundMetric(
+                          viewBox.x + viewBox.width - (localBBox.x + localBBox.width)
+                        ),
+                        bottom: roundMetric(
+                          viewBox.y + viewBox.height - (localBBox.y + localBBox.height)
+                        ),
+                      };
+                    }
+                    let nearestRect = null;
+                    for (const candidate of rectElements.slice(0, 120)) {
+                      const candidateRect = candidate.getBoundingClientRect();
+                      if (candidateRect.width <= 0 || candidateRect.height <= 0) continue;
+                      const distance = bboxGap(textRect, candidateRect);
+                      if (nearestRect && distance >= nearestRect.distance_px) continue;
+                      let candidateBBox = null;
+                      try { candidateBBox = candidate.getBBox(); } catch (_) {}
+                      nearestRect = {
+                        tag: 'rect', id: candidate.id || '',
+                        classes: candidate.getAttribute('class') || '',
+                        bbox: candidateBBox ? rectRecord(candidateBBox) : null,
+                        rendered_bbox: rectRecord(candidateRect),
+                        distance_px: roundMetric(distance),
+                      };
+                    }
+                    metric.nearest_rect = nearestRect;
+                    let nearestLine = null;
+                    for (const candidate of lineElements.slice(0, 120)) {
+                      const candidateRect = candidate.getBoundingClientRect();
+                      const distance = bboxGap(textRect, candidateRect);
+                      if (nearestLine && distance >= nearestLine.distance_px) continue;
+                      let candidateBBox = null;
+                      try { candidateBBox = candidate.getBBox(); } catch (_) {}
+                      nearestLine = {
+                        tag: 'line', id: candidate.id || '',
+                        classes: candidate.getAttribute('class') || '',
+                        bbox: candidateBBox ? rectRecord(candidateBBox) : null,
+                        rendered_bbox: rectRecord(candidateRect),
+                        endpoints: {
+                          x1: roundMetric(parseFloat(candidate.getAttribute('x1'))),
+                          y1: roundMetric(parseFloat(candidate.getAttribute('y1'))),
+                          x2: roundMetric(parseFloat(candidate.getAttribute('x2'))),
+                          y2: roundMetric(parseFloat(candidate.getAttribute('y2'))),
+                        },
+                        distance_px: roundMetric(distance),
+                      };
+                    }
+                    metric.nearest_line = nearestLine;
+                    textMetrics.push(metric);
+                  }
+                  // Generic attention hints for the VLM: identify stroked SVG
+                  // geometry whose rendered centerline enters a text bbox. A
+                  // bbox intersection is not itself a defect (rules, axes, and
+                  // underlines can be intentional), so this remains metadata
+                  // for pixel-level judgment rather than a deterministic issue.
+                  const strokeTextCandidates = [];
+                  const strokeElements = visible.filter(el => {
+                    const tag = el.tagName.toLowerCase();
+                    if (!['path', 'line', 'polyline', 'polygon'].includes(tag)) return false;
+                    const s = window.getComputedStyle(el);
+                    return s.stroke && s.stroke !== 'none' && parseFloat(s.strokeOpacity || '1') > 0;
+                  });
+                  for (const textEl of textElements.slice(0, 40)) {
+                    if (strokeTextCandidates.length >= 20) break;
+                    const textRect = textEl.getBoundingClientRect();
+                    if (textRect.width <= 0 || textRect.height <= 0) continue;
+                    for (const strokeEl of strokeElements.slice(0, 100)) {
+                      const strokeRect = strokeEl.getBoundingClientRect();
+                      if (strokeRect.right < textRect.left || strokeRect.left > textRect.right ||
+                          strokeRect.bottom < textRect.top || strokeRect.top > textRect.bottom) continue;
+                      let length = 0;
+                      let ctm = null;
+                      try {
+                        length = strokeEl.getTotalLength();
+                        ctm = strokeEl.getScreenCTM();
+                      } catch (_) {
+                        continue;
+                      }
+                      if (!ctm || !Number.isFinite(length) || length <= 0) continue;
+                      const strokeStyle = window.getComputedStyle(strokeEl);
+                      const pad = Math.max(1, (parseFloat(strokeStyle.strokeWidth) || 1) / 2);
+                      const samples = Math.max(2, Math.min(800, Math.ceil(length / 2)));
+                      let intersects = false;
+                      for (let sample = 0; sample <= samples; sample++) {
+                        const point = strokeEl.getPointAtLength(length * sample / samples);
+                        const screen = new DOMPoint(point.x, point.y).matrixTransform(ctm);
+                        if (screen.x >= textRect.left - pad && screen.x <= textRect.right + pad &&
+                            screen.y >= textRect.top - pad && screen.y <= textRect.bottom + pad) {
+                          intersects = true;
+                          break;
+                        }
+                      }
+                      if (!intersects) continue;
+                      strokeTextCandidates.push({
+                        label: (textEl.textContent || '').trim().slice(0, 120),
+                        label_bbox: {
+                          x: Math.round(textRect.x), y: Math.round(textRect.y),
+                          width: Math.round(textRect.width), height: Math.round(textRect.height),
+                        },
+                        stroke_tag: strokeEl.tagName.toLowerCase(),
+                        stroke_id: strokeEl.id || '',
+                      });
+                      if (strokeTextCandidates.length >= 20) break;
+                    }
+                  }
+                  svgRegions.push({
+                    index,
+                    x: Math.round(rect.x), y: Math.round(rect.y),
+                    width: Math.round(rect.width), height: Math.round(rect.height),
+                    primitive_count: visible.length,
+                    connector_count: visible.filter(el =>
+                      ['path', 'line', 'polyline'].includes(el.tagName.toLowerCase())
+                    ).length,
+                    marker_count: svg.querySelectorAll('marker').length,
+                    aria_label: svg.getAttribute('aria-label') || '',
+                    view_box: viewBox,
+                    view_box_source: hasViewBox ? 'viewBox' : 'rendered-fallback',
+                    text_labels: labels,
+                    text_metrics: textMetrics,
+                    stroke_text_candidates: strokeTextCandidates,
+                  });
+                }
+"""
+
+# Ordered text nodes that produce visible pixels. This is deliberately a
+# rendered-state inventory rather than an HTML parser: it respects hidden or
+# transparent ancestors and overflow clipping, which source-level guards cannot
+# observe. Keep the same scan in the in-process and subprocess extractors.
+_VISIBLE_TEXT_SCAN_JS = r"""
+                const visibleTextRuns = [];
+                {
+                  const walker = document.createTreeWalker(
+                    document.body, NodeFilter.SHOW_TEXT
+                  );
+                  let textNode = null;
+                  while ((textNode = walker.nextNode())) {
+                    const text = (textNode.textContent || '').replace(/\s+/g, ' ').trim();
+                    if (!text) continue;
+                    const parent = textNode.parentElement;
+                    if (!parent || parent.closest('style,script,noscript,.katex-mathml')) continue;
+
+                    let visible = true;
+                    let opacity = 1;
+                    let clipLeft = 0, clipTop = 0, clipRight = 1280, clipBottom = 720;
+                    let ancestor = parent;
+                    while (ancestor && ancestor !== document.documentElement) {
+                      const style = window.getComputedStyle(ancestor);
+                      if (style.display === 'none' ||
+                          style.visibility === 'hidden' ||
+                          style.visibility === 'collapse') {
+                        visible = false;
+                        break;
+                      }
+                      const ownOpacity = parseFloat(style.opacity);
+                      opacity *= Number.isFinite(ownOpacity) ? ownOpacity : 1;
+                      if (opacity <= 0.01) {
+                        visible = false;
+                        break;
+                      }
+                      const overflow = `${style.overflow} ${style.overflowX} ${style.overflowY}`;
+                      if (/hidden|clip|scroll|auto/.test(overflow)) {
+                        const rect = ancestor.getBoundingClientRect();
+                        clipLeft = Math.max(clipLeft, rect.left);
+                        clipTop = Math.max(clipTop, rect.top);
+                        clipRight = Math.min(clipRight, rect.right);
+                        clipBottom = Math.min(clipBottom, rect.bottom);
+                      }
+                      ancestor = ancestor.parentElement;
+                    }
+                    if (!visible || clipRight <= clipLeft || clipBottom <= clipTop) continue;
+
+                    const parentStyle = window.getComputedStyle(parent);
+                    const color = parent.closest('svg')
+                      ? (parentStyle.fill || parent.getAttribute('fill') || '')
+                      : (parentStyle.color || '');
+                    if (color === 'transparent' || /rgba\([^)]*,\s*0(?:\.0+)?\s*\)/.test(color)) continue;
+
+                    const range = document.createRange();
+                    range.selectNodeContents(textNode);
+                    const rects = Array.from(range.getClientRects());
+                    const paintsPixels = rects.some(rect =>
+                      rect.width > 0.5 && rect.height > 0.5 &&
+                      rect.right > clipLeft && rect.left < clipRight &&
+                      rect.bottom > clipTop && rect.top < clipBottom
+                    );
+                    if (paintsPixels) visibleTextRuns.push(text);
+                  }
+                }
 """
 
 
@@ -215,6 +912,8 @@ def extract_html_slide_state(
     slide_id: int,
     html_code: str,
     browser=None,
+    html_base_dir: str | Path | None = None,
+    asset_base_dirs: list[str | Path] | tuple[str | Path, ...] | None = None,
 ) -> SlideState:
     """Extract spatial state from rendered HTML via Playwright DOM queries.
 
@@ -222,10 +921,22 @@ def extract_html_slide_state(
         slide_id: Slide number
         html_code: Complete HTML page content
         browser: Optional Playwright browser instance (created if not provided)
+        html_base_dir: Optional directory for resolving relative asset paths
+        asset_base_dirs: Optional extra directories that contain generated assets
 
     Returns:
         SlideState with accurate bounding boxes from rendered DOM
     """
+    html_code = _normalize_local_img_srcs(
+        html_code,
+        html_base_dir=html_base_dir,
+        asset_base_dirs=asset_base_dirs,
+    )
+    svg_asset_issues = _collect_svg_asset_issues(
+        html_code,
+        html_base_dir=html_base_dir,
+        asset_base_dirs=asset_base_dirs,
+    )
     own_browser = browser is None
     playwright_ctx = None
 
@@ -238,7 +949,11 @@ def extract_html_slide_state(
             except Exception as e:
                 if "asyncio" in str(e).lower():
                     # Fall back to subprocess-based extraction
-                    return _extract_via_subprocess(slide_id, html_code)
+                    return _extract_via_subprocess(
+                        slide_id,
+                        html_code,
+                        svg_asset_issues=svg_asset_issues,
+                    )
                 raise
 
         # Fix image paths for rendering
@@ -328,6 +1043,14 @@ def extract_html_slide_state(
                         a: 1.0
                     };
                 }
+                function compositeBackgrounds(colors) {
+                    let result = {r: 255, g: 255, b: 255, a: 1.0};
+                    for (let i = colors.length - 1; i >= 0; i--) {
+                        const color = colors[i];
+                        if (color && color.a > 0) result = compositeAlpha(color, result);
+                    }
+                    return result;
+                }
                 // Helper: relative luminance (WCAG 2.1)
                 function luminance(c) {
                     const sRGB = [c.r/255, c.g/255, c.b/255];
@@ -349,18 +1072,19 @@ def extract_html_slide_state(
                     // hit testing), so we must check table ancestors first.
                     const tag = el.tagName.toLowerCase();
                     if (tag === 'th' || tag === 'td') {
+                        const tableBackgrounds = [];
                         let tableAnc = el.parentElement;
-                        while (tableAnc && tableAnc !== document.body) {
+                        while (tableAnc && tableAnc !== document.documentElement) {
                             const tTag = tableAnc.tagName.toLowerCase();
-                            if (tTag === 'tr' || tTag === 'thead' || tTag === 'tbody' || tTag === 'tfoot' || tTag === 'table') {
-                                const s = window.getComputedStyle(tableAnc);
-                                const bg = s.backgroundColor;
-                                if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
-                                    return parseColor(bg);
-                                }
+                            const s = window.getComputedStyle(tableAnc);
+                            const bg = s.backgroundColor;
+                            if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
+                                tableBackgrounds.push(parseColor(bg));
                             }
-                            if (tTag === 'table') break;
                             tableAnc = tableAnc.parentElement;
+                        }
+                        if (tableBackgrounds.length) {
+                            return compositeBackgrounds(tableBackgrounds);
                         }
                     }
                     const ownStyle = window.getComputedStyle(el);
@@ -370,19 +1094,17 @@ def extract_html_slide_state(
                         if (parsed && parsed.a >= 1.0) return parsed;
                         // Semi-transparent bg: composite with parent background
                         if (parsed && parsed.a > 0 && parsed.a < 1.0) {
-                            // Find the opaque parent background to composite against
-                            let parentBg = {r: 255, g: 255, b: 255, a: 1.0};
+                            const backgrounds = [parsed];
                             let pNode = el.parentElement;
                             while (pNode && pNode !== document.documentElement) {
                                 const ps = window.getComputedStyle(pNode);
                                 const pbg = ps.backgroundColor;
                                 if (pbg && pbg !== 'rgba(0, 0, 0, 0)' && pbg !== 'transparent') {
-                                    const pp = parseColor(pbg);
-                                    if (pp && pp.a >= 1.0) { parentBg = pp; break; }
+                                    backgrounds.push(parseColor(pbg));
                                 }
                                 pNode = pNode.parentElement;
                             }
-                            return compositeAlpha(parsed, parentBg);
+                            return compositeBackgrounds(backgrounds);
                         }
                     }
                     const rect = el.getBoundingClientRect();
@@ -395,26 +1117,30 @@ def extract_html_slide_state(
                         const selfIdx = stack.indexOf(el);
                         // Check elements behind el (higher index = further back)
                         const start = selfIdx >= 0 ? selfIdx + 1 : 0;
+                        const backgrounds = [];
                         for (let i = start; i < stack.length; i++) {
                             const node = stack[i];
                             if (node === document.documentElement) continue;
                             const s = window.getComputedStyle(node);
                             const bg = s.backgroundColor;
                             if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
-                                return parseColor(bg);
+                                backgrounds.push(parseColor(bg));
                             }
                         }
+                        if (backgrounds.length) return compositeBackgrounds(backgrounds);
                     } catch(e) {}
                     // Fallback: walk up parent chain
                     let node = el.parentElement;
+                    const backgrounds = [];
                     while (node && node !== document.documentElement) {
                         const s = window.getComputedStyle(node);
                         const bg = s.backgroundColor;
                         if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
-                            return parseColor(bg);
+                            backgrounds.push(parseColor(bg));
                         }
                         node = node.parentElement;
                     }
+                    if (backgrounds.length) return compositeBackgrounds(backgrounds);
                     return {r: 255, g: 255, b: 255}; // default white
                 }
                 // Helper: count rendered lines via getClientRects
@@ -668,14 +1394,26 @@ def extract_html_slide_state(
                     let imgBroken = false;
                     let imgSrc = '';
                     let imgCropPct = 0;
+                    let imgNaturalWidth = 0;
+                    let imgNaturalHeight = 0;
+                    let imgObjectFit = '';
+                    let imgRenderedContentRect = {x: 0, y: 0, width: 0, height: 0};
+                    let imgLetterboxTop = 0;
+                    let imgLetterboxRight = 0;
+                    let imgLetterboxBottom = 0;
+                    let imgLetterboxLeft = 0;
                     if (isImg) {
                         imgSrc = el.src || el.getAttribute('src') || '';
                         imgBroken = el.complete && el.naturalWidth === 0 && imgSrc.length > 0;
+                        imgObjectFit = style.objectFit || 'fill';
                         // object-fit crop detection (cover, none, scale-down)
+                        // plus rendered bitmap rect for contain/scale-down letterbox.
                         if (el.naturalWidth > 0 && el.naturalHeight > 0) {
                             const natW = el.naturalWidth, natH = el.naturalHeight;
+                            imgNaturalWidth = natW;
+                            imgNaturalHeight = natH;
                             const boxW = rect.width, boxH = rect.height;
-                            const fit = style.objectFit || 'fill';
+                            const fit = imgObjectFit;
                             if (fit === 'cover') {
                                 const natRatio = natW / natH;
                                 const boxRatio = boxW / boxH;
@@ -695,6 +1433,62 @@ def extract_html_slide_state(
                             }
                             // fill/contain: no crop
                             imgCropPct = Math.round(imgCropPct * 1000) / 1000;
+
+                            let contentW = boxW, contentH = boxH;
+                            if (fit === 'contain' || (fit === 'scale-down' && (natW > boxW || natH > boxH))) {
+                                const scale = Math.min(boxW / natW, boxH / natH);
+                                contentW = natW * scale;
+                                contentH = natH * scale;
+                            } else if (fit === 'scale-down') {
+                                contentW = natW;
+                                contentH = natH;
+                            } else if (fit === 'none') {
+                                contentW = natW;
+                                contentH = natH;
+                            }
+
+                            const visibleContentW = Math.min(boxW, contentW);
+                            const visibleContentH = Math.min(boxH, contentH);
+                            const freeX = Math.max(0, boxW - visibleContentW);
+                            const freeY = Math.max(0, boxH - visibleContentH);
+                            function objectPositionTokens(raw) {
+                                const tokens = String(raw || '50% 50%').toLowerCase().trim().split(/\\s+/).filter(Boolean);
+                                let xToken = '', yToken = '';
+                                for (const token of tokens) {
+                                    if (token === 'left' || token === 'right') xToken = token;
+                                    else if (token === 'top' || token === 'bottom') yToken = token;
+                                    else if (!xToken) xToken = token;
+                                    else if (!yToken) yToken = token;
+                                }
+                                return [xToken || '50%', yToken || '50%'];
+                            }
+                            function objectPositionOffset(token, free, startWord, endWord) {
+                                if (token === startWord) return 0;
+                                if (token === endWord) return free;
+                                if (token === 'center') return free / 2;
+                                if (token.endsWith('%')) {
+                                    const pct = parseFloat(token);
+                                    return Number.isFinite(pct) ? free * pct / 100 : free / 2;
+                                }
+                                if (token.endsWith('px')) {
+                                    const px = parseFloat(token);
+                                    return Number.isFinite(px) ? Math.max(0, Math.min(free, px)) : free / 2;
+                                }
+                                return free / 2;
+                            }
+                            const [posX, posY] = objectPositionTokens(style.objectPosition);
+                            const insetX = objectPositionOffset(posX, freeX, 'left', 'right');
+                            const insetY = objectPositionOffset(posY, freeY, 'top', 'bottom');
+                            imgRenderedContentRect = {
+                                x: rect.x + insetX,
+                                y: rect.y + insetY,
+                                width: visibleContentW,
+                                height: visibleContentH,
+                            };
+                            imgLetterboxLeft = Math.round(insetX);
+                            imgLetterboxTop = Math.round(insetY);
+                            imgLetterboxRight = Math.round(Math.max(0, boxW - insetX - visibleContentW));
+                            imgLetterboxBottom = Math.round(Math.max(0, boxH - insetY - visibleContentH));
                         }
                     }
 
@@ -720,6 +1514,16 @@ def extract_html_slide_state(
                             vBottom = Math.max(vBottom, cr.bottom);
                         }
                     }
+                    // Descendant pixels outside an overflow-hidden element are
+                    // not visible. Keep visual bounds clipped to the actual
+                    // viewport so intentional image-window crops do not create
+                    // phantom overlaps with neighboring/background elements.
+                    if (hasHidden) {
+                        vLeft = Math.max(vLeft, rect.x);
+                        vTop = Math.max(vTop, rect.y);
+                        vRight = Math.min(vRight, rect.right);
+                        vBottom = Math.min(vBottom, rect.bottom);
+                    }
 
                     // Ancestor clipping: check if this element is visually clipped
                     // by any ancestor with overflow:hidden/scroll/auto OR by any
@@ -743,6 +1547,12 @@ def extract_html_slide_state(
                         const isVisualBoundary = hasOverflowProp || (isPositioned && hasExplicitH);
                         if (isVisualBoundary) {
                             const aRect = anc.getBoundingClientRect();
+                            if (hasOverflowProp) {
+                                vLeft = Math.max(vLeft, aRect.x);
+                                vTop = Math.max(vTop, aRect.y);
+                                vRight = Math.min(vRight, aRect.right);
+                                vBottom = Math.min(vBottom, aRect.bottom);
+                            }
                             const clipB = Math.max(0, rect.bottom - aRect.bottom);
                             const clipR = Math.max(0, rect.right - aRect.right);
                             if (clipB > 2) {
@@ -763,9 +1573,37 @@ def extract_html_slide_state(
                     let pathEl = el;
                     while (pathEl && pathEl !== document.body) {
                         const pTag = pathEl.tagName.toLowerCase();
-                        const pIdx = Array.from(pathEl.parentElement?.children || []).indexOf(pathEl);
-                        domPath.unshift(pTag + '[' + pIdx + ']');
+                        const sameTagSiblings = Array.from(
+                            pathEl.parentElement?.children || []
+                        ).filter(sibling => sibling.tagName === pathEl.tagName);
+                        const pIdx = sameTagSiblings.indexOf(pathEl);
+                        const svgGeometryAttrs = [
+                            'x', 'y', 'cx', 'cy', 'r', 'rx', 'ry',
+                            'width', 'height'
+                        ].filter(name => pathEl.hasAttribute?.(name))
+                         .map(name => name + '=' + pathEl.getAttribute(name));
+                        let pathSegment = pTag + '[' + pIdx + ']';
+                        if (pathEl.id) {
+                            pathSegment = pTag + '#' + pathEl.id;
+                        } else if (pathEl.namespaceURI?.includes('/svg') && svgGeometryAttrs.length) {
+                            pathSegment = pTag + '[' + svgGeometryAttrs.join(',') + ']';
+                        }
+                        domPath.unshift(pathSegment);
                         pathEl = pathEl.parentElement;
+                    }
+
+                    // Measure true content height for overflow:hidden containers
+                    // by temporarily removing overflow clamp
+                    let trueScrollHeight = el.scrollHeight;
+                    if (hasHidden && el.clientHeight > 30) {
+                        const origOverflow = el.style.overflow;
+                        const origMaxH = el.style.maxHeight;
+                        const origH = el.style.height;
+                        el.style.overflow = 'visible';
+                        el.style.maxHeight = 'none';
+                        trueScrollHeight = el.scrollHeight;
+                        el.style.overflow = origOverflow;
+                        el.style.maxHeight = origMaxH;
                     }
 
                     results.push({
@@ -784,58 +1622,36 @@ def extract_html_slide_state(
                         contrastRatio: contrastVal, fgColor, bgColor,
                         renderedLines: lineCount,
                         isImg, imgBroken, imgSrc, imgCropPct,
+                        imgNaturalWidth, imgNaturalHeight, imgObjectFit,
+                        imgRenderedContentRect,
+                        imgLetterboxTop, imgLetterboxRight, imgLetterboxBottom, imgLetterboxLeft,
                         isEllipsized, hasClipPath, effectiveFontSize,
                         zIndex,
                         domPath: domPath.join('/'),
                         styledHeight, isFilled, styledOverflow,
+                        trueScrollHeight,
                     });
                 }
 
-                // Viewport exceedance scan — catch empty bar/shape divs
-                // that overflow the 1280×720 canvas (skipped by main loop
-                // because they have no directText).
-                const exceedances = [];
-                for (const el of document.body.querySelectorAll('*')) {
-                    const st = window.getComputedStyle(el);
-                    if (st.display === 'none' || st.visibility === 'hidden') continue;
-                    if (parseFloat(st.opacity) === 0) continue;
-                    const r = el.getBoundingClientRect();
-                    if (r.width < 3 || r.height < 3) continue;
-                    const exR = Math.round(Math.max(0, r.right - 1280));
-                    const exB = Math.round(Math.max(0, r.bottom - 720));
-                    if (exR > 5 || exB > 5) {
-                        let label = el.id || '';
-                        if (!label && el.className) {
-                            label = typeof el.className === 'string' ? el.className.split(' ')[0] : '';
-                        }
-                        if (!label) {
-                            let p = el.parentElement;
-                            while (p && p !== document.body && !label) {
-                                label = p.id || '';
-                                p = p.parentElement;
-                            }
-                        }
-                        exceedances.push({
-                            tag: el.tagName.toLowerCase(),
-                            label: label.substring(0, 80),
-                            right: Math.round(r.right),
-                            bottom: Math.round(r.bottom),
-                            exRight: exR, exBottom: exB,
-                            x: Math.round(r.x), y: Math.round(r.y),
-                            w: Math.round(r.width), h: Math.round(r.height),
-                        });
-                    }
-                }
+                /* __VIEWPORT_EXCEEDANCE_SCAN__ */
                 // Restore original overflow settings
                 document.body.style.overflow = bodyOvf;
                 document.documentElement.style.overflow = htmlOvf;
 
                 /* __PAINTOVER_C3_SCAN__ */
+                /* __SVG_REGIONS_SCAN__ */
+                /* __VISIBLE_TEXT_SCAN__ */
 
-                return {elements: results, viewportExceedances: exceedances};
+                return {elements: results, viewportExceedances: exceedances, svgRegions, visibleTextRuns};
             }"""
             _main_extract_js = _main_extract_js.replace(
                 _PAINTOVER_C3_SCAN_MARKER, _PAINTOVER_C3_SCAN_JS)
+            _main_extract_js = _main_extract_js.replace(
+                _SVG_REGIONS_SCAN_MARKER, _SVG_REGIONS_SCAN_JS)
+            _main_extract_js = _main_extract_js.replace(
+                _VISIBLE_TEXT_SCAN_MARKER, _VISIBLE_TEXT_SCAN_JS)
+            _main_extract_js = _main_extract_js.replace(
+                _VIEWPORT_EXCEEDANCE_SCAN_MARKER, _VIEWPORT_EXCEEDANCE_SCAN_JS)
             elements = page.evaluate(_main_extract_js)
         finally:
             os.unlink(tmp_path)
@@ -843,15 +1659,22 @@ def extract_html_slide_state(
         # Unpack dict return (elements + viewport exceedances)
         if isinstance(elements, dict):
             viewport_exceedances = elements.get("viewportExceedances", [])
+            svg_regions = elements.get("svgRegions", [])
+            visible_text_runs = elements.get("visibleTextRuns", [])
             elements = elements.get("elements", [])
         else:
             viewport_exceedances = []
+            svg_regions = []
+            visible_text_runs = []
 
         page.close()
 
     except Exception as e:
         logger.error("HTML spatial state extraction failed: %s", e)
-        return SlideState(slide_id=slide_id)
+        return SlideState(
+            slide_id=slide_id,
+            svg_asset_issues=svg_asset_issues,
+        )
     finally:
         if own_browser:
             try:
@@ -864,7 +1687,14 @@ def extract_html_slide_state(
                 except Exception:
                     pass
 
-    return _build_state_from_elements(slide_id, elements, viewport_exceedances=viewport_exceedances)
+    return _build_state_from_elements(
+        slide_id,
+        elements,
+        viewport_exceedances=viewport_exceedances,
+        svg_regions=svg_regions,
+        svg_asset_issues=svg_asset_issues,
+        visible_text_runs=visible_text_runs,
+    )
 
 
 def _visual_rect(b: ContentBlock) -> tuple[float, float, float, float]:
@@ -949,6 +1779,13 @@ def _detect_overlaps(blocks: list[ContentBlock]) -> list[tuple[str, str, float]]
             # Text char counts (used in multiple filters below)
             a_tc = a.text_chars if isinstance(a.text_chars, int) else 0
             b_tc = b.text_chars if isinstance(b.text_chars, int) else 0
+
+            # Internal SVG/chart primitives have no standalone DOM overlap
+            # semantics. Their visible layering is evaluated from the render by
+            # B20; treating two paths/shapes as B03 here only creates noise.
+            if (a_tc == 0 and b_tc == 0
+                    and a.shape_type == "chart" and b.shape_type == "chart"):
+                continue
 
             # Full containment: one element ≥90% inside the other → nesting, skip
             # BUT only if they have a real ancestor/descendant DOM relationship.
@@ -1163,25 +2000,297 @@ def _detect_occlusions(blocks: list[ContentBlock]) -> list[tuple[str, str]]:
     return occlusions
 
 
-def _detect_alignment_issues(blocks: list[ContentBlock]) -> list[AlignmentIssue]:
-    """Detect misaligned elements that should be aligned."""
-    issues = []
-    # Check left-edge alignment for blocks with similar x coordinates
-    for i in range(len(blocks)):
-        for j in range(i + 1, len(blocks)):
-            a, b = blocks[i], blocks[j]
-            # Left edges close but not aligned
-            if 0.05 < abs(a.x - b.x) < 0.3:
-                issues.append(AlignmentIssue(
-                    block_a=a.block_id,
-                    block_b=b.block_id,
-                    edge="left",
-                    deviation=round(abs(a.x - b.x), 3),
-                    suggestion=f"Align left edges of {a.var_name} and {b.var_name}",
+_RELATION_INLINE_TAGS = frozenset({
+    "a", "abbr", "b", "code", "em", "i", "mark", "small", "span",
+    "strong", "sub", "sup", "tspan",
+})
+_RELATION_STRUCTURAL_TAGS = frozenset({
+    "body", "col", "colgroup", "defs", "g", "html", "line", "marker",
+    "path", "polygon", "polyline", "script", "style", "tbody", "tfoot",
+    "thead", "tr", "use",
+})
+_RELATION_MIN_WIDTH_PX = max(24, round(VIEWPORT_W * 0.02))
+_RELATION_MIN_HEIGHT_PX = max(14, round(VIEWPORT_H * 0.02))
+
+
+def _relation_parent_path(block: ContentBlock) -> str:
+    path = block.dom_path or ""
+    return path.rsplit("/", 1)[0] if "/" in path else ""
+
+
+def _relation_label(block: ContentBlock) -> str:
+    text = re.sub(r"\s+", " ", " ".join(block.text_lines)).strip()
+    selector = block.css_selector or block.var_name or block.block_id
+    return f'{selector} "{text[:42]}"' if text else selector
+
+
+def _relation_role_key(block: ContentBlock) -> str:
+    tag = (block.var_name or "").lower()
+    shape_type = (block.shape_type or "").lower()
+    classes = tuple(sorted({item.lower() for item in block.css_classes if item}))
+    if not classes:
+        selector = (block.css_selector or "").strip().lower()
+        if selector.startswith("."):
+            classes = (selector.removeprefix("."),)
+    if classes:
+        return f"class:{tag}:{shape_type}:{'|'.join(classes)}"
+    return f"tag:{tag}:{shape_type}"
+
+
+def _is_relation_candidate(block: ContentBlock) -> bool:
+    """Return whether a DOM block can plausibly participate in a peer group."""
+    tag = (block.var_name or "").lower()
+    _, _, width, height = block.bbox_px
+    if not block.dom_path or not _relation_parent_path(block):
+        return False
+    if tag in _RELATION_INLINE_TAGS or tag in _RELATION_STRUCTURAL_TAGS:
+        return False
+    if block.is_in_svg and tag != "svg":
+        return False
+    if width < _RELATION_MIN_WIDTH_PX or height < _RELATION_MIN_HEIGHT_PX:
+        return False
+    if width > VIEWPORT_W * 0.94 and height > VIEWPORT_H * 0.86:
+        return False
+    return bool(
+        block.text_chars >= 5
+        or block.is_filled
+        or block.shape_type in {"chart", "picture", "table", "title"}
+    )
+
+
+def _cluster_relation_axis(
+    blocks: list[ContentBlock],
+    *,
+    orientation: str,
+) -> list[list[ContentBlock]]:
+    """Cluster peer candidates into visual rows or columns."""
+    if len(blocks) < 2:
+        return []
+    if orientation == "row":
+        ordered = sorted(blocks, key=lambda item: item.bbox_px[1] + item.bbox_px[3] / 2)
+        sizes = sorted(item.bbox_px[3] for item in blocks)
+    else:
+        ordered = sorted(blocks, key=lambda item: item.bbox_px[0] + item.bbox_px[2] / 2)
+        sizes = sorted(item.bbox_px[2] for item in blocks)
+    median_size = sizes[len(sizes) // 2]
+    tolerance = max(18.0, median_size * (0.32 if orientation == "row" else 0.24))
+
+    clusters: list[list[ContentBlock]] = []
+    for block in ordered:
+        x, y, width, height = block.bbox_px
+        center = y + height / 2 if orientation == "row" else x + width / 2
+        placed = False
+        for cluster in clusters:
+            centers = []
+            for member in cluster:
+                mx, my, mw, mh = member.bbox_px
+                centers.append(my + mh / 2 if orientation == "row" else mx + mw / 2)
+            if abs(center - sum(centers) / len(centers)) <= tolerance:
+                cluster.append(block)
+                placed = True
+                break
+        if not placed:
+            clusters.append([block])
+    return [cluster for cluster in clusters if len(cluster) >= 2]
+
+
+def _relation_internal_slack(
+    container: ContentBlock,
+    blocks: list[ContentBlock],
+) -> tuple[int, int] | None:
+    """Return neutral bottom/right content slack inside a candidate container."""
+    prefix = f"{container.dom_path}/"
+    descendants = [
+        block for block in blocks
+        if block.dom_path.startswith(prefix)
+        and (
+            block.text_chars > 0
+            or block.shape_type in {"chart", "picture", "table"}
+        )
+    ]
+    if not descendants:
+        return None
+    x, y, width, height = container.bbox_px
+    right = x + width
+    bottom = y + height
+    content_right = max(
+        min(right, block.bbox_px[0] + block.bbox_px[2])
+        for block in descendants
+    )
+    content_bottom = max(
+        min(bottom, block.bbox_px[1] + block.bbox_px[3])
+        for block in descendants
+    )
+    return max(0, round(bottom - content_bottom)), max(0, round(right - content_right))
+
+
+def infer_layout_relations(state: SlideState) -> list[dict]:
+    """Infer conservative peer groups and return neutral spatial measurements.
+
+    A relation requires a shared direct DOM parent plus either a repeated class
+    or compatible sibling geometry. The result is evidence for a visual judge,
+    never a deterministic defect verdict.
+    """
+    candidates = [block for block in state.blocks if _is_relation_candidate(block)]
+    by_parent_role: dict[tuple[str, str], list[ContentBlock]] = {}
+    for block in candidates:
+        key = (_relation_parent_path(block), _relation_role_key(block))
+        by_parent_role.setdefault(key, []).append(block)
+
+    relations: list[dict] = []
+    seen_members: set[tuple[str, tuple[str, ...]]] = set()
+    for (parent, role_key), role_blocks in by_parent_role.items():
+        if len(role_blocks) < 2:
+            continue
+        repeated_class = role_key.startswith("class:")
+        for orientation in ("row", "column"):
+            for cluster in _cluster_relation_axis(role_blocks, orientation=orientation):
+                widths = [block.bbox_px[2] for block in cluster]
+                heights = [block.bbox_px[3] for block in cluster]
+                size_ratio = max(widths) / max(1, min(widths))
+                size_ratio = max(size_ratio, max(heights) / max(1, min(heights)))
+                if not repeated_class and size_ratio > 1.65:
+                    continue
+
+                ordered = sorted(
+                    cluster,
+                    key=(
+                        (lambda item: item.bbox_px[0])
+                        if orientation == "row"
+                        else (lambda item: item.bbox_px[1])
+                    ),
+                )
+                member_keys = tuple(sorted(
+                    stable_block_identity(state, block.block_id)
+                    for block in ordered
                 ))
-            if len(issues) >= 5:
-                return issues
-    return issues
+                dedup_key = (orientation, member_keys)
+                if dedup_key in seen_members:
+                    continue
+                seen_members.add(dedup_key)
+
+                lefts = [block.bbox_px[0] for block in ordered]
+                tops = [block.bbox_px[1] for block in ordered]
+                rights = [block.bbox_px[0] + block.bbox_px[2] for block in ordered]
+                bottoms = [block.bbox_px[1] + block.bbox_px[3] for block in ordered]
+                center_x = [left + width / 2 for left, width in zip(lefts, widths)]
+                center_y = [top + height / 2 for top, height in zip(tops, heights)]
+                gaps = []
+                for first, second in zip(ordered, ordered[1:]):
+                    fx, fy, fw, fh = first.bbox_px
+                    sx, sy, _, _ = second.bbox_px
+                    gaps.append(
+                        sx - (fx + fw) if orientation == "row"
+                        else sy - (fy + fh)
+                    )
+
+                slack = [_relation_internal_slack(block, state.blocks) for block in ordered]
+                bottom_slack = [item[0] for item in slack if item is not None]
+                right_slack = [item[1] for item in slack if item is not None]
+                metrics = {
+                    "left_spread_px": round(max(lefts) - min(lefts)),
+                    "right_spread_px": round(max(rights) - min(rights)),
+                    "top_spread_px": round(max(tops) - min(tops)),
+                    "bottom_spread_px": round(max(bottoms) - min(bottoms)),
+                    "center_x_spread_px": round(max(center_x) - min(center_x)),
+                    "center_y_spread_px": round(max(center_y) - min(center_y)),
+                    "width_spread_px": round(max(widths) - min(widths)),
+                    "height_spread_px": round(max(heights) - min(heights)),
+                    "gap_spread_px": round(max(gaps) - min(gaps)) if len(gaps) >= 2 else 0,
+                    "internal_bottom_slack_spread_px": (
+                        round(max(bottom_slack) - min(bottom_slack))
+                        if len(bottom_slack) >= 2 else 0
+                    ),
+                    "internal_right_slack_spread_px": (
+                        round(max(right_slack) - min(right_slack))
+                        if len(right_slack) >= 2 else 0
+                    ),
+                }
+                confidence = (
+                    "high"
+                    if repeated_class and size_ratio <= 1.35
+                    else "medium"
+                )
+                class_signature = role_key.rsplit(":", 1)[-1].replace("|", ".")
+                basis = (
+                    f"shared parent + repeated .{class_signature} with matching tag/role"
+                    if repeated_class else "shared parent + compatible sibling geometry"
+                )
+                relations.append({
+                    "orientation": orientation,
+                    "confidence": confidence,
+                    "basis": basis,
+                    "role_key": role_key,
+                    "parent": parent,
+                    "member_ids": [block.block_id for block in ordered],
+                    "member_keys": list(member_keys),
+                    "labels": [_relation_label(block) for block in ordered],
+                    "bboxes": [block.bbox_px for block in ordered],
+                    "gaps_px": [round(gap) for gap in gaps],
+                    "internal_slack_px": slack,
+                    "metrics": metrics,
+                })
+
+    relations.sort(key=lambda item: (
+        0 if item["confidence"] == "high" else 1,
+        0 if item["orientation"] == "row" else 1,
+        -len(item["member_ids"]),
+        item["parent"],
+    ))
+    for index, relation in enumerate(relations, 1):
+        relation["relation_id"] = f"R{index}"
+    return relations
+
+
+def _render_relation_map(state: SlideState) -> str:
+    """Format inferred peer relations without converting them into issues."""
+    relations = infer_layout_relations(state)
+    lines = [
+        "\nRELATION MAP (candidate logical peers; measurements only, not defect verdicts):"
+    ]
+    if not relations:
+        lines.append("  No candidate peer group was inferred from the DOM.")
+        return "\n".join(lines)
+
+    for relation in relations:
+        metrics = relation["metrics"]
+        orientation = relation["orientation"]
+        metric_text = (
+            f"left={metrics['left_spread_px']}px, "
+            f"right={metrics['right_spread_px']}px, "
+            f"top={metrics['top_spread_px']}px, "
+            f"bottom={metrics['bottom_spread_px']}px, "
+            f"width={metrics['width_spread_px']}px, "
+            f"height={metrics['height_spread_px']}px"
+        )
+        if len(relation["gaps_px"]) >= 2:
+            metric_text += (
+                f", gaps={relation['gaps_px']}px "
+                f"(spread={metrics['gap_spread_px']}px)"
+            )
+        measurable_slack = [
+            value for value in relation["internal_slack_px"]
+            if value is not None
+        ]
+        if len(measurable_slack) >= 2:
+            metric_text += (
+                ", internal slack spread: bottom="
+                f"{metrics['internal_bottom_slack_spread_px']}px, right="
+                f"{metrics['internal_right_slack_spread_px']}px"
+            )
+        lines.append(
+            f"  {relation['relation_id']} {orientation} peers "
+            f"({relation['confidence']} confidence; {relation['basis']}):"
+        )
+        for label, bbox in zip(relation["labels"], relation["bboxes"]):
+            x, y, width, height = bbox
+            lines.append(f"    - {label}: ({x},{y}) {width}x{height}px")
+        lines.append(f"    measured: {metric_text}")
+    lines.append(
+        "  Interpret only groups that match the issue's named logical peers. "
+        "Different hierarchy levels and intentional asymmetry are not failures."
+    )
+    return "\n".join(lines)
 
 
 def format_html_spatial_state(state: SlideState) -> str:
@@ -1208,7 +2317,8 @@ def format_html_compact_state(state: SlideState) -> str:
     n_violations = (len(state.overlap_pairs) + len(state.overflow_blocks) + len(state.oob_blocks)
                     + len(state.low_contrast_blocks) + len(state.clipped_blocks)
                     + len(state.broken_images) + len(state.occlusion_pairs)
-                    + len(getattr(state, 'viewport_exceedances', [])))
+                    + len(getattr(state, 'viewport_exceedances', []))
+                    + len(getattr(state, 'svg_asset_issues', [])))
     lines.append(f"SLIDE {state.slide_id} — {len(state.blocks)} elements | canvas {VIEWPORT_W}×{VIEWPORT_H} px")
 
     warnings = []
@@ -1350,7 +2460,8 @@ def format_html_compact_state(state: SlideState) -> str:
             needed = blk.clip_parent_height_px + blk.clipped_bottom_px
             clip_parent_info = (
                 f"\n   ↳ clipped by parent {parent_id} "
-                f"(height:{blk.clip_parent_height_px}px → grow to {needed}px)"
+                f"(parent height:{blk.clip_parent_height_px}px; "
+                f"clipped content reaches about {needed}px; measurement only)"
             )
         violations.append(
             f"❌ CLIPPED: \"{_preview(blk)}\"\n"
@@ -1366,6 +2477,29 @@ def format_html_compact_state(state: SlideState) -> str:
             violations.append(
                 f"❌ BROKEN IMAGE: src={blk.img_src or 'unknown'}"
             )
+
+    # External SVG asset internals. These are invisible to browser DOM queries
+    # because <img src="*.svg"> exposes only the image element, not its inner
+    # <text>/<rect> tree. The extractor scans the SVG file separately.
+    for issue in getattr(state, 'svg_asset_issues', []):
+        label = str(issue.get("label") or "").strip() or "unknown label"
+        asset = issue.get("asset_name") or issue.get("asset_path") or issue.get("img_src") or "unknown.svg"
+        rect = issue.get("rect") or {}
+        overflow_parts = []
+        if float(issue.get("overflow_left") or 0) > 0:
+            overflow_parts.append(f"left {issue.get('overflow_left')}px")
+        if float(issue.get("overflow_right") or 0) > 0:
+            overflow_parts.append(f"right {issue.get('overflow_right')}px")
+        overflow_text = ", ".join(overflow_parts) if overflow_parts else "past rect edge"
+        violations.append(
+            f"❌ SVG ASSET TEXT OVERFLOW: \"{label}\" in {asset}\n"
+            f"   estimated text width: {issue.get('estimated_width')}px | "
+            f"rect width: {issue.get('available_width')}px | overflow: {overflow_text}\n"
+            f"   rect: ({rect.get('x')}, {rect.get('y')}, "
+            f"{rect.get('width')}×{rect.get('height')}) px | "
+            f"font-size: {issue.get('font_size')}px\n"
+            f"   fix: {issue.get('suggestion') or 'Wrap with <tspan> lines or widen the rect.'}"
+        )
 
     # Image crop — excessive content cropped by object-fit
     for blk in state.blocks:
@@ -1470,7 +2604,12 @@ def format_html_compact_state(state: SlideState) -> str:
 
     # Output violations (from both _detect_overlaps and tight adjacency)
     if violations:
-        lines.append(f"\n🚨 ISSUES TO FIX ({len(violations)}):")
+        lines.append(f"\nDETERMINISTIC FINDINGS ({len(violations)}):")
+        lines.append(
+            "Treat these as measurements. Act only when a finding matches the "
+            "original VLM issue or is new relative to the pre-edit baseline; "
+            "unchanged baseline findings are not additional repair tasks."
+        )
         lines.extend(violations)
 
     if warnings:
@@ -1505,6 +2644,52 @@ def format_html_compact_state(state: SlideState) -> str:
                 f"  {blk.var_name}{sel}: ({bx},{by}) {bw}×{bh}px{font_info}"
                 f"  \"{preview}\""
             )
+            if blk.shape_type == "picture":
+                cx, cy, cw, ch = getattr(blk, "img_rendered_content_bbox_px", (0, 0, 0, 0))
+                if cw > 0 and ch > 0:
+                    fit = getattr(blk, "img_object_fit", "") or "unknown"
+                    nat_w = getattr(blk, "img_natural_w_px", 0)
+                    nat_h = getattr(blk, "img_natural_h_px", 0)
+                    lb_top = getattr(blk, "img_letterbox_top_px", 0)
+                    lb_right = getattr(blk, "img_letterbox_right_px", 0)
+                    lb_bottom = getattr(blk, "img_letterbox_bottom_px", 0)
+                    lb_left = getattr(blk, "img_letterbox_left_px", 0)
+                    lines.append(
+                        "    ↳ rendered image content: "
+                        f"({cx},{cy}) {cw}×{ch}px | object-fit:{fit} | "
+                        f"intrinsic:{nat_w}×{nat_h}px | "
+                        "letterbox top/right/bottom/left:"
+                        f"{lb_top}/{lb_right}/{lb_bottom}/{lb_left}px"
+                    )
+                    vertical_letterbox = lb_top + lb_bottom
+                    horizontal_letterbox = lb_left + lb_right
+                    if bh > 0 and vertical_letterbox / max(1, bh) >= 0.25:
+                        lines.append(
+                            "    ⚠️ IMAGE LETTERBOX MEASUREMENT: vertical "
+                            f"letterbox is {vertical_letterbox}px of {bh}px img box. "
+                            "For B02/B09/B17, judge whitespace and figure dominance "
+                            "from the rendered image content rect, not the outer <img> bbox."
+                        )
+                    elif bw > 0 and horizontal_letterbox / max(1, bw) >= 0.25:
+                        lines.append(
+                            "    ⚠️ IMAGE LETTERBOX MEASUREMENT: horizontal "
+                            f"letterbox is {horizontal_letterbox}px of {bw}px img box. "
+                            "For B02/B09/B17, judge whitespace and figure dominance "
+                            "from the rendered image content rect, not the outer <img> bbox."
+                        )
+                    aspect = cw / max(1, ch)
+                    if aspect >= 2.25 and ch < VIEWPORT_H * 0.55:
+                        lines.append(
+                            "    ⚠️ IMAGE ASPECT MEASUREMENT: rendered content is a "
+                            f"wide horizontal figure ({aspect:.1f}:1, {cw}×{ch}px). "
+                            "For lower/side whitespace B02/B09 issues, image scaling "
+                            "alone may not fill the vertical void. If scaling only "
+                            "creates letterbox or leaves the reading path broken, "
+                            "prefer a layout reflow of existing content, such as "
+                            "evidence above interpretation, a reduced takeaway rail "
+                            "plus lower interpretation band, or regrouped callouts. "
+                            "Keep caption/source compact; they are not filler."
+                        )
             # Word/bullet count
             words = len(text.split()) if text else 0
             total_words += words
@@ -1558,6 +2743,11 @@ def format_html_compact_state(state: SlideState) -> str:
                 f"— slides with >250 words risk being flagged as text_wall."
             )
 
+    # Candidate peer geometry sits between the per-element anchor and coarse
+    # occupancy map. It remains measurement-only: the issue evidence and render
+    # decide whether any reported spread is visually wrong.
+    lines.append(_render_relation_map(state))
+
     # === ASCII SPACE MAP (single source of truth for coverage) ===
     lines.append(_render_space_map(state.blocks))
 
@@ -1593,13 +2783,13 @@ _ISSUE_CONTAINER_TAGS = frozenset({
 
 
 def _issue_is_container(block) -> bool:
-    """Structural/container element with no visual content of its own.
+    """Structural element that is not an independent DOM repair target.
 
-    Only skips SVG elements that are genuinely small chart-internal decorations
-    (area < 10000 sq.px ≈ ~100×100px). Large SVG-drawn panels/cards are NOT
-    treated as containers — their overlaps with text are real defects.
-
-    Non-SVG structural tags (col, colgroup) are always skipped.
+    Raw SVG primitives are intentionally excluded from deterministic B03/B04
+    ownership. Geometry alone cannot distinguish a label drawn inside a sibling
+    ``rect`` from a label painted over it; the focused B20 render probe owns
+    those visual relationships. HTML inside ``foreignObject`` remains eligible
+    because its descendants are measured as normal text blocks.
     """
     if not block:
         return False
@@ -1613,17 +2803,11 @@ def _issue_is_container(block) -> bool:
     if tag in _NON_SVG_CONTAINER_TAGS or var_name in _NON_SVG_CONTAINER_TAGS:
         return True
 
-    # SVG tags: only skip if the element is small (chart-internal decoration)
+    # SVG primitives are interpreted visually by B20, regardless of size.
     _SVG_TAGS = frozenset({"svg", "g", "path", "rect", "circle", "ellipse",
                            "polygon", "polyline", "line", "use"})
     if tag in _SVG_TAGS or var_name in _SVG_TAGS or "svg" in bid:
-        # Small SVG element = chart bar, axis tick, icon path → skip
-        # Large SVG element = card panel, background shape → don't skip
-        bx, by, bw, bh = block.bbox_px if hasattr(block, 'bbox_px') else (0, 0, 0, 0)
-        area_px = bw * bh
-        if area_px < 10000:  # ~100x100px or smaller
-            return True
-        return False
+        return True
 
     return False
 
@@ -1637,8 +2821,8 @@ def count_significant_issues(state, canvas_w: int = 1280, canvas_h: int = 720) -
     that every consumer — the external scorer, the agent submit gate, the
     stagnation trigger, and best-state tracking — agrees on what "clean" means.
 
-    Categories: overlap, text_overflow, out_of_bounds, clipped, occlusion,
-    canvas_truncation.
+    Categories: overlap, text_overflow, svg_text_overflow, out_of_bounds,
+    clipped, occlusion, canvas_truncation, image_crop.
     """
     import re as _re
     blocks = state.blocks
@@ -1652,6 +2836,7 @@ def count_significant_issues(state, canvas_w: int = 1280, canvas_h: int = 720) -
     out = {
         "overlap": [],
         "text_overflow": [],
+        "svg_text_overflow": [],
         "out_of_bounds": [],
         "clipped": [],
         "occlusion": [],
@@ -1671,8 +2856,25 @@ def count_significant_issues(state, canvas_w: int = 1280, canvas_h: int = 720) -
     for a_id, b_id, area in state.overlap_pairs:
         a_blk = _get(a_id)
         b_blk = _get(b_id)
+        if (a_blk and b_blk
+                and getattr(a_blk, "is_in_svg", False)
+                and getattr(b_blk, "is_in_svg", False)):
+            continue
         if _issue_is_container(a_blk) or _issue_is_container(b_blk):
             continue
+        # Skip decorative overlaps: if both elements have no text and at least
+        # one has a decorator CSS class (deco, accent, ornament, shape, bg-*)
+        if a_blk and b_blk:
+            _a_text = (a_blk.text_chars or 0) if hasattr(a_blk, 'text_chars') else 0
+            _b_text = (b_blk.text_chars or 0) if hasattr(b_blk, 'text_chars') else 0
+            if _a_text == 0 and _b_text == 0:
+                _a_sel = (getattr(a_blk, 'css_selector', '') or '').lower()
+                _b_sel = (getattr(b_blk, 'css_selector', '') or '').lower()
+                _deco_keywords = ('deco', 'accent', 'ornament', 'shape', 'bg-', 'pattern', 'circle', 'line')
+                _a_deco = any(kw in _a_sel for kw in _deco_keywords)
+                _b_deco = any(kw in _b_sel for kw in _deco_keywords)
+                if _a_deco or _b_deco:
+                    continue
         if area < ISSUE_MIN_OVERLAP_AREA_FRAC:
             # Skip decorative-vs-decorative overlaps: two elements with no text
             # overlapping each other is not a visual defect (orbs, shapes, SVG decorations)
@@ -1703,6 +2905,21 @@ def count_significant_issues(state, canvas_w: int = 1280, canvas_h: int = 720) -
         blk = _get(bid)
         if not blk:
             continue
+        contains_picture = any(
+            getattr(child, "shape_type", "") == "picture"
+            and getattr(child, "dom_path", "").startswith(
+                f"{getattr(blk, 'dom_path', '')}/"
+            )
+            for child in blocks
+        )
+        if (
+            contains_picture
+            and not (blk.text_chars or 0)
+            and getattr(blk, "styled_overflow", "") in {"hidden", "clip"}
+        ):
+            # A clipped image window is a crop, not overflowing text. Image
+            # loss is evaluated separately by image_crop and the VLM preview.
+            continue
         svg_text = getattr(blk, 'is_svg_text', False)
         # Use lower threshold (5px) for styled-boundary overflow (precise calc)
         # vs standard 8px for scrollHeight-based overflow
@@ -1718,9 +2935,28 @@ def count_significant_issues(state, canvas_w: int = 1280, canvas_h: int = 720) -
                     continue
         if _issue_is_container(blk):
             continue
-        out["text_overflow"].append(bid)
+        # Inline SVG labels belong to the same residual family as labels inside
+        # referenced SVG assets. The compact formatter already calls these
+        # ``SVG TEXT OVERFLOW``; keeping them in ``text_overflow`` made B20 see
+        # the symptom while losing ownership of its deterministic residual.
+        target_category = "svg_text_overflow" if svg_text else "text_overflow"
+        out[target_category].append(bid)
+
+    # 2b) External SVG asset text overflow. These findings come from scanning
+    # the referenced SVG file, because a browser exposes <img src="*.svg"> only
+    # as a picture element and not as an inspectable SVG DOM subtree.
+    for issue in getattr(state, "svg_asset_issues", []) or []:
+        if issue.get("kind") != "svg_text_overflow":
+            continue
+        issue_id = str(issue.get("id") or "").strip()
+        if not issue_id:
+            label = re.sub(r"\s+", " ", str(issue.get("label") or "")).strip()
+            asset = str(issue.get("asset_name") or issue.get("asset_path") or "svg")
+            issue_id = f"svg_asset:{asset}:{label[:48]}"
+        out["svg_text_overflow"].append(issue_id)
 
     # 3) Out of bounds — skip ≤5px past either canvas edge
+    #    Also skip decorative elements that are intentionally positioned offscreen
     for bid in state.oob_blocks:
         blk = _get(bid)
         if blk:
@@ -1729,6 +2965,12 @@ def count_significant_issues(state, canvas_w: int = 1280, canvas_h: int = 720) -
             bottom_excess = max(0, by + bh - canvas_h)
             if right_excess <= ISSUE_MIN_OOB_EXCESS_PX and bottom_excess <= ISSUE_MIN_OOB_EXCESS_PX:
                 continue
+            # Skip decorative elements that are partially offscreen (design intent)
+            _sel = (getattr(blk, 'css_selector', '') or '').lower()
+            _text = (blk.text_chars or 0) if hasattr(blk, 'text_chars') else 0
+            _deco_kw = ('deco', 'accent', 'ornament', 'shape', 'bg-', 'pattern', 'circle')
+            if _text == 0 and any(kw in _sel for kw in _deco_kw):
+                continue
         out["out_of_bounds"].append(bid)
 
     # 4) Clipped by parent overflow:hidden — skip <8px, containers,
@@ -1736,6 +2978,20 @@ def count_significant_issues(state, canvas_w: int = 1280, canvas_h: int = 720) -
     for bid in state.clipped_blocks:
         blk = _get(bid)
         if not blk:
+            continue
+        # B04's clipped category is a text/content backstop. Exclude actual
+        # non-text SVG geometry, but keep HTML descendants of foreignObject:
+        # they are normal readable content even though closest('svg') is true.
+        # SVG <text>/<tspan> remains eligible through is_svg_text.
+        svg_geometry_tags = {
+            "svg", "g", "path", "rect", "circle", "ellipse", "line",
+            "polyline", "polygon", "use", "image", "foreignobject",
+        }
+        if (
+            getattr(blk, "is_in_svg", False)
+            and not getattr(blk, "is_svg_text", False)
+            and (blk.var_name or "").lower() in svg_geometry_tags
+        ):
             continue
         if blk.clipped_bottom_px < ISSUE_MIN_CLIP_PX:
             continue
@@ -1756,6 +3012,11 @@ def count_significant_issues(state, canvas_w: int = 1280, canvas_h: int = 720) -
     # 5) Occlusion — skip container fronts
     for front, back in state.occlusion_pairs:
         front_blk = _get(front)
+        back_blk = _get(back)
+        if (front_blk and back_blk
+                and getattr(front_blk, "is_in_svg", False)
+                and getattr(back_blk, "is_in_svg", False)):
+            continue
         if _issue_is_container(front_blk):
             continue
         out["occlusion"].append((front, back))
@@ -1794,6 +3055,222 @@ def count_significant_issues(state, canvas_w: int = 1280, canvas_h: int = 720) -
     return out
 
 
+def stable_block_identity(state: SlideState, block_id: str) -> str:
+    """Return a cross-render identity for a measured DOM block."""
+    if isinstance(block_id, str) and block_id.startswith("svg_asset:"):
+        return block_id
+    block = next(
+        (item for item in state.blocks if item.block_id == block_id),
+        None,
+    )
+    if block is None:
+        return f"missing:{block_id}"
+    if block.is_in_svg:
+        # SVG geometry is routinely moved or resized during repair. Prefer the
+        # label carried by the element/group over mutable coordinates. This
+        # also covers foreignObject, whose own direct-text inventory is empty.
+        semantic_text = list(block.text_lines)
+        if block.dom_path:
+            descendant_prefix = f"{block.dom_path}/"
+            semantic_text.extend(
+                line
+                for candidate in state.blocks
+                if candidate.dom_path.startswith(descendant_prefix)
+                for line in candidate.text_lines
+            )
+
+        if not semantic_text and block.var_name.lower() in {
+            "svg", "g", "foreignobject", "rect", "circle", "ellipse",
+            "polygon",
+        }:
+            bx, by, bw, bh = block.bbox_px
+            semantic_text.extend(
+                line
+                for candidate in state.blocks
+                if candidate.is_in_svg and candidate.text_lines
+                and bx <= candidate.bbox_px[0] + candidate.bbox_px[2] / 2 <= bx + bw
+                and by <= candidate.bbox_px[1] + candidate.bbox_px[3] / 2 <= by + bh
+                for line in candidate.text_lines
+            )
+
+        normalized_text = sorted({
+            re.sub(r"\s+", " ", line).strip().lower()
+            for line in semantic_text
+            if line.strip()
+        })
+        if normalized_text:
+            return (
+                f"svg-semantic:{block.var_name.lower()}:"
+                f"{'|'.join(normalized_text[:8])}"
+            )
+
+    # DOM sibling indexes are not identities: deleting one unrelated element
+    # shifts every later nth-child path. Visible text plus the element selector
+    # remains stable across such structural edits and is the best available
+    # semantic identity for ordinary HTML text blocks.
+    normalized_text = re.sub(
+        r"\s+", " ", " ".join(block.text_lines),
+    ).strip().lower()
+    if normalized_text and not block.is_in_svg:
+        return (
+            f"html-semantic:{block.var_name.lower()}:"
+            f"{(block.css_selector or '').lower()}:"
+            f"{normalized_text[:240]}"
+        )
+
+    if block.dom_path:
+        dom_path = block.dom_path
+        if block.is_in_svg:
+            # Position is repairable state, not identity. Retain intrinsic size
+            # attributes (r/rx/ry/width/height) so unlabeled sibling shapes stay
+            # distinguishable when another sibling is deleted.
+            def _strip_svg_position(match: re.Match) -> str:
+                attributes = [
+                    item for item in match.group(1).split(",")
+                    if item.split("=", 1)[0] not in {"x", "y", "cx", "cy"}
+                ]
+                return f"[{','.join(attributes)}]"
+
+            dom_path = re.sub(r"\[([^\]]*=.*?)\]", _strip_svg_position, dom_path)
+        return f"dom:{dom_path}"
+    bx, by, bw, bh = block.bbox_px
+    text = " ".join(block.text_lines).strip().lower()[:80]
+    return (
+        f"fallback:{block.var_name}:{block.css_selector}:{text}:"
+        f"{round(bx / 4)}:{round(by / 4)}:{round(bw / 4)}:{round(bh / 4)}"
+    )
+
+
+def stable_pair_identity(
+    state: SlideState, first_id: str, second_id: str,
+) -> tuple[str, str]:
+    """Return an order-independent identity for a block pair."""
+    first = stable_block_identity(state, first_id)
+    second = stable_block_identity(state, second_id)
+    return (first, second) if first <= second else (second, first)
+
+
+def _stable_block_identity_aliases(
+    state: SlideState,
+    block_id: str,
+) -> set[str]:
+    """Return semantic and same-node aliases for regression matching.
+
+    Semantic text survives sibling insertion/deletion, while an exact HTML DOM
+    path survives an authorized copy edit on the same node. Regression matching
+    needs both forms: relying on text alone turns support-copy compression into
+    a fake new physical defect.
+    """
+    aliases = {stable_block_identity(state, block_id)}
+    block = next(
+        (item for item in state.blocks if item.block_id == block_id),
+        None,
+    )
+    if block is not None and block.dom_path and not block.is_in_svg:
+        class_signature = ".".join(
+            sorted(str(name).lower() for name in block.css_classes if name)
+        )
+        aliases.add(
+            "html-dom:"
+            f"{block.var_name.lower()}:{class_signature}:"
+            f"{block.dom_path.lower()}"
+        )
+    return aliases
+
+
+def _stable_pair_identity_aliases(
+    state: SlideState,
+    first_id: str,
+    second_id: str,
+) -> set[tuple[str, str]]:
+    """Return order-independent aliases for a measured block pair."""
+    aliases = set()
+    for first in _stable_block_identity_aliases(state, first_id):
+        for second in _stable_block_identity_aliases(state, second_id):
+            aliases.add(
+                (first, second) if first <= second else (second, first)
+            )
+    return aliases
+
+
+def significant_issue_regressions(
+    baseline: SlideState,
+    current: SlideState,
+) -> dict[str, list[tuple[str, str | tuple[str, str]]]]:
+    """Return newly introduced physical defects without category churn.
+
+    The renderer can describe the same underlying defect differently after a
+    small edit: visible overflow can become clipping, and an overlapping pair
+    can become an occlusion pair. Regression guards should compare stable DOM
+    identities at that physical level while the issue evaluator retains the
+    finer categories for targeted repair.
+    """
+    baseline_categories = count_significant_issues(baseline)
+    current_categories = count_significant_issues(current)
+
+    def _block_group(state, categories, names):
+        grouped = []
+        for name in names:
+            for block_id in categories.get(name, []):
+                grouped.append((
+                    _stable_block_identity_aliases(state, block_id),
+                    (name, block_id),
+                ))
+        return grouped
+
+    def _pair_group(state, categories, names):
+        grouped = []
+        for name in names:
+            for first_id, second_id in categories.get(name, []):
+                grouped.append((
+                    _stable_pair_identity_aliases(
+                        state, first_id, second_id,
+                    ),
+                    (name, (first_id, second_id)),
+                ))
+        return grouped
+
+    group_builders = {
+        "content_fit": lambda state, categories: _block_group(
+            state, categories,
+            (
+                "text_overflow", "svg_text_overflow", "clipped",
+                "canvas_truncation",
+            ),
+        ),
+        "interaction": lambda state, categories: _pair_group(
+            state, categories, ("overlap", "occlusion"),
+        ),
+        "out_of_bounds": lambda state, categories: _block_group(
+            state, categories, ("out_of_bounds",),
+        ),
+        "image_crop": lambda state, categories: _block_group(
+            state, categories, ("image_crop",),
+        ),
+    }
+
+    regressions = {}
+    for group_name, build in group_builders.items():
+        before = build(baseline, baseline_categories)
+        after = build(current, current_categories)
+        before_aliases = {
+            alias
+            for aliases, _raw_issue in before
+            for alias in aliases
+        }
+        # A lower aggregate count does not make a newly damaged semantic unit
+        # disappear. Surface new stable identities in every physical-defect
+        # group; the caller decides whether each measurement belongs to the
+        # repair target or is only an unrelated regression warning.
+        newly_introduced = [
+            raw_issue for aliases, raw_issue in after
+            if aliases.isdisjoint(before_aliases)
+        ]
+        if newly_introduced:
+            regressions[group_name] = newly_introduced
+    return regressions
+
+
 def count_significant_issue_total(state, canvas_w: int = 1280, canvas_h: int = 720) -> int:
     """Convenience: total significant-issue count (the scalar count_issues returns)."""
     return sum(len(v) for v in count_significant_issues(state, canvas_w, canvas_h).values())
@@ -1823,6 +3300,111 @@ def run_deterministic_checks(
 
     issues: list[Issue] = []
     blocks = state.blocks
+
+    for svg_issue in getattr(state, "svg_asset_issues", []) or []:
+        if svg_issue.get("kind") != "svg_text_overflow":
+            continue
+        label = str(svg_issue.get("label") or "").strip() or "unknown label"
+        asset = str(
+            svg_issue.get("asset_name")
+            or svg_issue.get("asset_path")
+            or svg_issue.get("img_src")
+            or "unknown.svg"
+        )
+        raw_id = str(svg_issue.get("id") or f"{asset}_{label}")
+        safe_id = _re.sub(r"[^A-Za-z0-9_.:-]+", "_", raw_id)[:120]
+        rect = svg_issue.get("rect") or {}
+        issues.append(Issue(
+            issue_id=f"B20_slide{slide_id}_{safe_id}",
+            rubric_id="B20",
+            issue_type="svg_visual_defect",
+            severity=Severity.MAJOR,
+            confidence=Confidence.HIGH,
+            affected_slides=[slide_id],
+            evidence=IssueEvidence(
+                description=(
+                    f"External SVG asset '{asset}' contains label '{label}' "
+                    f"estimated at {svg_issue.get('estimated_width')}px inside "
+                    f"a {svg_issue.get('available_width')}px rect "
+                    f"at ({rect.get('x')}, {rect.get('y')})."
+                ),
+                object_refs=[asset, label],
+            ),
+            why_this_fails=(
+                "The slide displays the SVG as an image, so clipped SVG-internal "
+                "text remains visible to the audience even though the HTML DOM "
+                "picture element itself fits."
+            ),
+            fixability="easy_local_patch",
+            planned_fix=(
+                f"Edit '{asset}' so label '{label}' fits: split it into "
+                "readable <tspan> lines, widen the containing rect, or reduce "
+                "only the local label font while preserving readability."
+            ),
+            source_probe_id="geom_svg_asset_text_fit",
+        ))
+
+    # ── Canvas-bottom clip detection (deterministic B4) ──────────────
+    # If significant blocks (text OR image) extend past 720px, emit a B4
+    # text_overflow issue so it doesn't depend on VLM judgment alone.
+    VIEWPORT_H = 720
+    _clip_blocks = []
+    for blk in blocks:
+        bx, by, bw, bh = blk.bbox_px
+        bottom = by + bh
+        # Skip full-slide containers and tiny blocks
+        if bw > 1200 and bh > 650:
+            continue
+        if bh < 15 or bw < 40:
+            continue
+        if bottom > VIEWPORT_H + 5:
+            # Include blocks with text content OR image/figure blocks
+            _is_text = blk.text_chars and blk.text_chars > 10
+            _sel = getattr(blk, 'css_selector', '') or getattr(blk, 'var_name', '') or ''
+            _shape = getattr(blk, 'shape_type', '') or ''
+            _is_media = (
+                _shape in ('picture', 'image', 'chart')
+                or _sel in ('img', 'picture', 'svg', 'canvas', 'video')
+                or 'figure' in _sel.lower()
+                or 'chart' in _sel.lower()
+                or 'img' in _sel.lower()
+            )
+            if _is_text or _is_media:
+                _clip_blocks.append((blk, int(bottom - VIEWPORT_H)))
+    if _clip_blocks:
+        _clip_blocks.sort(key=lambda x: -x[1])
+        _worst = _clip_blocks[0]
+        _desc_parts = []
+        for _cb, _excess in _clip_blocks[:5]:
+            _preview = " ".join(_cb.text_lines[:1])[:60] if _cb.text_lines else ""
+            _sel = _cb.css_selector or _cb.var_name or _cb.tag
+            _desc_parts.append(f"{_sel} ({_excess}px past canvas): \"{_preview}\"")
+        issues.append(Issue(
+            issue_id=f"B4_geom_slide{slide_id}_canvas_clip",
+            rubric_id="B4",
+            issue_type="text_overflow",
+            severity=Severity.MAJOR,
+            confidence=Confidence.HIGH,
+            affected_slides=[slide_id],
+            evidence=IssueEvidence(
+                description=(
+                    f"{len(_clip_blocks)} text block(s) extend past the "
+                    f"{VIEWPORT_H}px canvas bottom:\n"
+                    + "\n".join(_desc_parts)
+                ),
+                object_refs=[b.css_selector or b.var_name or b.tag for b, _ in _clip_blocks[:5]],
+            ),
+            why_this_fails=(
+                "Text extending below the slide canvas is invisible in "
+                "presentation mode — the audience sees clipped content."
+            ),
+            fixability="easy_local_patch",
+            planned_fix=(
+                "Compress or reflow content so all text fits within the "
+                f"{VIEWPORT_H}px canvas height."
+            ),
+            source_probe_id="geom_canvas_clip",
+        ))
 
     # ── All text for this slide ──
     all_text = " ".join(
@@ -2155,8 +3737,15 @@ def run_deterministic_checks(
             ))
 
     # 9. Column height mismatch — detect side-by-side panels with mismatched bottom edges
-    left_cols = [b for b in blocks if b.bbox_px[0] < 200 and 300 < b.bbox_px[2] < 900 and b.bbox_px[3] > 150]
-    right_cols = [b for b in blocks if b.bbox_px[0] > 500 and 200 < b.bbox_px[2] < 700 and b.bbox_px[3] > 150]
+    # NOTE: This deterministic check has limited accuracy for complex grid layouts.
+    # The VLM-based B09 probe is the primary detector for density/whitespace issues.
+    # This check catches only the clearest cases (narrow sidebars vs main content).
+    content_blocks = [b for b in blocks
+                      if not (b.bbox_px[2] > 1200 and b.bbox_px[3] > 650)
+                      and not (b.bbox_px[2] > 1000 and b.bbox_px[3] > 500)
+                      and b.bbox_px[3] > 50]
+    left_cols = [b for b in content_blocks if b.bbox_px[0] < 100 and 150 < b.bbox_px[2] < 500 and b.bbox_px[3] > 150]
+    right_cols = [b for b in content_blocks if b.bbox_px[0] > 500 and 150 < b.bbox_px[2] < 700 and b.bbox_px[3] > 150]
     if left_cols and right_cols:
         left_bottom = max(b.bbox_px[1] + b.bbox_px[3] for b in left_cols)
         right_bottom = max(b.bbox_px[1] + b.bbox_px[3] for b in right_cols)
@@ -2184,41 +3773,93 @@ def run_deterministic_checks(
                 ),
             ))
 
+    # 10. Bottom whitespace gap — detect when content ends far above footer
+    # This catches the common post-repair pattern: overflow fixed but content
+    # now only fills 60-70% of vertical space.
+    if blocks:
+        # Filter out full-slide containers that cover everything
+        real_blocks = [b for b in blocks
+                       if not (b.bbox_px[2] > 1200 and b.bbox_px[3] > 650)]
+        # Find footer/takeaway bar (element near bottom with full width)
+        footer_blocks = [b for b in real_blocks if b.bbox_px[1] > 600 and b.bbox_px[2] > 800]
+        footer_top = min((b.bbox_px[1] for b in footer_blocks), default=720)
+
+        # Find bottom of main content (excluding footer itself)
+        content_blocks = [b for b in real_blocks if b.bbox_px[1] + b.bbox_px[3] < footer_top - 10]
+        if content_blocks:
+            content_bottom = max(b.bbox_px[1] + b.bbox_px[3] for b in content_blocks)
+            gap = footer_top - content_bottom
+            if gap > 100:
+                issues.append(Issue(
+                    issue_id=f"B9_slide{slide_id}_bottom_gap",
+                    rubric_id="B9",
+                    issue_type="density_imbalance",
+                    sub_type="sparse_content",
+                    severity=Severity.MAJOR if gap > 150 else Severity.MINOR,
+                    confidence=Confidence.HIGH,
+                    affected_slides=[slide_id],
+                    evidence=IssueEvidence(
+                        description=(
+                            f"Slide {slide_id}: content ends at y={content_bottom:.0f}px "
+                            f"but footer starts at y={footer_top:.0f}px — "
+                            f"{gap:.0f}px of empty space between content and footer. "
+                            f"Reduce body padding, increase element sizes, or add "
+                            f"spacing between rows to fill this gap."
+                        ),
+                    ),
+                    planned_fix=(
+                        f"Redistribute {gap:.0f}px of vertical space: reduce body "
+                        f"bottom-padding, increase figure/table height, widen row gaps, "
+                        f"or use justify-content:space-between on the body flex container."
+                    ),
+                ))
+
     return issues
 
 
-def _render_space_map(
+_SPACE_MAP_CONTAINER_TAGS = frozenset({"tr", "thead", "tbody", "table", "tfoot"})
+
+
+def _space_map_bbox_for_block(block) -> tuple[int, int, int, int]:
+    """Return the visual-content bbox used by coarse occupancy metrics."""
+    bbox = getattr(block, "bbox_px", (0, 0, 0, 0))
+    if getattr(block, "shape_type", "") == "picture":
+        content_bbox = getattr(block, "img_rendered_content_bbox_px", (0, 0, 0, 0))
+        if content_bbox and content_bbox[2] > 0 and content_bbox[3] > 0:
+            return content_bbox
+    return bbox
+
+
+def measure_space_occupancy(
     blocks: list,
     canvas_w: int = VIEWPORT_W,
     canvas_h: int = VIEWPORT_H,
     cols: int = 24,
     rows: int = 14,
-) -> str:
-    """Render an ASCII grid showing spatial occupancy.
-
-    Uses +/-/| grid format and #/. text symbols — research shows these
-    yield highest LLM spatial reasoning accuracy (Text2Space, Huang 2026;
-    Levental 2026).
-    """
+) -> dict:
+    """Return the shared structured occupancy measurement for a slide."""
     cell_w = canvas_w / cols
     cell_h = canvas_h / rows
 
     # Build occupancy grid — filter out containers that inflate coverage.
     # Two rules: (1) full-canvas wrappers, (2) wide row-like containers
     # (tr, thead, tbody, table) whose children are the real content.
-    _CONTAINER_TAGS = {"tr", "thead", "tbody", "table", "tfoot"}
     grid = [[False] * cols for _ in range(rows)]
-    sig_blocks = [
-        b for b in blocks
-        if b.bbox_px[2] > 20 and b.bbox_px[3] > 10  # min size in px
-        # Exclude full-canvas containers (both dimensions > 95% of canvas)
-        and not (b.bbox_px[2] / canvas_w > 0.95 and b.bbox_px[3] / canvas_h > 0.90)
+    sig_blocks = []
+    for block in blocks:
+        bx, by, bw, bh = _space_map_bbox_for_block(block)
+        if bw <= 20 or bh <= 10:
+            continue
+        # Exclude full-canvas containers (both dimensions > 95% of canvas).
+        if bw / canvas_w > 0.95 and bh / canvas_h > 0.90:
+            continue
         # Exclude wide row containers (table rows, etc.) — their children
-        # (td/th) are the real content and have narrower bboxes
-        and not (b.var_name in _CONTAINER_TAGS and b.bbox_px[2] / canvas_w > 0.80)
-    ]
-    for blk in sig_blocks:
-        bx, by, bw, bh = blk.bbox_px
+        # (td/th) are the real content and have narrower bboxes.
+        if block.var_name in _SPACE_MAP_CONTAINER_TAGS and bw / canvas_w > 0.80:
+            continue
+        sig_blocks.append((block, (bx, by, bw, bh)))
+
+    for _blk, (bx, by, bw, bh) in sig_blocks:
         for r in range(rows):
             ry = r * cell_h
             if by + bh <= ry or by >= ry + cell_h:
@@ -2233,9 +3874,6 @@ def _render_space_map(
     filled = sum(sum(row) for row in grid)
     total = rows * cols
     pct = round(100 * filled / total) if total else 0
-
-    # Render with +/-/| grid format and #/. symbols
-    lines = [f"\nSPACE MAP (each cell ~{int(cell_w)}x{int(cell_h)} px, # = content, . = empty):"]
 
     # Find empty rows for annotation
     empty_row_indices = set()
@@ -2260,6 +3898,60 @@ def _render_space_map(
         max_empty_start = cur_start
         max_empty_len = cur_len
 
+    mid_r, mid_c = rows // 2, cols // 2
+    quadrant_fill = {}
+    for qname, r_range, c_range in [
+        ("TL", range(0, mid_r), range(0, mid_c)),
+        ("TR", range(0, mid_r), range(mid_c, cols)),
+        ("BL", range(mid_r, rows), range(0, mid_c)),
+        ("BR", range(mid_r, rows), range(mid_c, cols)),
+    ]:
+        cells = sum(1 for r in r_range for c in c_range if grid[r][c])
+        total_q = len(r_range) * len(c_range)
+        quadrant_fill[qname] = round(100 * cells / max(1, total_q))
+
+    return {
+        "grid": grid,
+        "cols": cols,
+        "rows": rows,
+        "cell_w": cell_w,
+        "cell_h": cell_h,
+        "coverage_pct": pct,
+        "empty_row_indices": empty_row_indices,
+        "max_empty_start": max_empty_start,
+        "max_empty_len": max_empty_len,
+        "quadrant_fill": quadrant_fill,
+        "significant_block_count": len(sig_blocks),
+    }
+
+
+def _render_space_map(
+    blocks: list,
+    canvas_w: int = VIEWPORT_W,
+    canvas_h: int = VIEWPORT_H,
+    cols: int = 24,
+    rows: int = 14,
+) -> str:
+    """Render the shared occupancy measurement as an ASCII map."""
+    measurement = measure_space_occupancy(
+        blocks,
+        canvas_w=canvas_w,
+        canvas_h=canvas_h,
+        cols=cols,
+        rows=rows,
+    )
+    grid = measurement["grid"]
+    cell_w = measurement["cell_w"]
+    cell_h = measurement["cell_h"]
+    pct = measurement["coverage_pct"]
+    empty_row_indices = measurement["empty_row_indices"]
+    max_empty_start = measurement["max_empty_start"]
+    max_empty_len = measurement["max_empty_len"]
+
+    lines = [
+        f"\nSPACE MAP (each cell ~{int(cell_w)}x{int(cell_h)} px, "
+        "# = content, . = empty):"
+    ]
     top_border = "+" + "-" * cols + "+"
     bot_border = "+" + "-" * cols + "+"
     lines.append(top_border)
@@ -2286,7 +3978,11 @@ def _render_space_map(
         summary += f" | {where} of slide has no content."
 
     if pct < 65:
-        summary += f"\nContent occupies only {pct}% of canvas. Consider expanding elements to use available space."
+        summary += (
+            f"\nMeasured occupancy is {pct}% of the canvas. Low occupancy alone "
+            "does not imply a defect; interpret it against the slide role, "
+            "content hierarchy, and original visual issue."
+        )
 
     # Empty band warning: only when content exists ABOVE and BELOW the band
     # (genuine gap, not just bottom margin)
@@ -2299,33 +3995,24 @@ def _render_space_map(
             y_start = int(max_empty_start * cell_h)
             y_end = int((max_empty_start + max_empty_len) * cell_h)
             summary += (
-                f"\n⚠ EMPTY BAND: rows {max_empty_start}-"
+                f"\nMEASURED EMPTY BAND: rows {max_empty_start}-"
                 f"{max_empty_start + max_empty_len - 1} "
                 f"(y={y_start}-{y_end}px) are entirely unused between "
-                f"content areas. Consider redistributing elements vertically."
+                "content areas. This is spatial evidence, not a repair "
+                "instruction; intentional separation may be valid."
             )
 
-    # Quadrant fill ratios — always shown so the agent can judge balance.
-    mid_r, mid_c = rows // 2, cols // 2
-    quad_fills = {}
-    for qname, r_range, c_range in [
-        ("TL", range(0, mid_r),    range(0, mid_c)),
-        ("TR", range(0, mid_r),    range(mid_c, cols)),
-        ("BL", range(mid_r, rows), range(0, mid_c)),
-        ("BR", range(mid_r, rows), range(mid_c, cols)),
-    ]:
-        cells = sum(1 for r in r_range for c in c_range if grid[r][c])
-        total_q = len(r_range) * len(c_range)
-        quad_fills[qname] = round(100 * cells / max(1, total_q))
+    quad_fills = measurement["quadrant_fill"]
+    summary += "\nQuadrant fill: " + " | ".join(
+        f"{key}={value}%" for key, value in quad_fills.items()
+    )
 
-    summary += "\nQuadrant fill: " + " | ".join(f"{k}={v}%" for k, v in quad_fills.items())
-
-    # Extreme coverage warnings
+    # Extreme coverage remains a preservation check, not a composition verdict.
     if pct < 30:
         summary += (
-            f"\n🚨 CRITICAL LOW COVERAGE: {pct}% — the slide appears nearly "
-            f"empty. This is likely an overcorrection. Check whether "
-            f"content was accidentally deleted."
+            f"\nVERY LOW OCCUPANCY MEASUREMENT: {pct}%. Before treating this "
+            "as a layout problem, verify the slide role and confirm that no "
+            "required content was lost during repair."
         )
 
     lines.append(summary)
@@ -2341,7 +4028,11 @@ def _preview(blk) -> str:
     return (blk.var_name or blk.block_id) + sel
 
 
-def _extract_via_subprocess(slide_id: int, html_code: str) -> SlideState:
+def _extract_via_subprocess(
+    slide_id: int,
+    html_code: str,
+    svg_asset_issues: list[dict] | None = None,
+) -> SlideState:
     """Fallback: extract HTML spatial state via subprocess to avoid asyncio conflicts.
 
     Runs in a clean, isolated process — so it is correct even when the caller
@@ -2354,6 +4045,9 @@ def _extract_via_subprocess(slide_id: int, html_code: str) -> SlideState:
     import sys
 
     marker = _PAINTOVER_C3_SCAN_MARKER
+    svg_marker = _SVG_REGIONS_SCAN_MARKER
+    visible_text_marker = _VISIBLE_TEXT_SCAN_MARKER
+    viewport_marker = _VIEWPORT_EXCEEDANCE_SCAN_MARKER
 
     script = f'''
 import json, sys, os, re, tempfile
@@ -2366,8 +4060,8 @@ html = json.loads(sys.stdin.read())
 import subprocess as _sp
 def _render_katex(html_src):
     import re as _re
-    display_pat = _re.compile(r'\$\$(.+?)\$\$', _re.DOTALL)
-    inline_pat = _re.compile(r'(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)')
+    display_pat = _re.compile(r'\\$\\$(.+?)\\$\\$', _re.DOTALL)
+    inline_pat = _re.compile(r'(?<!\\$)\\$(?!\\$)(.+?)(?<!\\$)\\$(?!\\$)')
     formulas = []
     for m in display_pat.finditer(html_src):
         latex = m.group(1).strip()
@@ -2455,6 +4149,14 @@ try:
                 a: 1.0
             }};
         }}
+        function compositeBackgrounds(colors) {{
+            let result = {{r: 255, g: 255, b: 255, a: 1.0}};
+            for (let i = colors.length - 1; i >= 0; i--) {{
+                const color = colors[i];
+                if (color && color.a > 0) result = compositeAlpha(color, result);
+            }}
+            return result;
+        }}
         function luminance(c) {{
             const sRGB = [c.r/255, c.g/255, c.b/255];
             const lin = sRGB.map(v => v <= 0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4));
@@ -2470,17 +4172,16 @@ try:
             // returned by elementsFromPoint, so check table ancestors first.
             const tag = el.tagName.toLowerCase();
             if (tag === 'th' || tag === 'td') {{
+                const tableBackgrounds = [];
                 let tableAnc = el.parentElement;
-                while (tableAnc && tableAnc !== document.body) {{
+                while (tableAnc && tableAnc !== document.documentElement) {{
                     const tTag = tableAnc.tagName.toLowerCase();
-                    if (tTag === 'tr' || tTag === 'thead' || tTag === 'tbody' || tTag === 'tfoot' || tTag === 'table') {{
-                        const s = window.getComputedStyle(tableAnc);
-                        const bg = s.backgroundColor;
-                        if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') return parseColor(bg);
-                    }}
-                    if (tTag === 'table') break;
+                    const s = window.getComputedStyle(tableAnc);
+                    const bg = s.backgroundColor;
+                    if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') tableBackgrounds.push(parseColor(bg));
                     tableAnc = tableAnc.parentElement;
                 }}
+                if (tableBackgrounds.length) return compositeBackgrounds(tableBackgrounds);
             }}
             const ownStyle = window.getComputedStyle(el);
             const ownBg = ownStyle.backgroundColor;
@@ -2488,18 +4189,17 @@ try:
                 const parsed = parseColor(ownBg);
                 if (parsed && parsed.a >= 1.0) return parsed;
                 if (parsed && parsed.a > 0 && parsed.a < 1.0) {{
-                    let parentBg = {{r: 255, g: 255, b: 255, a: 1.0}};
+                    const backgrounds = [parsed];
                     let pNode = el.parentElement;
                     while (pNode && pNode !== document.documentElement) {{
                         const ps = window.getComputedStyle(pNode);
                         const pbg = ps.backgroundColor;
                         if (pbg && pbg !== 'rgba(0, 0, 0, 0)' && pbg !== 'transparent') {{
-                            const pp = parseColor(pbg);
-                            if (pp && pp.a >= 1.0) {{ parentBg = pp; break; }}
+                            backgrounds.push(parseColor(pbg));
                         }}
                         pNode = pNode.parentElement;
                     }}
-                    return compositeAlpha(parsed, parentBg);
+                    return compositeBackgrounds(backgrounds);
                 }}
             }}
             const rect = el.getBoundingClientRect();
@@ -2509,21 +4209,25 @@ try:
                 const stack = document.elementsFromPoint(cx, cy);
                 const selfIdx = stack.indexOf(el);
                 const start = selfIdx >= 0 ? selfIdx + 1 : 0;
+                const backgrounds = [];
                 for (let i = start; i < stack.length; i++) {{
                     const node = stack[i];
                     if (node === document.documentElement) continue;
                     const s = window.getComputedStyle(node);
                     const bg = s.backgroundColor;
-                    if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') return parseColor(bg);
+                    if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') backgrounds.push(parseColor(bg));
                 }}
+                if (backgrounds.length) return compositeBackgrounds(backgrounds);
             }} catch(e) {{}}
             let node = el.parentElement;
+            const backgrounds = [];
             while (node && node !== document.documentElement) {{
                 const s = window.getComputedStyle(node);
                 const bg = s.backgroundColor;
-                if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') return parseColor(bg);
+                if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') backgrounds.push(parseColor(bg));
                 node = node.parentElement;
             }}
+            if (backgrounds.length) return compositeBackgrounds(backgrounds);
             return {{r: 255, g: 255, b: 255}};
         }}
         function countLines(el) {{
@@ -2715,14 +4419,26 @@ try:
             }}
             let imgBroken = false, imgSrc = '';
             let imgCropPct = 0;
+            let imgNaturalWidth = 0;
+            let imgNaturalHeight = 0;
+            let imgObjectFit = '';
+            let imgRenderedContentRect = {{x: 0, y: 0, width: 0, height: 0}};
+            let imgLetterboxTop = 0;
+            let imgLetterboxRight = 0;
+            let imgLetterboxBottom = 0;
+            let imgLetterboxLeft = 0;
             if (isImg) {{
                 imgSrc = el.src || el.getAttribute('src') || '';
                 imgBroken = el.complete && el.naturalWidth === 0 && imgSrc.length > 0;
+                imgObjectFit = style.objectFit || 'fill';
                 // object-fit crop detection (cover, none, scale-down)
+                // plus rendered bitmap rect for contain/scale-down letterbox.
                 if (el.naturalWidth > 0 && el.naturalHeight > 0) {{
                     const natW = el.naturalWidth, natH = el.naturalHeight;
+                    imgNaturalWidth = natW;
+                    imgNaturalHeight = natH;
                     const boxW = rect.width, boxH = rect.height;
-                    const fit = style.objectFit || 'fill';
+                    const fit = imgObjectFit;
                     if (fit === 'cover') {{
                         const natRatio = natW / natH;
                         const boxRatio = boxW / boxH;
@@ -2741,6 +4457,62 @@ try:
                         }}
                     }}
                     imgCropPct = Math.round(imgCropPct * 1000) / 1000;
+
+                    let contentW = boxW, contentH = boxH;
+                    if (fit === 'contain' || (fit === 'scale-down' && (natW > boxW || natH > boxH))) {{
+                        const scale = Math.min(boxW / natW, boxH / natH);
+                        contentW = natW * scale;
+                        contentH = natH * scale;
+                    }} else if (fit === 'scale-down') {{
+                        contentW = natW;
+                        contentH = natH;
+                    }} else if (fit === 'none') {{
+                        contentW = natW;
+                        contentH = natH;
+                    }}
+
+                    const visibleContentW = Math.min(boxW, contentW);
+                    const visibleContentH = Math.min(boxH, contentH);
+                    const freeX = Math.max(0, boxW - visibleContentW);
+                    const freeY = Math.max(0, boxH - visibleContentH);
+                    function objectPositionTokens(raw) {{
+                        const tokens = String(raw || '50% 50%').toLowerCase().trim().split(/\\s+/).filter(Boolean);
+                        let xToken = '', yToken = '';
+                        for (const token of tokens) {{
+                            if (token === 'left' || token === 'right') xToken = token;
+                            else if (token === 'top' || token === 'bottom') yToken = token;
+                            else if (!xToken) xToken = token;
+                            else if (!yToken) yToken = token;
+                        }}
+                        return [xToken || '50%', yToken || '50%'];
+                    }}
+                    function objectPositionOffset(token, free, startWord, endWord) {{
+                        if (token === startWord) return 0;
+                        if (token === endWord) return free;
+                        if (token === 'center') return free / 2;
+                        if (token.endsWith('%')) {{
+                            const pct = parseFloat(token);
+                            return Number.isFinite(pct) ? free * pct / 100 : free / 2;
+                        }}
+                        if (token.endsWith('px')) {{
+                            const px = parseFloat(token);
+                            return Number.isFinite(px) ? Math.max(0, Math.min(free, px)) : free / 2;
+                        }}
+                        return free / 2;
+                    }}
+                    const [posX, posY] = objectPositionTokens(style.objectPosition);
+                    const insetX = objectPositionOffset(posX, freeX, 'left', 'right');
+                    const insetY = objectPositionOffset(posY, freeY, 'top', 'bottom');
+                    imgRenderedContentRect = {{
+                        x: rect.x + insetX,
+                        y: rect.y + insetY,
+                        width: visibleContentW,
+                        height: visibleContentH,
+                    }};
+                    imgLetterboxLeft = Math.round(insetX);
+                    imgLetterboxTop = Math.round(insetY);
+                    imgLetterboxRight = Math.round(Math.max(0, boxW - insetX - visibleContentW));
+                    imgLetterboxBottom = Math.round(Math.max(0, boxH - insetY - visibleContentH));
                 }}
             }}
             const zIndex = parseInt(style.zIndex) || 0;
@@ -2760,6 +4532,14 @@ try:
                     vBottom = Math.max(vBottom, cr.bottom);
                 }}
             }}
+            // Descendant pixels outside an overflow-hidden element are not
+            // visible. Clip the aggregate bounds to the element viewport.
+            if (hasHidden) {{
+                vLeft = Math.max(vLeft, rect.x);
+                vTop = Math.max(vTop, rect.y);
+                vRight = Math.min(vRight, rect.right);
+                vBottom = Math.min(vBottom, rect.bottom);
+            }}
             // Ancestor clipping: check if this element is visually clipped
             // by any ancestor with overflow:hidden/scroll/auto OR by any
             // positioned ancestor with explicit fixed height
@@ -2776,6 +4556,12 @@ try:
                 const isVisualBoundary = hasOverflowProp || (isPositioned && hasExplicitH);
                 if (isVisualBoundary) {{
                     const aRect = ancestor.getBoundingClientRect();
+                    if (hasOverflowProp) {{
+                        vLeft = Math.max(vLeft, aRect.x);
+                        vTop = Math.max(vTop, aRect.y);
+                        vRight = Math.min(vRight, aRect.right);
+                        vBottom = Math.min(vBottom, aRect.bottom);
+                    }}
                     const clipB = Math.max(0, rect.bottom - aRect.bottom);
                     const clipR = Math.max(0, rect.right - aRect.right);
                     if (clipB > 2) ancestorClipBottom = Math.max(ancestorClipBottom, Math.round(clipB));
@@ -2788,12 +4574,27 @@ try:
             let pathEl = el;
             while (pathEl && pathEl !== document.body) {{
                 const pTag = pathEl.tagName.toLowerCase();
-                const pIdx = Array.from(pathEl.parentElement?.children || []).indexOf(pathEl);
-                domPath.unshift(pTag + '[' + pIdx + ']');
+                const sameTagSiblings = Array.from(
+                    pathEl.parentElement?.children || []
+                ).filter(sibling => sibling.tagName === pathEl.tagName);
+                const pIdx = sameTagSiblings.indexOf(pathEl);
+                const svgGeometryAttrs = [
+                    'x', 'y', 'cx', 'cy', 'r', 'rx', 'ry',
+                    'width', 'height'
+                ].filter(name => pathEl.hasAttribute?.(name))
+                 .map(name => name + '=' + pathEl.getAttribute(name));
+                let pathSegment = pTag + '[' + pIdx + ']';
+                if (pathEl.id) {{
+                    pathSegment = pTag + '#' + pathEl.id;
+                }} else if (pathEl.namespaceURI?.includes('/svg') && svgGeometryAttrs.length) {{
+                    pathSegment = pTag + '[' + svgGeometryAttrs.join(',') + ']';
+                }}
+                domPath.unshift(pathSegment);
                 pathEl = pathEl.parentElement;
             }}
             results.push({{
-                tag, shapeType, text: directText.substring(0, 500),
+                tag, id: el.id || '', classes: el.className || '',
+                shapeType, text: directText.substring(0, 500),
                 fullText: el.innerText ? el.innerText.substring(0, 1000) : '',
                 bbox: {{x: rect.x, y: rect.y, width: rect.width, height: rect.height}},
                 visualRect: {{x: vLeft, y: vTop, width: vRight - vLeft, height: vBottom - vTop}},
@@ -2804,14 +4605,20 @@ try:
                 contrastRatio: contrastVal, fgColor, bgColor,
                 renderedLines: lineCount,
                 isImg, imgBroken, imgSrc, imgCropPct,
+                imgNaturalWidth, imgNaturalHeight, imgObjectFit,
+                imgRenderedContentRect,
+                imgLetterboxTop, imgLetterboxRight, imgLetterboxBottom, imgLetterboxLeft,
                 isEllipsized, hasClipPath, effectiveFontSize,
                 zIndex,
                 domPath: domPath.join('/'),
                 styledHeight, isFilled, styledOverflow,
             }});
         }}
+        {viewport_marker}
         {marker}
-        return results;
+        {svg_marker}
+        {visible_text_marker}
+        return {{elements: results, viewportExceedances: exceedances, svgRegions, visibleTextRuns}};
     }}""")
 finally:
     os.unlink(tmp_path)
@@ -2825,6 +4632,12 @@ print(json.dumps(elements))
     # via str.replace AFTER the f-string is built so the scan's single braces are
     # not mis-parsed as f-string fields.
     script = script.replace(_PAINTOVER_C3_SCAN_MARKER, _PAINTOVER_C3_SCAN_JS)
+    script = script.replace(_SVG_REGIONS_SCAN_MARKER, _SVG_REGIONS_SCAN_JS)
+    script = script.replace(_VISIBLE_TEXT_SCAN_MARKER, _VISIBLE_TEXT_SCAN_JS)
+    script = script.replace(
+        _VIEWPORT_EXCEEDANCE_SCAN_MARKER,
+        _VIEWPORT_EXCEEDANCE_SCAN_JS,
+    )
 
     try:
         result = subprocess.run(
@@ -2834,18 +4647,44 @@ print(json.dumps(elements))
         )
         if result.returncode != 0:
             logger.error("Subprocess extraction failed: %s", result.stderr[-300:])
-            return SlideState(slide_id=slide_id)
+            return SlideState(
+                slide_id=slide_id,
+                svg_asset_issues=svg_asset_issues or [],
+            )
 
-        elements = json.loads(result.stdout)
+        extracted = json.loads(result.stdout)
     except Exception as e:
         logger.error("Subprocess extraction error: %s", e)
-        return SlideState(slide_id=slide_id)
+        return SlideState(
+            slide_id=slide_id,
+            svg_asset_issues=svg_asset_issues or [],
+        )
 
     # Build state from elements (same logic as main path)
-    return _build_state_from_elements(slide_id, elements)
+    if isinstance(extracted, dict):
+        return _build_state_from_elements(
+            slide_id,
+            extracted.get("elements", []),
+            viewport_exceedances=extracted.get("viewportExceedances", []),
+            svg_regions=extracted.get("svgRegions", []),
+            svg_asset_issues=svg_asset_issues or [],
+            visible_text_runs=extracted.get("visibleTextRuns", []),
+        )
+    return _build_state_from_elements(
+        slide_id,
+        extracted,
+        svg_asset_issues=svg_asset_issues or [],
+    )
 
 
-def _build_state_from_elements(slide_id: int, elements: list[dict], viewport_exceedances: list[dict] | None = None) -> SlideState:
+def _build_state_from_elements(
+    slide_id: int,
+    elements: list[dict],
+    viewport_exceedances: list[dict] | None = None,
+    svg_regions: list[dict] | None = None,
+    svg_asset_issues: list[dict] | None = None,
+    visible_text_runs: list[str] | None = None,
+) -> SlideState:
     """Build SlideState from extracted DOM elements.
 
     Uses Playwright-provided data directly — no char-based estimation.
@@ -2870,6 +4709,13 @@ def _build_state_from_elements(slide_id: int, elements: list[dict], viewport_exc
         # Raw px bbox
         bb = el["bbox"]
         bbox_px = (round(bb["x"]), round(bb["y"]), round(bb["width"]), round(bb["height"]))
+        img_content_rect = el.get("imgRenderedContentRect") or {}
+        img_rendered_content_bbox_px = (
+            round(img_content_rect.get("x", 0)),
+            round(img_content_rect.get("y", 0)),
+            round(img_content_rect.get("width", 0)),
+            round(img_content_rect.get("height", 0)),
+        )
 
         # Playwright overflow data — accurate, from rendering engine
         is_overflowing = el.get("isOverflowing", False)
@@ -2893,6 +4739,9 @@ def _build_state_from_elements(slide_id: int, elements: list[dict], viewport_exc
             var_name=el.get("tag", "div"),
             shape_type=el.get("shapeType", "textbox"),
             css_selector=css_sel,
+            css_classes=tuple(sorted({
+                item.lower() for item in el_classes.split() if item
+            })) if isinstance(el_classes, str) else (),
             x=round(x, 2), y=round(y, 2),
             w=round(w, 2), h=round(h, 2),
             text_chars=own_text_chars,
@@ -2917,6 +4766,14 @@ def _build_state_from_elements(slide_id: int, elements: list[dict], viewport_exc
             img_broken=el.get("imgBroken", False),
             img_src=el.get("imgSrc", ""),
             img_crop_pct=el.get("imgCropPct", 0.0),
+            img_natural_w_px=round(el.get("imgNaturalWidth", 0)),
+            img_natural_h_px=round(el.get("imgNaturalHeight", 0)),
+            img_object_fit=el.get("imgObjectFit", ""),
+            img_rendered_content_bbox_px=img_rendered_content_bbox_px,
+            img_letterbox_top_px=round(el.get("imgLetterboxTop", 0)),
+            img_letterbox_right_px=round(el.get("imgLetterboxRight", 0)),
+            img_letterbox_bottom_px=round(el.get("imgLetterboxBottom", 0)),
+            img_letterbox_left_px=round(el.get("imgLetterboxLeft", 0)),
             # z-index
             z_index=el.get("zIndex", 0),
             # Raw px data for agent
@@ -2925,6 +4782,7 @@ def _build_state_from_elements(slide_id: int, elements: list[dict], viewport_exc
             client_h_px=el.get("clientHeight", 0),
             scroll_w_px=el.get("scrollWidth", 0),
             scroll_h_px=el.get("scrollHeight", 0),
+            true_scroll_h_px=el.get("trueScrollHeight", 0),
             font_size_px=round(font_px, 1),
             # Blind-spot detection
             is_ellipsized=el.get("isEllipsized", False),
@@ -3050,10 +4908,13 @@ def _build_state_from_elements(slide_id: int, elements: list[dict], viewport_exc
         coord_overlap_pairs=overlap_pairs,
         overflow_blocks=overflow_blocks,
         oob_blocks=oob_blocks,
-        alignment_issues=_detect_alignment_issues(blocks),
         low_contrast_blocks=low_contrast_blocks,
         clipped_blocks=clipped_blocks,
         broken_images=broken_images,
         occlusion_pairs=occlusion_pairs,
         viewport_exceedances=unmatched_exceedances,
+        off_canvas_elements=list(viewport_exceedances or []),
+        svg_regions=svg_regions or [],
+        svg_asset_issues=svg_asset_issues or [],
+        visible_text_runs=visible_text_runs or [],
     )

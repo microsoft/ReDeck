@@ -1,4 +1,4 @@
-"""Generate publication-quality charts from structured viz_data using matplotlib."""
+"""Generate publication-quality charts from structured viz_data."""
 
 import logging
 import textwrap
@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 class ChartGenerator:
-    """Generate presentation-style charts from viz_data dictionaries."""
+    """Generate academic-style charts from viz_data dictionaries."""
 
     # Default theme colors matching slide design system
     DEFAULT_COLORS = [
@@ -36,15 +36,26 @@ class ChartGenerator:
             matplotlib.use("Agg")
             import matplotlib.pyplot as plt
         except ImportError:
-            logger.warning("matplotlib not available, skipping chart generation")
-            return None
+            logger.warning("matplotlib not available, using Pillow chart fallback")
+            return self._generate_chart_pillow(viz_data, output_path, theme_colors)
 
         chart_type = viz_data.get("chart_type", "column_clustered")
         categories = viz_data.get("categories", [])
         series_list = viz_data.get("series", [])
         title = viz_data.get("title", "")
 
-        if not categories or not series_list:
+        # Charts with their own data format bypass the categories/series check
+        if chart_type in ("heatmap", "flowchart"):
+            colors = theme_colors or self.DEFAULT_COLORS
+            if chart_type == "heatmap":
+                return self._draw_heatmap(viz_data, output_path, colors)
+            else:
+                return self._draw_flowchart(viz_data, output_path, colors)
+
+        # Scatter can use either points[] or series[] format
+        if chart_type == "scatter" and not series_list and viz_data.get("points"):
+            pass  # allow through — _draw_scatter handles points format
+        elif not categories or not series_list:
             logger.warning("viz_data missing categories or series")
             return None
 
@@ -58,10 +69,18 @@ class ChartGenerator:
         fig, ax = plt.subplots(figsize=(8, 4.5), dpi=200)
 
         try:
-            if chart_type == "flowchart":
-                # Flowchart uses different data format — nodes/edges instead of categories/series
+            if chart_type == "heatmap":
+                # Already handled above — should not reach here
+                plt.close(fig)
+                return self._draw_heatmap(viz_data, output_path, colors)
+            elif chart_type == "flowchart":
                 plt.close(fig)
                 return self._draw_flowchart(viz_data, output_path, colors)
+            elif chart_type == "radar":
+                plt.close(fig)
+                return self._draw_radar(viz_data, output_path, colors)
+            elif chart_type == "scatter":
+                self._draw_scatter(ax, viz_data, colors)
             elif chart_type in ("column_clustered", "column"):
                 self._draw_column(ax, categories, series_list, colors)
             elif chart_type in ("bar_clustered", "bar"):
@@ -119,6 +138,138 @@ class ChartGenerator:
         if abs_v >= 1:
             return f"{value:.2f}".rstrip("0").rstrip(".")
         return f"{value:.3f}".rstrip("0").rstrip(".")
+
+    def _generate_chart_pillow(
+        self,
+        viz_data: dict,
+        output_path: Path,
+        theme_colors: list[str] | None = None,
+    ) -> Path | None:
+        """Small dependency-free fallback for basic bar/column/line charts."""
+        try:
+            from PIL import Image, ImageColor, ImageDraw, ImageFont
+        except ImportError:
+            logger.warning("Pillow not available, cannot generate fallback chart")
+            return None
+
+        categories = [str(c) for c in viz_data.get("categories", [])]
+        series_list = viz_data.get("series", [])
+        if not categories or not series_list:
+            logger.warning("fallback chart missing categories or series")
+            return None
+
+        try:
+            parsed_series = []
+            for series in series_list:
+                values = [float(v) for v in series.get("values", [])]
+                if len(values) != len(categories):
+                    return None
+                parsed_series.append({"name": str(series.get("name", "")), "values": values})
+        except (TypeError, ValueError):
+            logger.warning("fallback chart has non-numeric values")
+            return None
+
+        colors = theme_colors or self.DEFAULT_COLORS
+
+        def color_at(index: int) -> tuple[int, int, int]:
+            try:
+                return ImageColor.getcolor(colors[index % len(colors)], "RGB")
+            except Exception:
+                return ImageColor.getcolor(self.DEFAULT_COLORS[index % len(self.DEFAULT_COLORS)], "RGB")
+
+        width, height = 1600, 900
+        margin_l, margin_t, margin_r, margin_b = 210, 100, 90, 150
+        plot_w = width - margin_l - margin_r
+        plot_h = height - margin_t - margin_b
+        img = Image.new("RGB", (width, height), "white")
+        draw = ImageDraw.Draw(img)
+        font = ImageFont.load_default()
+        title_font = ImageFont.load_default()
+
+        title = str(viz_data.get("title", "")).strip()
+        if title:
+            draw.text((margin_l, 34), title[:120], fill="#222222", font=title_font)
+
+        all_values = [v for series in parsed_series for v in series["values"]]
+        min_val = min(0.0, min(all_values))
+        max_val = max(0.0, max(all_values))
+        if max_val == min_val:
+            max_val = min_val + 1.0
+
+        def x_for(value: float) -> int:
+            return int(margin_l + (value - min_val) / (max_val - min_val) * plot_w)
+
+        def y_for(value: float) -> int:
+            return int(margin_t + plot_h - (value - min_val) / (max_val - min_val) * plot_h)
+
+        axis = "#263238"
+        grid = "#e3e8ee"
+        text = "#263238"
+        chart_type = str(viz_data.get("chart_type", "column_clustered")).lower()
+
+        for i in range(6):
+            frac = i / 5
+            y = int(margin_t + plot_h * (1 - frac))
+            value = min_val + frac * (max_val - min_val)
+            draw.line([(margin_l, y), (margin_l + plot_w, y)], fill=grid, width=1)
+            draw.text((20, y - 7), self._smart_format(value), fill=text, font=font)
+        draw.line([(margin_l, margin_t), (margin_l, margin_t + plot_h)], fill=axis, width=2)
+        draw.line([(margin_l, margin_t + plot_h), (margin_l + plot_w, margin_t + plot_h)], fill=axis, width=2)
+
+        if chart_type in {"bar", "bar_clustered"}:
+            group_h = plot_h / max(1, len(categories))
+            bar_h = max(8, min(42, group_h * 0.68 / max(1, len(parsed_series))))
+            zero_x = x_for(0)
+            for cat_idx, category in enumerate(categories):
+                group_y = margin_t + cat_idx * group_h
+                draw.text((12, int(group_y + group_h / 2 - 7)), self._wrap_label(category, 24), fill=text, font=font)
+                for series_idx, series in enumerate(parsed_series):
+                    value = series["values"][cat_idx]
+                    y = int(group_y + group_h * 0.16 + series_idx * (bar_h + 4))
+                    x0, x1 = sorted((zero_x, x_for(value)))
+                    draw.rectangle([x0, y, x1, int(y + bar_h)], fill=color_at(series_idx))
+                    draw.text((x1 + 8, y - 1), self._smart_format(value), fill=text, font=font)
+        elif chart_type == "line":
+            step = plot_w / max(1, len(categories) - 1)
+            for series_idx, series in enumerate(parsed_series):
+                points = [
+                    (int(margin_l + cat_idx * step), y_for(value))
+                    for cat_idx, value in enumerate(series["values"])
+                ]
+                if len(points) >= 2:
+                    draw.line(points, fill=color_at(series_idx), width=4)
+                for x, y in points:
+                    draw.ellipse([x - 5, y - 5, x + 5, y + 5], fill=color_at(series_idx), outline="white")
+            for cat_idx, category in enumerate(categories):
+                x = int(margin_l + cat_idx * step)
+                draw.text((x - 28, margin_t + plot_h + 18), self._wrap_label(category, 12), fill=text, font=font)
+        else:
+            group_w = plot_w / max(1, len(categories))
+            bar_w = max(10, min(54, group_w * 0.68 / max(1, len(parsed_series))))
+            zero_y = y_for(0)
+            for cat_idx, category in enumerate(categories):
+                group_x = margin_l + cat_idx * group_w
+                for series_idx, series in enumerate(parsed_series):
+                    value = series["values"][cat_idx]
+                    x = int(group_x + group_w * 0.16 + series_idx * (bar_w + 4))
+                    y = y_for(value)
+                    y0, y1 = sorted((zero_y, y))
+                    draw.rectangle([x, y0, int(x + bar_w), y1], fill=color_at(series_idx))
+                    draw.text((x, min(y0, y1) - 16), self._smart_format(value), fill=text, font=font)
+                draw.text((int(group_x + 4), margin_t + plot_h + 18), self._wrap_label(category, 12), fill=text, font=font)
+
+        legend_x = margin_l
+        legend_y = height - 48
+        for idx, series in enumerate(parsed_series[:6]):
+            draw.rectangle([legend_x, legend_y, legend_x + 18, legend_y + 18], fill=color_at(idx))
+            draw.text((legend_x + 26, legend_y + 2), series["name"][:28], fill=text, font=font)
+            legend_x += 190
+
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        img.save(output_path)
+        logger.info("Fallback chart saved: %s", output_path)
+        return output_path
 
     # ------------------------------------------------------------------
     # Column chart
@@ -259,6 +410,191 @@ class ChartGenerator:
             startangle=90, wedgeprops=wedgeprops, textprops={"fontsize": 10},
         )
         ax.set_aspect("equal")
+
+    # ------------------------------------------------------------------
+    # Heatmap
+    # ------------------------------------------------------------------
+
+    def _draw_heatmap(
+        self, viz_data: dict, output_path: Path, colors: list[str],
+    ) -> Path | None:
+        """Render a heatmap (confusion matrix, attention matrix, correlation).
+
+        viz_data keys:
+          - matrix: list[list[float]]
+          - row_labels: list[str]
+          - col_labels: list[str]
+          - colormap: str (default "Blues")
+          - title: str (optional)
+          - annotate: bool (default True) — show values in cells
+          - fmt: str (default ".2f") — number format for annotations
+        """
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            import numpy as np
+        except ImportError:
+            return None
+
+        matrix = viz_data.get("matrix", [])
+        if not matrix:
+            logger.warning("Heatmap has no matrix data")
+            return None
+
+        data = np.array(matrix, dtype=float)
+        row_labels = viz_data.get("row_labels", [f"R{i}" for i in range(data.shape[0])])
+        col_labels = viz_data.get("col_labels", [f"C{i}" for i in range(data.shape[1])])
+        colormap = viz_data.get("colormap", "Blues")
+        title = viz_data.get("title", "")
+        annotate = viz_data.get("annotate", True)
+        fmt = viz_data.get("fmt", ".2f")
+
+        # Dynamic figure size based on matrix dimensions
+        n_rows, n_cols = data.shape
+        fig_w = max(6, min(12, 1.2 * n_cols + 2))
+        fig_h = max(4, min(9, 0.8 * n_rows + 2))
+        fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=200)
+
+        im = ax.imshow(data, cmap=colormap, aspect="auto")
+        fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
+
+        # Tick labels
+        ax.set_xticks(np.arange(n_cols))
+        ax.set_yticks(np.arange(n_rows))
+        wrapped_cols = [self._wrap_label(str(c), max_chars=14) for c in col_labels]
+        wrapped_rows = [self._wrap_label(str(r), max_chars=18) for r in row_labels]
+        ax.set_xticklabels(wrapped_cols, fontsize=9, rotation=45, ha="right")
+        ax.set_yticklabels(wrapped_rows, fontsize=9)
+
+        # Cell annotations
+        if annotate and n_rows * n_cols <= 200:
+            thresh = (data.max() + data.min()) / 2
+            for i in range(n_rows):
+                for j in range(n_cols):
+                    val = data[i, j]
+                    color = "white" if val > thresh else "black"
+                    ax.text(j, i, format(val, fmt), ha="center", va="center",
+                            fontsize=8, color=color)
+
+        if title:
+            ax.set_title(title, fontsize=14, fontweight="600", pad=12)
+
+        fig.tight_layout()
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(str(output_path), bbox_inches="tight", facecolor="white")
+        plt.close(fig)
+        logger.info(f"Heatmap saved: {output_path}")
+        return output_path
+
+    # ------------------------------------------------------------------
+    # Radar chart
+    # ------------------------------------------------------------------
+
+    def _draw_radar(
+        self, viz_data: dict, output_path: Path, colors: list[str],
+    ) -> Path | None:
+        """Render a radar/spider chart for multi-dimensional comparison.
+
+        viz_data keys:
+          - categories: list[str] — dimension names
+          - series: list[{name, values}] — one polygon per series
+          - title: str (optional)
+        """
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            import numpy as np
+        except ImportError:
+            return None
+
+        categories = viz_data.get("categories", [])
+        series_list = viz_data.get("series", [])
+        title = viz_data.get("title", "")
+
+        if not categories or not series_list:
+            logger.warning("Radar chart missing categories or series")
+            return None
+
+        n = len(categories)
+        angles = np.linspace(0, 2 * np.pi, n, endpoint=False).tolist()
+        angles += angles[:1]  # close the polygon
+
+        fig, ax = plt.subplots(figsize=(6, 6), dpi=200, subplot_kw=dict(polar=True))
+
+        for i, s in enumerate(series_list):
+            values = s["values"]
+            values_closed = values + values[:1]
+            color = colors[i % len(colors)]
+            ax.fill(angles, values_closed, alpha=0.15, color=color)
+            ax.plot(angles, values_closed, "o-", linewidth=2, markersize=5,
+                    color=color, label=s.get("name", ""))
+
+        ax.set_xticks(angles[:-1])
+        ax.set_xticklabels([self._wrap_label(c, 12) for c in categories], fontsize=10)
+        ax.set_yticklabels([])  # hide radial tick labels for cleanliness
+
+        if len(series_list) > 1:
+            ax.legend(loc="upper right", bbox_to_anchor=(1.3, 1.1), fontsize=9, framealpha=0.9)
+
+        if title:
+            ax.set_title(title, fontsize=14, fontweight="600", pad=20)
+
+        fig.tight_layout()
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(str(output_path), bbox_inches="tight", facecolor="white")
+        plt.close(fig)
+        logger.info(f"Radar chart saved: {output_path}")
+        return output_path
+
+    # ------------------------------------------------------------------
+    # Scatter chart
+    # ------------------------------------------------------------------
+
+    def _draw_scatter(self, ax, viz_data: dict, colors: list[str]):
+        """Render a scatter plot (accuracy vs efficiency, etc.).
+
+        viz_data keys:
+          - points: list[{x, y, label, highlight?, size?}]
+          - x_label, y_label: str
+          - title: str (optional)
+          - series: list[{name, values_x, values_y}] (alt format for grouped)
+        """
+        points = viz_data.get("points", [])
+        series_list = viz_data.get("series", [])
+
+        if series_list:
+            # Grouped scatter: each series is a set of points
+            for i, s in enumerate(series_list):
+                color = colors[i % len(colors)]
+                xs = s.get("values_x", [])
+                ys = s.get("values_y", [])
+                ax.scatter(xs, ys, s=60, color=color, label=s.get("name", ""),
+                           edgecolors="white", linewidth=0.5, zorder=3)
+            if len(series_list) > 1:
+                ax.legend(fontsize=9, framealpha=0.9)
+        elif points:
+            xs = [p["x"] for p in points]
+            ys = [p["y"] for p in points]
+            highlights = [p.get("highlight", False) for p in points]
+            sizes = [p.get("size", 60) for p in points]
+            point_colors = [colors[1] if h else colors[0] for h in highlights]
+
+            ax.scatter(xs, ys, s=sizes, c=point_colors,
+                       edgecolors="white", linewidth=0.5, zorder=3)
+
+            # Label points
+            for p in points:
+                label = p.get("label", "")
+                if label:
+                    ax.annotate(label, (p["x"], p["y"]),
+                                textcoords="offset points", xytext=(6, 6),
+                                fontsize=8, color="#333333")
+
+        ax.grid(True, alpha=0.3)
 
     # ------------------------------------------------------------------
     # Flowchart

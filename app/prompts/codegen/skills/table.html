@@ -1,0 +1,84 @@
+<!--
+  SKILL: Clean Data Table
+  Use when: presenting comparisons, benchmarks, multi-model results
+
+  KEY RULES:
+  - Table has subtle shadow for visual lift
+  - Colored header row (PRIMARY_DARK bg, white text)
+  - Light alternating rows for readability
+  - Highlight "our method" row with accent left-border + tinted bg
+  - Max 8 visible rows. If more data, show top-N with a note
+  - Column widths proportional to content (don't make all equal)
+  - Category group headers with light tint for table sections
+-->
+
+<style>
+  .data-table-wrap {
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+  }
+  .data-table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+  }
+  .data-table th {
+    background: PRIMARY_DARK; color: #fff; padding: 10px 14px;
+    text-align: left; font-weight: 600; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .data-table td {
+    padding: 9px 14px; border-bottom: 1px solid #eee; color: #333;
+  }
+  .data-table tr:nth-child(even) { background: #f8f9fa; }
+  .data-table tr.highlight {
+    background: rgba(ACCENT_RGB, 0.10);
+    border-left: 4px solid ACCENT;
+    font-weight: 600;
+  }
+  .data-table .best {
+    color: ACCENT; font-weight: 700;
+  }
+
+  /* Category group header row */
+  .data-table tr.group-header td {
+    background: rgba(PRIMARY_RGB, 0.06);
+    font-weight: 700;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: PRIMARY_MID;
+    padding: 7px 14px;
+    border-bottom: 2px solid rgba(PRIMARY_RGB, 0.12);
+  }
+
+  /* Rank badges for top results */
+  .rank-badge {
+    display: inline-block;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 22px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    margin-right: 6px;
+  }
+  .rank-1 { background: #d4a017; }
+  .rank-2 { background: #8a8a8a; }
+  .rank-3 { background: #b87333; }
+</style>
+
+<!--
+  PLACEMENT:
+  - Full-width: table takes 90-100% of content width inside .data-table-wrap
+  - Side-by-side: table takes 55-65% with annotations beside it
+  - Always wrap in .data-table-wrap for shadow and rounded corners
+
+  GROUP HEADERS (for multi-section tables):
+  <tr class="group-header"><td colspan="4">Non-LLM Methods</td></tr>
+  ... rows ...
+  <tr class="group-header"><td colspan="4">LLM-Based Methods</td></tr>
+
+  RANK BADGES (for top results):
+  <td><span class="rank-badge rank-1">1</span> Our Method</td>
+-->

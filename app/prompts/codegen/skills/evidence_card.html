@@ -1,0 +1,184 @@
+<!--
+  SKILL: Evidence Card
+  Use when: presenting a finding with supporting evidence on one side
+  and interpretation/context on the other
+
+  Pattern: Left 55% has a table, chart, or figure (the "evidence")
+  Right 45% has interpretation bullets or a key-finding box
+
+  DIFFERENT FROM annotated_figure:
+  - annotated_figure: figure with inline annotations/labels
+  - evidence_card: evidence (any visual) + separate interpretation panel
+
+  KEY RULES:
+  - Left side: the DATA (table, chart, or figure)
+  - Right side: the INTERPRETATION (what does this data mean?)
+  - Clear visual separation between evidence and interpretation
+  - Interpretation should be 3-5 short bullets or 1 key finding + context
+-->
+
+<style>
+  .evidence-layout {
+    position: absolute;
+    left: 50px;
+    right: 50px;
+    top: 95px;
+    bottom: 80px;
+    display: flex;
+    gap: 28px;
+  }
+
+  .evidence-left {
+    flex: 0 0 58%;
+    overflow: hidden;
+  }
+
+  .evidence-right {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* Key finding highlight box */
+  .finding-box {
+    background: PRIMARY_DARK;
+    border-radius: 12px;
+    padding: 18px 20px;
+    color: #fff;
+  }
+  .finding-box .kicker {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: rgba(255,255,255,0.7);
+    margin-bottom: 8px;
+  }
+  .finding-box .finding-value {
+    font-size: 36px;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .finding-box .finding-desc {
+    font-size: 13px;
+    line-height: 1.35;
+    opacity: 0.85;
+  }
+
+  /* Interpretation bullets */
+  .interpretation {
+    background: #f7f9fc;
+    border-radius: 12px;
+    padding: 18px 20px;
+    flex: 1;
+  }
+  .interpretation h4 {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: PRIMARY_MID;
+    margin-bottom: 12px;
+  }
+  .interpretation ul {
+    padding-left: 16px;
+    margin: 0;
+  }
+  .interpretation li {
+    font-size: 14px;
+    line-height: 1.5;
+    color: #2c3e50;
+    margin-bottom: 8px;
+  }
+  .interpretation li strong {
+    color: PRIMARY_DARK;
+  }
+
+  /* Evidence label */
+  .evidence-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #5a6b7d;
+    margin-bottom: 8px;
+  }
+
+  /* Simple evidence table */
+  .ev-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .ev-table th {
+    background: PRIMARY_DARK;
+    color: #fff;
+    padding: 8px 10px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: left;
+  }
+  .ev-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid #eef2f6;
+    color: #2c3e50;
+  }
+  .ev-table tr.highlight {
+    background: rgba(ACCENT_RGB, 0.08);
+    font-weight: 700;
+  }
+</style>
+
+<!--
+  USAGE — Table evidence + key finding + interpretation:
+
+  <div class="evidence-layout">
+    <div class="evidence-left">
+      <div class="evidence-label">Table 1 — Main results</div>
+      <table class="ev-table">
+        <tr><th>Model</th><th>F1</th><th>Accuracy</th></tr>
+        <tr><td>Distance-based G</td><td>0.6508</td><td>0.8225</td></tr>
+        <tr><td>KNN-based G</td><td>0.7156</td><td>0.8762</td></tr>
+        <tr><td>Graph Learner G</td><td>0.7351</td><td>0.9039</td></tr>
+        <tr class="highlight"><td>GPT-5 + Trans G</td><td>0.7907</td><td>0.9315</td></tr>
+      </table>
+    </div>
+
+    <div class="evidence-right">
+      <div class="finding-box">
+        <div class="kicker">Key finding</div>
+        <div class="finding-value">+7.6%</div>
+        <div class="finding-desc">Relative F1 improvement over best non-LLM baseline</div>
+      </div>
+
+      <div class="interpretation">
+        <h4>Interpretation</h4>
+        <ul>
+          <li>LLM refinement <strong>consistently outperforms</strong> all non-LLM methods</li>
+          <li>Gains scale with LLM capacity (7B → GPT-5)</li>
+          <li>Accuracy improvements parallel F1 gains</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  DESIGN RULES:
+  - Left side is always the "source of truth" (data)
+  - Right side is always the "so what?" (interpretation)
+  - Finding box: use for ONE standout number/metric
+  - Interpretation: 3-4 bullets max, short phrases
+  - Table in evidence: max 6 rows (summarize if more)
+
+  WHEN TO USE:
+  - Results slides where you need both data AND interpretation
+  - Method slides where you show an example + explain it
+  - Analysis slides where evidence leads to a conclusion
+
+  AVOID:
+  - Two tables (use the table skill for dense tables)
+  - All text on both sides (left should be visual/data)
+  - More than 1 finding-box (use stat_dashboard for multi-metric)
+-->

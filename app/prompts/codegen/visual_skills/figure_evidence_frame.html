@@ -1,0 +1,102 @@
+<!-- Local skill: choose one modifier that matches the Composition Variant; do not use every annotation pattern at once. -->
+<style>
+  .skill-figure-composition {
+    display: grid;
+    gap: 22px;
+    align-items: start;
+  }
+  .skill-figure-composition.sidecar {
+    grid-template-columns: minmax(0, 3fr) minmax(230px, 1fr);
+  }
+  .skill-figure-composition.hero-band,
+  .skill-figure-composition.center-stage,
+  .skill-figure-composition.strip-stack {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .skill-figure-composition.right-proof {
+    grid-template-columns: minmax(250px, .9fr) minmax(0, 1.45fr);
+  }
+  .skill-figure-stage {
+    min-width: 0;
+    border-top: 2px solid var(--secondary);
+    border-bottom: 1px solid color-mix(in srgb, var(--secondary) 35%, transparent);
+    padding: 10px 0;
+  }
+  .skill-figure-stage img {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 430px;
+    object-fit: contain;
+    object-position: center;
+  }
+  .hero-band .skill-figure-stage img,
+  .center-stage .skill-figure-stage img,
+  .strip-stack .skill-figure-stage img { max-height: 340px; }
+  .right-proof .skill-figure-stage img,
+  .sidecar .skill-figure-stage img { max-height: 400px; }
+  .skill-figure-keys {
+    display: grid;
+    align-content: start;
+    gap: 0;
+  }
+  .hero-band .skill-figure-keys,
+  .center-stage .skill-figure-keys,
+  .strip-stack .skill-figure-keys {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    border-top: 2px solid var(--primary);
+    padding-top: 10px;
+  }
+  .center-stage .skill-figure-copy,
+  .strip-stack .skill-figure-copy,
+  .hero-band .skill-figure-copy { font-size: 13px; line-height: 1.15; }
+  .right-proof .skill-figure-stage { grid-column: 2; grid-row: 1; }
+  .right-proof .skill-figure-keys { grid-column: 1; grid-row: 1; }
+  .skill-figure-key {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    gap: 10px;
+    padding: 11px 0;
+    border-top: 1px solid color-mix(in srgb, var(--secondary) 35%, transparent);
+  }
+  .hero-band .skill-figure-key,
+  .center-stage .skill-figure-key,
+  .strip-stack .skill-figure-key { border-top: 0; padding: 0; }
+  .sidecar .skill-figure-key:first-child,
+  .right-proof .skill-figure-key:first-child { border-top: 3px solid var(--primary); }
+  .skill-key-index {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: var(--canvas);
+    font-size: 13px;
+    font-weight: 800;
+  }
+  .skill-figure-key strong {
+    display: block;
+    margin-bottom: 3px;
+    color: var(--ink);
+    font-size: 17px;
+    line-height: 1.1;
+  }
+  .skill-figure-copy {
+    display: block;
+    margin: 0;
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.22;
+  }
+</style>
+<div class="skill-figure-composition {{sidecar_or_hero-band_or_center-stage_or_right-proof_or_strip-stack}}">
+  <figure class="skill-figure-stage">
+    <img src="{{exact_available_image_path}}" alt="{{supported_figure_description}}">
+  </figure>
+  <div class="skill-figure-keys">
+    <div class="skill-figure-key"><b class="skill-key-index">1</b><div><strong>{{visible_feature}}</strong><p class="skill-figure-copy">{{supported_interpretation}}</p></div></div>
+    <div class="skill-figure-key"><b class="skill-key-index">2</b><div><strong>{{visible_feature}}</strong><p class="skill-figure-copy">{{supported_interpretation}}</p></div></div>
+  </div>
+</div>

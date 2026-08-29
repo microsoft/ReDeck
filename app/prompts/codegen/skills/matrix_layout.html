@@ -1,0 +1,220 @@
+<!--
+  SKILL: Matrix / Multi-Panel Grid
+  Use when: arranging 4-9 visual items (heatmaps, small charts,
+  screenshots, or diagrams) in a regular 2×2, 2×3, or 3×3 grid
+
+  DIFFERENT FROM figure_gallery:
+  - figure_gallery: 2-4 images from the paper with panel labels
+  - matrix_layout: regular grid of GENERATED content (small multiples,
+    heatmaps, repeated chart patterns)
+
+  DIFFERENT FROM grid:
+  - grid: text-based card grid for bullet points
+  - matrix_layout: visual-heavy grid for small-multiple displays
+
+  KEY RULES:
+  - Regular grid (all cells same size)
+  - Row/column headers if the matrix has axes
+  - Consistent styling across all cells
+  - Shared legend or colorbar if applicable
+  - Max 3×3 (9 panels)
+-->
+
+<style>
+  .mx-container {
+    position: absolute;
+    left: 50px;
+    top: 100px;
+    width: 1180px;
+    height: 520px;
+  }
+
+  .mx-grid {
+    display: grid;
+    gap: 8px;
+    height: 100%;
+  }
+  .mx-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+  .mx-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+  .mx-cell {
+    background: #fafbfc;
+    border: 1px solid #e8ecf0;
+    border-radius: 8px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .mx-cell-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: PRIMARY_DARK;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+  .mx-cell-content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .mx-cell-content img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+  .mx-cell-caption {
+    font-size: 10px;
+    color: #8896a6;
+    margin-top: 4px;
+    text-align: center;
+  }
+
+  /* Row headers (left labels for matrix axes) */
+  .mx-row-header {
+    writing-mode: vertical-lr;
+    transform: rotate(180deg);
+    font-size: 12px;
+    font-weight: 700;
+    color: PRIMARY_MID;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 8px;
+  }
+
+  /* Column headers */
+  .mx-col-headers {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .mx-col-headers.cols-2 { grid-template-columns: 1fr 1fr; }
+  .mx-col-headers.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .mx-col-header {
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: PRIMARY_MID;
+    padding: 4px;
+  }
+
+  /* Interpretation panel (right side) */
+  .mx-interpret {
+    position: absolute;
+    right: 50px;
+    top: 110px;
+    width: 280px;
+  }
+  .mx-interpret-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: PRIMARY_MID;
+    margin-bottom: 12px;
+  }
+  .mx-interpret-text {
+    font-size: 13px;
+    line-height: 1.5;
+    color: #3a4a5c;
+    margin-bottom: 12px;
+  }
+  .mx-interpret-callout {
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: rgba(ACCENT_RGB, 0.05);
+    border-left: 3px solid ACCENT;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #2c3e50;
+  }
+</style>
+
+<!--
+  USAGE (2×3 grid with row/column structure):
+
+  When the matrix has both row and column axes:
+  <div class="mx-container" style="left:50px; width:850px;">
+    <div class="mx-col-headers cols-3" style="padding-left:40px;">
+      <div class="mx-col-header">t=1</div>
+      <div class="mx-col-header">t=3</div>
+      <div class="mx-col-header">t=6</div>
+    </div>
+    <div style="display:flex; height:calc(100% - 30px);">
+      <div class="mx-row-header">GPT-5</div>
+      <div class="mx-grid cols-3" style="flex:1;">
+        <div class="mx-cell">
+          <div class="mx-cell-content">
+            <!-- SVG heatmap, small chart, or img here -->
+          </div>
+        </div>
+        <!-- ... 5 more cells ... -->
+      </div>
+    </div>
+    <div style="display:flex;">
+      <div class="mx-row-header">Llama 3.2</div>
+      <div class="mx-grid cols-3" style="flex:1;">
+        <!-- ... 3 more cells ... -->
+      </div>
+    </div>
+  </div>
+
+  <div class="mx-interpret">
+    <div class="mx-interpret-title">Reading the grid</div>
+    <div class="mx-interpret-text">
+      Each panel shows node importance at a different time step.
+      Warmer colors indicate higher activation.
+    </div>
+    <div class="mx-interpret-callout">
+      GPT-5 shows stable, focused activations across time steps,
+      while smaller models show scattered patterns.
+    </div>
+  </div>
+
+  USAGE (simple 2×2 for screenshots or diagrams):
+  <div class="mx-container">
+    <div class="mx-grid cols-2">
+      <div class="mx-cell">
+        <div class="mx-cell-title">Before refinement</div>
+        <div class="mx-cell-content"><img src="..." /></div>
+      </div>
+      <div class="mx-cell">
+        <div class="mx-cell-title">After refinement</div>
+        <div class="mx-cell-content"><img src="..." /></div>
+      </div>
+      <div class="mx-cell">
+        <div class="mx-cell-title">Dense graph</div>
+        <div class="mx-cell-content"><img src="..." /></div>
+      </div>
+      <div class="mx-cell">
+        <div class="mx-cell-title">Sparse graph</div>
+        <div class="mx-cell-content"><img src="..." /></div>
+      </div>
+    </div>
+  </div>
+
+  DESIGN RULES:
+  - All cells SAME size (regular grid)
+  - Light background per cell (#fafbfc), thin border
+  - Optional row/column headers for matrix axes
+  - Max 3×3 grid (9 panels)
+  - If using with interpretation panel, shrink grid to ~65% width
+  - Content in cells: SVG, img, or simple HTML visualizations
+  - Consistent axis scales across all panels
+
+  WHEN TO USE:
+  - Small multiples: same chart across different conditions
+  - Heatmap grids: attention/importance across models × time
+  - Screenshot comparisons: before/after across examples
+  - Qualitative examples: model outputs side by side
+
+  AVOID:
+  - More than 9 panels (too small to read)
+  - Mixing different visualization types in cells
+  - Long text in cells (captions only)
+  - Unequal cell sizes (use figure_gallery instead)
+-->

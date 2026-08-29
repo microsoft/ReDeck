@@ -84,7 +84,9 @@ class SourceIndexer:
             figures_dir = source_dir / "extracted_from_pdf" / "images"
         if figures_dir.exists():
             for img_path in sorted(figures_dir.glob("*")):
-                if img_path.suffix.lower() in (".png", ".jpg", ".jpeg", ".gif", ".bmp"):
+                if img_path.suffix.lower() in (
+                    ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp",
+                ):
                     # Try to read metadata from JSON sidecar
                     sidecar_path = img_path.with_suffix(".json")
                     if sidecar_path.exists():

@@ -9,13 +9,26 @@ as additional checks.
 Output: probe_registry.json with ≥200 atomic checks total.
 """
 
+from __future__ import annotations
+
 import json
 import re
 import sys
 from pathlib import Path
 
 PROBES_DIR = Path(__file__).parent.parent / "app" / "prompts" / "probes"
-ISSUE_TYPES_PATH = Path(__file__).parent.parent / "app" / "schemas" / "issue_types.py"
+PLANNER_PROMPT_PATH = (
+    Path(__file__).parent.parent
+    / "app" / "prompts" / "evaluator" / "probe_planner.system.md"
+)
+
+FAMILY_CATALOG = (
+    ("A", "A · Narrative"),
+    ("B_visual", "B · Visual / Layout"),
+    ("C", "C · Completeness"),
+    ("D", "D · Correctness"),
+    ("E", "E · Fidelity"),
+)
 
 # Manually map probe_id → (issue_type, family, summary) from issue_types.py
 # to avoid importing the module (dependency issues)
@@ -43,7 +56,7 @@ PROBE_META = {
     "B14": ("form_redundancy", "B_visual", "Form redundancy — same info in chart AND bullets"),
     "B15": ("container_contract_breach", "B_visual", "Container contract breach — content overflows container"),
     "B16": ("text_wall", "B_visual", "Text wall — ≥7 ungrouped bullets, no structure"),
-    "B17": ("raw_figure", "B_visual", "Raw figure — paper figure embedded without adaptation"),
+    "B17": ("raw_figure", "B_visual", "Raw figure adaptation — source figure fails the slide-scale task"),
     "B18": ("color_semantic_mismatch", "B_visual", "Color semantic mismatch — colors imply wrong values"),
     "C01": ("missing_section", "C", "Required sections present — thematic area completely missing"),
     "C02": ("missing_point", "C", "Must-cover points — mandatory key points absent"),
@@ -63,34 +76,102 @@ PROBE_META = {
 }
 
 
+def _heading_sections(text: str, title: str) -> list[str]:
+    """Return Markdown sections whose heading starts with ``title``.
+
+    A section ends at the next heading of the same or higher level. This keeps
+    nested ``### Do not flag`` content out of a ``### Fail if`` section while
+    still supporting multiple ``## Fail if - subtype`` sections in one probe.
+    """
+    headings = list(re.finditer(r"^(#{2,6})\s+(.+?)\s*$", text, re.MULTILINE))
+    sections = []
+    wanted = title.lower()
+    for index, heading in enumerate(headings):
+        heading_text = heading.group(2).strip().lower()
+        if heading_text != wanted and not re.match(
+            rf"^{re.escape(wanted)}\s*(?:[-—:]|$)", heading_text,
+        ):
+            continue
+        level = len(heading.group(1))
+        end = len(text)
+        for next_heading in headings[index + 1:]:
+            if len(next_heading.group(1)) <= level:
+                end = next_heading.start()
+                break
+        sections.append(text[heading.end():end])
+    return sections
+
+
+def _numbered_items(section: str) -> list[str]:
+    """Parse numbered Markdown items, joining indented continuation lines."""
+    items = []
+    current: list[str] | None = None
+    for line in section.splitlines():
+        match = re.match(r"^\d+\.\s+(.+)$", line)
+        if match:
+            if current:
+                items.append(" ".join(current))
+            current = [match.group(1).strip()]
+            continue
+        if current and line[:1].isspace() and line.strip():
+            current.append(line.strip())
+            continue
+        if current:
+            items.append(" ".join(current))
+            current = None
+    if current:
+        items.append(" ".join(current))
+    return items
+
+
+def _severity_items(section: str) -> list[tuple[str, str]]:
+    """Parse severity bullets, joining indented continuation lines."""
+    items = []
+    current: tuple[str, list[str]] | None = None
+    for line in section.splitlines():
+        match = re.match(
+            r"^- (critical|major|minor)(?::| when| if)\s+(.+)$",
+            line,
+        )
+        if match:
+            if current:
+                items.append((current[0], " ".join(current[1])))
+            current = (match.group(1), [match.group(2).strip()])
+            continue
+        if current and line[:1].isspace() and line.strip():
+            current[1].append(line.strip())
+            continue
+        if current:
+            items.append((current[0], " ".join(current[1])))
+            current = None
+    if current:
+        items.append((current[0], " ".join(current[1])))
+    return items
+
+
 def parse_probe_md(path: Path) -> list[dict]:
     """Extract atomic checks from a probe .md file."""
     text = path.read_text(encoding="utf-8")
     checks = []
+    seen_fail_if = set()
 
-    # Extract "Fail if" section items
-    fail_match = re.search(
-        r'## Fail if\s*\n(.*?)(?=\n## |\Z)', text, re.DOTALL
-    )
-    if fail_match:
-        for m in re.finditer(r'^\d+\.\s+(.+)$', fail_match.group(1), re.MULTILINE):
-            checks.append({"text": m.group(1).strip(), "source": "fail_if"})
+    for section in _heading_sections(text, "Fail if"):
+        for check_text in _numbered_items(section):
+            if check_text in seen_fail_if:
+                continue
+            seen_fail_if.add(check_text)
+            checks.append({"text": check_text, "source": "fail_if"})
 
-    # Extract severity sub-levels that describe distinct defect conditions
-    sev_match = re.search(
-        r'## Severity\s*\n(.*?)(?=\n## |\Z)', text, re.DOTALL
-    )
-    if sev_match:
-        for m in re.finditer(
-            r'^- (critical|major|minor)(?::| when| if)\s+(.+)$',
-            sev_match.group(1), re.MULTILINE
-        ):
-            sev_text = m.group(2).strip()
-            # Only add if it describes a distinct condition not already in fail_if
-            if not any(sev_text.lower()[:30] in c["text"].lower() for c in checks):
+    # Extract severity sub-levels that describe distinct defect conditions.
+    for section in _heading_sections(text, "Severity"):
+        for severity, severity_text in _severity_items(section):
+            if not any(
+                severity_text.lower()[:30] in check["text"].lower()
+                for check in checks
+            ):
                 checks.append({
-                    "text": sev_text,
-                    "source": f"severity_{m.group(1)}",
+                    "text": severity_text,
+                    "source": f"severity_{severity}",
                 })
 
     return checks
@@ -133,6 +214,44 @@ def build_registry():
     return registry, total
 
 
+def _render_catalog(registry: dict) -> str:
+    """Render the planner catalog from the generated registry."""
+    lines = []
+    for family, label in FAMILY_CATALOG:
+        groups = [
+            (probe_id, info)
+            for probe_id, info in registry.items()
+            if info["family"] == family
+        ]
+        check_count = sum(len(info["checks"]) for _, info in groups)
+        lines.append(
+            f"#### {label} ({len(groups)} groups, {check_count} checks)"
+        )
+        lines.append("")
+        for probe_id, info in groups:
+            lines.append(f"**{probe_id}** {info['summary']}")
+            for check in info["checks"]:
+                lines.append(f"  {check['id']}  {check['text']}")
+            lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def update_planner_catalog(registry: dict, total: int) -> None:
+    """Keep the evaluator's embedded catalog synchronized with the registry."""
+    prompt = PLANNER_PROMPT_PATH.read_text(encoding="utf-8")
+    prompt = re.sub(
+        r"## Probe Library \(\d+ groups, \d+ atomic checks\)",
+        f"## Probe Library ({len(registry)} groups, {total} atomic checks)",
+        prompt,
+        count=1,
+    )
+    catalog_start = prompt.index("### Catalog")
+    tool_calls_start = prompt.index("\n---\n\n### Tool Calls", catalog_start)
+    replacement = f"### Catalog\n\n{_render_catalog(registry)}\n"
+    prompt = prompt[:catalog_start] + replacement + prompt[tool_calls_start:]
+    PLANNER_PROMPT_PATH.write_text(prompt, encoding="utf-8")
+
+
 def main():
     registry, total = build_registry()
 
@@ -158,6 +277,8 @@ def main():
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(registry, f, indent=2, ensure_ascii=False)
     print(f"\nWritten to: {out_path}")
+    update_planner_catalog(registry, total)
+    print(f"Updated planner catalog: {PLANNER_PROMPT_PATH}")
 
 
 if __name__ == "__main__":

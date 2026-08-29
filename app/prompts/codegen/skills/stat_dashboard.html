@@ -1,0 +1,142 @@
+<!--
+  SKILL: Statistics Dashboard
+  Use when: presenting multiple key metrics/results simultaneously
+  (results overview, dataset statistics, experimental setup numbers)
+
+  Pattern: 2×2 or 2×3 grid of metric blocks, each with a hero number,
+  label, and optional context line.
+
+  DIFFERENT FROM metric skill:
+  - metric: ONE hero number prominently placed
+  - stat_dashboard: 4-6 metrics in a balanced grid layout
+
+  KEY RULES:
+  - Each block: large number (36-48px) + label (12px uppercase) + context (13px)
+  - Grid layout: 2-3 columns, 2 rows
+  - Blocks use colored top-border ONLY — NO box-shadow, NO rounded card wrapper
+  - ONE block can be "featured" (accent border)
+  - Keep it flat — these are number displays, not card widgets
+-->
+
+<style>
+  .stat-grid {
+    position: absolute;
+    left: 60px;
+    top: 120px;
+    right: 60px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+  }
+
+  .stat-card {
+    background: #fff;
+    padding: 22px 20px;
+    text-align: center;
+    border-top: 3px solid rgba(PRIMARY_RGB, 0.3);
+  }
+
+  .stat-card.featured {
+    border-top: 3px solid ACCENT;
+  }
+
+  .stat-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: #5a6b7d;
+    margin-bottom: 8px;
+  }
+
+  .stat-value {
+    font-size: 42px;
+    font-weight: 800;
+    color: PRIMARY_DARK;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+
+  .stat-card.featured .stat-value {
+    color: ACCENT;
+  }
+
+  .stat-context {
+    font-size: 13px;
+    color: #5a6b7d;
+    line-height: 1.3;
+  }
+
+  /* Annotation below the grid */
+  .stat-annotation {
+    position: absolute;
+    left: 60px;
+    right: 60px;
+    bottom: 90px;
+    background: rgba(PRIMARY_RGB, 0.04);
+    border-left: 4px solid PRIMARY_DARK;
+    border-radius: 0 10px 10px 0;
+    padding: 16px 24px;
+    font-size: 14px;
+    line-height: 1.45;
+    color: #2c3e50;
+  }
+  .stat-annotation strong {
+    color: PRIMARY_DARK;
+  }
+</style>
+
+<!--
+  USAGE — 2×3 grid for dataset/results:
+
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-label">Dataset</div>
+      <div class="stat-value">5,612</div>
+      <div class="stat-context">EEG recordings in TUSZ v1.5.2</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Annotations</div>
+      <div class="stat-value">3,050</div>
+      <div class="stat-context">Seizure events across 19 channels</div>
+    </div>
+    <div class="stat-card featured">
+      <div class="stat-label">Best F1</div>
+      <div class="stat-value">0.7907</div>
+      <div class="stat-context">GPT-5 + Transformer G</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">LLMs Tested</div>
+      <div class="stat-value">7</div>
+      <div class="stat-context">Mistral 7B to GPT-5</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Baseline F1</div>
+      <div class="stat-value">0.7351</div>
+      <div class="stat-context">Generative Graph Learner G</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Improvement</div>
+      <div class="stat-value">+7.6%</div>
+      <div class="stat-context">Relative F1 gain over best non-LLM</div>
+    </div>
+  </div>
+
+  <div class="stat-annotation">
+    <strong>Key insight:</strong> LLM-based refinement consistently improves upon all non-LLM baselines,
+    with gains scaling from Mistral 7B (+1.5%) to GPT-5 (+7.6%).
+  </div>
+
+  DESIGN RULES:
+  - Max ONE featured card per grid (use for the headline result)
+  - Cards: colored top-border (4px), rounded (14px), subtle shadow
+  - Numbers: integers or 1-decimal (format for readability)
+  - Labels: 1-3 words, all uppercase
+  - Context: max 6 words
+  - Grid must be balanced (all cells filled)
+
+  AVOID:
+  - More than 6 cards (too dense, use a table instead)
+  - All cards featured (defeats emphasis)
+  - Mixing units inconsistently within a row
+-->

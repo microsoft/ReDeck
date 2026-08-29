@@ -8,7 +8,7 @@ tool-calling loop (plan → apply_edits → verify_layout → submit) to fix the
 Usage:
     python scripts/redeck_repair.py slide_01.html
     python scripts/redeck_repair.py --dir ./slides/ --output-dir ./repaired/
-    python scripts/redeck_repair.py slide.html --model gpt-4o
+    python scripts/redeck_repair.py slide.html --model gpt-5.4
 """
 import sys
 import re
@@ -213,12 +213,16 @@ def build_issues_from_state(state, slide_id: int) -> list[Issue]:
             desc += (f". A at ({ax},{ay},{aw}x{ah}), B at ({bx},{by},{bw}x{bh}). "
                      f"Overlap region: {ox}x{oy}px")
             if by < ay + ah:
-                fix = (f"Move {b_id} down by at least {int(ay + ah - by + 5)}px, or move {a_id} up. "
-                       f"If moving causes new overlaps with other elements, RESTRUCTURE: "
-                       f"delete the overlapping elements and replace with fewer, properly-spaced elements")
+                fix = (f"Use the overlap geometry as evidence, not as a fixed pixel command. "
+                       f"If this is an isolated collision, move the smaller/local element just enough "
+                       f"to create readable separation. If that move crowds another element, restructure "
+                       f"the shared parent region: preserve every visible string, reading order, and "
+                       f"element role while giving the affected items explicit tracks/gaps that fit.")
             else:
-                fix = (f"Move {a_id} up by at least {int(by - ay - ah + 5)}px to clear overlap. "
-                       f"If moving causes new overlaps, RESTRUCTURE the region instead")
+                fix = (f"Use the overlap geometry as evidence, not as a fixed pixel command. "
+                       f"If this is isolated, move the local element just enough to create readable "
+                       f"separation. If moving causes new overlaps, restructure the shared region while "
+                       f"preserving all visible strings, reading order, and element roles.")
         issues.append(Issue(
             issue_id=f"spatial_{idx}", rubric_id="B03", issue_type="overlap",
             severity=Severity.MAJOR, confidence=Confidence.HIGH,
@@ -250,9 +254,12 @@ def build_issues_from_state(state, slide_id: int) -> list[Issue]:
             desc += (f" — scrollHeight={blk.scroll_h_px}px vs "
                      f"clientHeight={blk.client_h_px}px, "
                      f"overflow={overflow_px}px vertical")
-            fix = (f"MUST increase container height by at least {overflow_px}px "
-                   f"OR reduce font-size by ~{max(1, overflow_px // 10)}px "
-                   f"to fit all text")
+            fix = (f"The {overflow_px}px overflow identifies the visible fit deficit; "
+                   f"do not treat it as a literal pixel recipe. If the element is "
+                   f"isolated, give its parent real visible space or rebalance nearby "
+                   f"tracks/padding. If several siblings in the same body/lower region "
+                   f"also overflow, use a regional/body reflow instead of repeatedly "
+                   f"shrinking fonts or hiding content.")
         issues.append(Issue(
             issue_id=f"spatial_{idx}", rubric_id="B04",
             issue_type="text_overflow", severity=Severity.MAJOR,
@@ -282,17 +289,24 @@ def build_issues_from_state(state, slide_id: int) -> list[Issue]:
             fixes = []
             if right_excess > 0:
                 desc += f". Right edge exceeds canvas by {right_excess}px"
-                fixes.append(f"move left by at least {right_excess}px OR reduce width by {right_excess}px")
+                fixes.append(
+                    "right edge is outside the canvas; if isolated, shift/rebalance "
+                    "the local region, otherwise reflow the owning grid/track"
+                )
             if bottom_excess > 0:
                 desc += f". Bottom edge exceeds canvas by {bottom_excess}px"
                 if by > 680:  # element starts very near bottom
                     fixes.append(
-                        f"element starts at y={by}px near canvas bottom (720px). "
-                        f"Shrink overall layout — reduce spacing/fonts above — "
-                        f"to shift all content up by at least {bottom_excess}px")
+                        f"element starts at y={by}px near the canvas bottom. This "
+                        f"usually indicates lower-region or body-track pressure; "
+                        f"change the owning region's layout rather than moving footer/source "
+                        f"chrome or globally shrinking text")
                 else:
-                    fixes.append(f"move up by at least {bottom_excess}px OR reduce height by {bottom_excess}px")
-            fix = "MUST " + " AND ".join(fixes) if fixes else fix
+                    fixes.append(
+                        "bottom edge is outside the canvas; if isolated, move the "
+                        "local region or rebalance its height, otherwise reflow siblings"
+                    )
+            fix = "Use the bbox overflow as evidence: " + " AND ".join(fixes) if fixes else fix
             if blk.css_selector:
                 fix += f". CSS selector: {blk.css_selector[:60]}"
         issues.append(Issue(
@@ -355,24 +369,25 @@ def build_issues_from_state(state, slide_id: int) -> list[Issue]:
                     and (b2.y + b2.h) * 96 > 680
                 )
                 fix = (f"Element near canvas bottom edge (y+h={elem_bottom_px:.0f}px). "
-                       f"The slide is 720px fixed — CANNOT increase parent height. ")
+                       f"The slide is 720px fixed, so solve the owning body region rather "
+                       f"than treating the canvas edge as spare space. ")
                 if other_near_bottom_clips > 0:
                     fix += (f"There are {other_near_bottom_clips + 1} elements clipped near "
-                            f"the bottom — the entire layout is too tall. Strategy: "
-                            f"(1) Reduce ALL section spacing/margins by 2-4px each, "
-                            f"(2) Reduce body text font-size by 1-2px throughout, "
-                            f"(3) Reduce padding in ALL containers by 2-4px. "
-                            f"These small cumulative reductions across the WHOLE slide "
-                            f"should free up ~{clip_px}px without deleting content. "
-                            f"Do NOT delete entire sections — that will trigger content loss rejection. ")
+                            f"the bottom. Treat this as shared lower/body pressure: "
+                            f"reflow the body cluster, regroup semantic units, or change "
+                            f"grid/flex tracks so each affected table/card/label has real "
+                            f"visible space. Typography and padding tightening may support "
+                            f"that reflow, but should not be the main repair. ")
                 else:
-                    fix += (f"MUST shrink overall layout: reduce font sizes, decrease spacing "
-                            f"between sections, or condense lower-priority content "
-                            f"to move everything up by at least {clip_px}px. ")
+                    fix += (f"If this is isolated, give the parent more real visible space "
+                            f"or rebalance its neighboring tracks. Avoid hiding content or "
+                            f"using overflow windows as the final repair. ")
                 fix += f"CSS selector: {blk.css_selector[:60] if blk.css_selector else 'unknown'}"
             else:
-                fix = (f"MUST increase parent container height by at least {clip_px}px "
-                       f"OR reduce content/font-size to fit. "
+                fix = (f"The {clip_px}px clip is evidence that the parent/track is too "
+                       f"tight. Give the content real visible space through local parent "
+                       f"geometry or sibling reflow; use font/padding reductions only as "
+                       f"supporting fit adjustments. "
                        f"CSS selector: {blk.css_selector[:60] if blk.css_selector else 'unknown'}")
         issues.append(Issue(
             issue_id=f"spatial_{idx}", rubric_id="B04",
@@ -437,10 +452,13 @@ def build_issues_from_state(state, slide_id: int) -> list[Issue]:
                 desc = (f"Element '{blk.block_id}' at canvas bottom edge has content "
                         f"truncated — {eff_int}px of scroll content below canvas "
                         f"(visible={int(visible_h)}px, scroll={int(scroll_h)}px)")
-            fix = (f"Element at y={int(by)}px with content extending ~{eff_int}px "
-                   f"below canvas. MUST move element up by at least {eff_int}px "
-                   f"OR reduce content/font size. "
-                   f"CSS selector: {blk.css_selector[:60] if blk.css_selector else 'unknown'}")
+            fix = (f"Element at y={int(by)}px has content extending below the "
+                   f"visible canvas. Use this as evidence of bottom-region fit "
+                   f"pressure, not as a literal move-up/shrink-font command. If "
+                   f"isolated, give this element/parent real visible space; if "
+                   f"other lower elements are also clipped or out of bounds, reflow "
+                   f"the owning body region so the semantic units fit without hidden "
+                   f"content. CSS selector: {blk.css_selector[:60] if blk.css_selector else 'unknown'}")
             issues.append(Issue(
                 issue_id=f"spatial_{idx}", rubric_id="B03",
                 issue_type="out_of_bounds", severity=Severity.MAJOR,
@@ -499,7 +517,7 @@ def main():
     parser.add_argument("files", nargs="*", help="HTML slide files to repair")
     parser.add_argument("--dir", help="Directory of slide_*.html files")
     parser.add_argument("--output-dir", "-o", help="Output directory (default: <input>_repaired)")
-    parser.add_argument("--model", default="gpt-4o", help="LLM model")
+    parser.add_argument("--model", default="gpt-5.4", help="LLM model")
     parser.add_argument("--screenshot", action="store_true", help="Render screenshots")
     args = parser.parse_args()
 

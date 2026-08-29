@@ -7,6 +7,7 @@ from ..schemas.common import RenderBackendType, Status
 from ..schemas.experiment_config import ExperimentConfig
 from ..schemas.render_result import RenderResult
 from ..render_backends.libreoffice_backend import LibreOfficePdfRenderBackend
+from ..render_backends.graph_pdf_backend import GraphPdfRenderBackend
 from ..utils.io_utils import write_json
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,8 @@ class RenderManager:
         for backend_type in {fast, ref}:
             if backend_type == RenderBackendType.LINUX_LO_PDF:
                 self.backends["linux_lo_pdf"] = LibreOfficePdfRenderBackend()
+            elif backend_type == RenderBackendType.GRAPH_PDF:
+                self.backends["graph_pdf"] = GraphPdfRenderBackend()
 
     def render_fast(
         self,

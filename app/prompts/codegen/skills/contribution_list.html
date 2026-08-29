@@ -1,0 +1,148 @@
+<!--
+  SKILL: Contribution List
+  Use when: presenting paper contributions, key features, or benefits
+  (typically on intro/context slides after stating the problem)
+
+  Pattern: Numbered colored boxes on the left with bold titles,
+  each with a short 1-line description.
+
+  KEY RULES:
+  - 3-5 contributions max
+  - Each has: colored number/icon box + bold title + brief description
+  - Optional: right-side summary or diagram
+  - Numbers in colored squares (not circles — differentiates from roadmap)
+-->
+
+<style>
+  .contributions {
+    position: absolute;
+    left: 60px;
+    top: 120px;
+    width: 620px;
+  }
+
+  .contrib-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+    margin-bottom: 22px;
+  }
+
+  .contrib-num {
+    flex-shrink: 0;
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    font-weight: 800;
+    color: #fff;
+  }
+
+  .contrib-item:nth-child(1) .contrib-num { background: PRIMARY_DARK; }
+  .contrib-item:nth-child(2) .contrib-num { background: PRIMARY_MID; }
+  .contrib-item:nth-child(3) .contrib-num { background: ACCENT; }
+  .contrib-item:nth-child(4) .contrib-num { background: PRIMARY_LIGHT; }
+  .contrib-item:nth-child(5) .contrib-num { background: #5a6b7d; }
+
+  .contrib-content {
+    flex: 1;
+    padding-top: 2px;
+  }
+
+  .contrib-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: PRIMARY_DARK;
+    margin-bottom: 4px;
+    line-height: 1.25;
+  }
+
+  .contrib-desc {
+    font-size: 14px;
+    line-height: 1.4;
+    color: #3a4a5c;
+  }
+
+  /* Right-side summary card */
+  .summary-card {
+    position: absolute;
+    right: 60px;
+    top: 130px;
+    width: 440px;
+    background: linear-gradient(145deg, PRIMARY_DARK 0%, #1a2a3a 100%);
+    border-radius: 16px;
+    padding: 26px;
+    color: #fff;
+  }
+  .summary-card h3 {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    color: #fff;
+  }
+  .summary-card li {
+    font-size: 14px;
+    line-height: 1.5;
+    margin-bottom: 8px;
+    opacity: 0.9;
+  }
+  .summary-card ul {
+    padding-left: 18px;
+    margin: 0;
+  }
+</style>
+
+<!--
+  LAYOUT A — Contributions left + Summary card right:
+
+  <div class="contributions">
+    <div class="contrib-item">
+      <div class="contrib-num">1</div>
+      <div class="contrib-content">
+        <div class="contrib-title">Novel LLM-based graph refinement framework</div>
+        <div class="contrib-desc">First to use LLMs as structural judges for EEG graph edges</div>
+      </div>
+    </div>
+    <div class="contrib-item">
+      <div class="contrib-num">2</div>
+      <div class="contrib-content">
+        <div class="contrib-title">Comprehensive LLM benchmark</div>
+        <div class="contrib-desc">Evaluate 5+ general-purpose LLMs as clinical graph structure refiners</div>
+      </div>
+    </div>
+    <div class="contrib-item">
+      <div class="contrib-num">3</div>
+      <div class="contrib-content">
+        <div class="contrib-title">TUSZ seizure detection experiments</div>
+        <div class="contrib-desc">Show improved F1 and interpretability on clinical EEG data</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="summary-card">
+    <h3>Why it matters</h3>
+    <ul>
+      <li>Graph learning currently lacks explicit reasoning</li>
+      <li>LLMs bring contextual judgment to edge selection</li>
+      <li>Results in cleaner, more interpretable graphs</li>
+    </ul>
+  </div>
+
+  LAYOUT B — Full-width contributions (no summary card):
+  Set .contributions width: 1060px and remove .summary-card.
+  Good when contributions themselves are detailed enough.
+
+  DESIGN RULES:
+  - Numbered squares have gradient of colors (dark → mid → accent)
+  - Titles: bold, 16-18px, action-oriented phrases
+  - Descriptions: 1 line, concrete (not vague)
+  - Consistent structure across all items
+
+  AVOID:
+  - More than 5 contributions (academic standard is 3-4)
+  - Long descriptions (max 12-15 words per description)
+  - Using this for method steps (use numbered_steps or pipeline instead)
+-->

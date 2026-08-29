@@ -87,11 +87,12 @@ def main():
     if not args.case:
         parser.error("Either --case or --pdf is required")
 
-    # Load run config
+    # Load experiment config
     config_data = read_json(args.config)
     config = ExperimentConfig.model_validate(config_data)
 
-    logger.info("Loaded config: run_id=%s", config.run_id)
+    logger.info("Loaded config: run_id=%s, ablation_tags=%s",
+                config.run_id, config.ablation_tags)
 
     # Create and run
     runner = RunManager(

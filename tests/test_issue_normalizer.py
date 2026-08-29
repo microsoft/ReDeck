@@ -4,7 +4,7 @@ import pytest
 
 from app.modules.issue_normalizer import IssueNormalizer
 from app.schemas.common import Confidence, IssueStatus, Severity
-from app.schemas.issue import Issue, IssueEvidence
+from app.schemas.issue import FixDetail, Issue, IssueEvidence
 
 
 def _make_issue(
@@ -16,6 +16,8 @@ def _make_issue(
     affected_slides: list[int] | None = None,
     description: str = "",
     object_refs: list[str] | None = None,
+    planned_fix: str = "",
+    fix_detail: FixDetail | None = None,
 ) -> Issue:
     return Issue(
         issue_id=issue_id,
@@ -28,11 +30,13 @@ def _make_issue(
             description=description or f"Issue {issue_id}",
             object_refs=object_refs or [],
         ),
+        planned_fix=planned_fix,
+        fix_detail=fix_detail or FixDetail(),
     )
 
 
 class TestIssueNormalizer:
-    """Test issue deduplication and stable ordering."""
+    """Test issue dedup and ordering (merge removed in cleanup)."""
 
     def test_deduplication_by_id(self):
         normalizer = IssueNormalizer()
@@ -80,9 +84,7 @@ class TestIssueNormalizer:
         result = normalizer.normalize(issues)
         assert len(result) == 3
 
-    def test_no_merge_same_type_same_slides(self):
-        """Same rubric/type/slides with different object_refs are cross-source deduped
-        — the normalizer keeps the highest-confidence one."""
+    def test_keeps_distinct_same_type_targets_on_same_slide(self):
         normalizer = IssueNormalizer()
         issues = [
             _make_issue("overlap_1", rubric_id="B3", issue_type="overlap",
@@ -93,8 +95,61 @@ class TestIssueNormalizer:
                         description="Overlap between C and D"),
         ]
         result = normalizer.normalize(issues)
-        # Cross-source dedup merges by (slide, rubric_id) → 1 issue survives
-        assert len(result) == 1
+        assert {issue.issue_id for issue in result} == {
+            "overlap_1",
+            "overlap_2",
+        }
+
+    def test_merges_duplicate_reports_for_same_target(self):
+        normalizer = IssueNormalizer()
+        issues = [
+            _make_issue(
+                "overlap_llm",
+                rubric_id="B3",
+                issue_type="overlap",
+                affected_slides=[2],
+                object_refs=["chart", "caption"],
+                confidence=Confidence.MEDIUM,
+            ),
+            _make_issue(
+                "overlap_geom",
+                rubric_id="B3",
+                issue_type="overlap",
+                affected_slides=[2],
+                object_refs=["caption", "chart"],
+                confidence=Confidence.HIGH,
+            ),
+        ]
+
+        result = normalizer.normalize(issues)
+
+        assert [issue.issue_id for issue in result] == ["overlap_geom"]
+
+    def test_keeps_distinct_low_contrast_regions_on_same_slide(self):
+        normalizer = IssueNormalizer()
+        issues = [
+            _make_issue(
+                "caption_contrast",
+                rubric_id="B05",
+                issue_type="low_contrast",
+                affected_slides=[9],
+                description="Figure 4 caption GPT-4o and GPT-5 coral text",
+            ),
+            _make_issue(
+                "title_contrast",
+                rubric_id="B05",
+                issue_type="low_contrast",
+                affected_slides=[9],
+                description="Top teal header title phrase GPT refiners orange text",
+            ),
+        ]
+
+        result = normalizer.normalize(issues)
+
+        assert {issue.issue_id for issue in result} == {
+            "caption_contrast",
+            "title_contrast",
+        }
 
     def test_high_confidence_stays_open(self):
         """High-confidence issues should remain OPEN."""
@@ -105,3 +160,40 @@ class TestIssueNormalizer:
         ]
         result = normalizer.normalize(issues)
         assert result[0].status == IssueStatus.OPEN
+
+    def test_filters_gpt_4o_gpt_40_entity_alias_noise(self):
+        normalizer = IssueNormalizer()
+        issue = _make_issue(
+            "D3_slide5_gpt_alias",
+            rubric_id="D3",
+            issue_type="entity_error",
+            affected_slides=[5],
+            description=(
+                'Deck claim says "GPT-4o" but source evidence says '
+                '"GPT-40" for the same model name.'
+            ),
+            planned_fix='Replace the model name "GPT-4o" with "GPT-40".',
+            fix_detail=FixDetail(
+                correct_content=(
+                    "For each node, we employ GPT-40 to describe its "
+                    "relevant characteristics of the EEG signal."
+                ),
+            ),
+        )
+
+        assert normalizer.normalize([issue]) == []
+
+    def test_keeps_non_alias_entity_error(self):
+        normalizer = IssueNormalizer()
+        issue = _make_issue(
+            "D3_slide2_wrong_dataset",
+            rubric_id="D3",
+            issue_type="entity_error",
+            affected_slides=[2],
+            description='Deck says "Dataset A" but source says "Dataset B".',
+            planned_fix='Replace "Dataset A" with "Dataset B".',
+        )
+
+        result = normalizer.normalize([issue])
+
+        assert [item.issue_id for item in result] == ["D3_slide2_wrong_dataset"]

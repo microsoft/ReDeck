@@ -1,12 +1,14 @@
 """RunManager - main orchestrator for the slide generation pipeline."""
 
 import logging
+import os
+import re
 import shutil
 import time
 from pathlib import Path
 
 from ..llm_client import LLMClient
-from ..schemas.common import Status
+from ..schemas.common import RepairAction, Status
 from ..schemas.blueprint import DeckBlueprint
 from ..schemas.experiment_config import ExperimentConfig
 from ..schemas.issue import Issue
@@ -37,10 +39,11 @@ class RunManager:
         config: ExperimentConfig,
         cases_dir: str = "cases",
         base_dir: str = ".",
+        runs_dir: str | None = None,
     ):
         self.config = config
         self.cases_dir = cases_dir
-        self.paths = RunPaths(base_dir, config.run_id)
+        self.paths = RunPaths(base_dir, config.run_id, runs_dir=runs_dir)
 
         # Initialize LLM client
         self.llm = LLMClient(
@@ -69,10 +72,24 @@ class RunManager:
 
         # CodeGen compiler
         model = config.models.get_model("slide_codegen") if hasattr(config.models, 'get_model') else config.models.default
+        repair_model = config.models.get_slide_repair_model()
         self.use_html_codegen = config.use_html_codegen
-        self.codegen_compiler = HtmlCodeGenCompiler(self.llm, model=model, codegen_prompt=config.codegen_prompt, show_source_citations=config.show_source_citations)
-        logger.info("Using HTML codegen compiler (Playwright rendering)")
-        self.code_repair_worker = CodeRepairWorker(self.llm, model=model)
+        self.codegen_compiler = HtmlCodeGenCompiler(
+            self.llm,
+            model=model,
+            codegen_prompt=config.codegen_prompt,
+            show_source_citations=config.show_source_citations,
+            theme_id=config.theme_id,
+            demo_palette=config.demo_palette,
+            repair_model=repair_model,
+            style_pattern=config.style_pattern,
+        )
+        logger.info(
+            "Using HTML codegen compiler (generation_model=%s, repair_model=%s)",
+            model,
+            repair_model,
+        )
+        self.code_repair_worker = CodeRepairWorker(self.llm, model=repair_model)
 
     def run(self, case_id: str) -> list[TurnSummary]:
         """Run the complete pipeline for a case."""
@@ -92,6 +109,7 @@ class RunManager:
             from ..modules.source_store import build_source_store
             case_state.source_store = build_source_store(
                 case_state.case_dir, self.llm,
+                source_kind=case_state.constraints.get("source_kind", "paper"),
             )
             logger.info(
                 "SourceStore built: %d atomic blocks, %d doc blocks, %d assets",
@@ -148,6 +166,7 @@ class RunManager:
             open_count = sum(
                 1 for i in loaded_issues
                 if i.status.value == "open"
+                and i.recommended_action != RepairAction.KEEP
             )
             issue_count_history.append(open_count)
 
@@ -158,12 +177,6 @@ class RunManager:
 
             if not summary.should_continue:
                 logger.info("Stopping after turn %d: %s", turn, summary.reason)
-
-                # Best-turn rollback: use the turn with fewest issues as
-                # final output, not just the previous turn.
-                if best_turn != turn:
-                    self._rollback_to_turn(best_turn, turn, best_open, issue_count_history[-1])
-
                 break
 
             # Carry issues forward
@@ -171,7 +184,23 @@ class RunManager:
 
         # Best-turn rollback at loop end
         final_turn = len(summaries) - 1
-        if final_turn > 0 and best_turn != final_turn and issue_count_history:
+        if (
+            final_turn > 0
+            and best_turn != final_turn
+            and issue_count_history
+            and summaries[-1].status == Status.ERROR
+        ):
+            self._rollback_to_turn(best_turn, final_turn, best_open, issue_count_history[-1])
+        elif (
+            final_turn > 0
+            and best_turn != final_turn
+            and issue_count_history
+            and self._should_rollback_to_best(
+                summaries[-1],
+                best_open,
+                issue_count_history[-1],
+            )
+        ):
             self._rollback_to_turn(best_turn, final_turn, best_open, issue_count_history[-1])
 
         logger.info("Run completed: %d turns", len(summaries))
@@ -181,7 +210,16 @@ class RunManager:
         """Copy artifacts from a better turn to the final turn."""
         src_dir = self.paths.turn_dir(src_turn)
         dst_dir = self.paths.turn_dir(dst_turn)
-        for artifact in ["slide_code", "html_renders", "slides.pdf", "deck.pptx"]:
+        for artifact in [
+            "slide_code",
+            "html_renders",
+            "render",
+            "eval",
+            "slides.pdf",
+            "deck.pptx",
+            "compile_manifest.json",
+            "extractions.json",
+        ]:
             src = src_dir / artifact
             dst = dst_dir / artifact
             if src.exists():
@@ -194,6 +232,25 @@ class RunManager:
         logger.info(
             "Best-turn rollback: T%d→T%d (%d vs %d issues)",
             src_turn, dst_turn, src_issues, dst_issues,
+        )
+
+    @staticmethod
+    def _should_rollback_to_best(
+        summary: TurnSummary,
+        best_open: int,
+        current_open: int,
+    ) -> bool:
+        """Return whether open counts represent a comparable regression.
+
+        New issues from adaptive probes do not prove the repair introduced a
+        regression, and resolving an old issue is real progress even when a
+        broader probe finds more work. Roll back only when the count worsened
+        without either lifecycle event.
+        """
+        return (
+            current_open > best_open
+            and summary.issues_resolved == 0
+            and summary.issues_new == 0
         )
 
     def _run_turn(
@@ -248,13 +305,37 @@ class RunManager:
 
             if turn_index == 0:
                 # === TURN 0: PLAN + (OPTIONAL) LAYOUT DESIGN + GENERATE ===
-                # Only plan once — blueprint drives all subsequent turns
-                blueprint = self.deck_planner.plan(
-                    case_state.intent, case_state.evidence, case_state.task_brief,
-                    paper_full_md=self._paper_full_md,
-                    source_store=case_state.source_store,
-                )
+                if self.config.prebuilt_blueprint_path:
+                    blueprint_path = Path(self.config.prebuilt_blueprint_path)
+                    blueprint = DeckBlueprint.model_validate(read_json(blueprint_path))
+                    logger.info(
+                        "Loaded fixed blueprint for codegen ablation: %s (%d slides)",
+                        blueprint_path,
+                        len(blueprint.slides),
+                    )
+                else:
+                    # Only plan once — blueprint drives all subsequent turns
+                    blueprint = self.deck_planner.plan(
+                        case_state.intent, case_state.evidence, case_state.task_brief,
+                        paper_full_md=self._paper_full_md,
+                        source_store=case_state.source_store,
+                    )
+
+                    # === CHART PLANNING (after blueprint, before codegen) ===
+                    try:
+                        from ..modules.chart_planner import ChartPlanner
+                        _chart_model = self.config.models.get_model("deck_planner")
+                        chart_planner = ChartPlanner(self.llm, model=_chart_model)
+                        n_charts = chart_planner.plan_charts(
+                            blueprint, case_state.evidence, case_state.source_store,
+                        )
+                        if n_charts:
+                            logger.info("ChartPlanner added %d chart specs to blueprint", n_charts)
+                    except Exception as e:
+                        logger.warning("ChartPlanner failed (non-fatal): %s", e)
+
                 self._cached_blueprint = blueprint
+
                 write_json(blueprint, self.paths.blueprint_path(turn_index))
 
                 # === BUILD SOURCE BUNDLES (if SourceStore available) ===
@@ -324,14 +405,49 @@ class RunManager:
                             f"Blueprint not found in cache or on disk at {bp_path}"
                         )
 
+                if self.use_html_codegen:
+                    copied_assets = self._carry_forward_generated_assets(turn_index)
+                    if copied_assets:
+                        logger.info(
+                            "Carried forward %d generated asset(s) into turn %d",
+                            copied_assets,
+                            turn_index,
+                        )
+
                 # Repair slides with issues
                 if self.config.repair_strategy == "redeck":
-                    from ..modules.redeck.repair_worker import ReDeckRepairWorker
-                    _model = self.config.models.get_model("slide_codegen")
-                    redeck_worker = ReDeckRepairWorker(self.llm, model=_model)
+                    from ..modules.redeck.dispatcher import ReDeckWorker
+                    _model = self.config.models.get_slide_repair_model()
+                    _repair_config = {
+                        "text_loss_budget": self.config.repair_text_loss_budget,
+                    }
+                    if os.environ.get("REDECK_DISABLE_STEP_RENDER"):
+                        _repair_config["disable_step_render"] = True
+                    if os.environ.get("REDECK_DISABLE_TURN_CRITIC"):
+                        _repair_config["disable_turn_critic"] = True
+                    redeck_worker = ReDeckWorker(self.llm, model=_model, repair_config=_repair_config)
+                    # Action-only ablation: replace critic issues with generic
+                    # "check spatial layout" issue per slide so agent relies on
+                    # verify_layout to discover problems itself
+                    _issues_for_repair = previous_issues
+                    if _repair_config.get("disable_turn_critic"):
+                        from ..schemas.issue import Issue
+                        from ..schemas.common import Severity
+                        n_slides = len(blueprint.slides)
+                        _issues_for_repair = []
+                        for s in range(1, n_slides + 1):
+                            _issues_for_repair.append(Issue(
+                                issue_id=f"ABL_spatial_s{s}",
+                                rubric_id="B3",
+                                issue_type="overlap",
+                                severity=Severity.MAJOR,
+                                affected_slides=[s],
+                                description="Check this slide for spatial layout issues using verify_layout. Fix any overlap, overflow, or clipping you find.",
+                            ))
+                        logger.info("Ablation: action-only mode, injected %d generic spatial issues (no critic)", len(_issues_for_repair))
                     repaired_slides = redeck_worker.repair_slides(
                         codegen_compiler=self.codegen_compiler,
-                        issues=previous_issues,
+                        issues=_issues_for_repair,
                         blueprint_slides=blueprint.slides,
                         evidence=case_state.evidence,
                         case_dir=str(case_state.case_dir),
@@ -369,13 +485,21 @@ class RunManager:
                 write_json(manifest, self.paths.compile_manifest_path(turn_index))
                 artifact_paths["pptx"] = pptx_path
 
-                # Create pseudo repair units for the settler
+                # Create pseudo repair units for the settler. Content-only
+                # patches are successful repairs too; omitting them makes the
+                # settler stop before the patched slides can be re-evaluated.
                 from ..schemas.repair_unit import RepairUnit
-                for sid in repaired_slides:
+                modified_slides = set(repaired_slides) | set(content_modified_slides)
+                for sid in sorted(modified_slides):
+                    repair_type = (
+                        "content_patch"
+                        if sid in content_modified_slides and sid not in repaired_slides
+                        else "code_repair"
+                    )
                     repair_units.append(RepairUnit(
-                        repair_unit_id=f"code_repair_slide_{sid}",
+                        repair_unit_id=f"{repair_type}_slide_{sid}",
                         issue_cluster=[],
-                        repair_type="code_repair",
+                        repair_type=repair_type,
                         affected_slides=[sid],
                         verify_targets=[],
                         status="applied",
@@ -408,19 +532,29 @@ class RunManager:
             # === EVALUATE ===
             png_paths = render_result.png_paths or []
             # Use differential evaluation for repair turns
-            modified_slide_ids = set(repaired_slides) if turn_index > 0 else None
+            modified_slide_ids = (
+                set(repaired_slides) | set(content_modified_slides)
+                if turn_index > 0 else None
+            )
             # content_modified_slides: slides where text content changed
             # (not just CSS/layout). C/D/E judges only need to re-evaluate
             # these — spatial-only fixes don't affect content accuracy.
             content_modified_ids = (
                 content_modified_slides if turn_index > 0 else None
             )
+            # Judges triage by mutating Issue objects. Give them an isolated
+            # working copy so the previous-turn snapshot remains intact for
+            # resolved/new accounting in TurnSettler.
+            previous_for_eval = (
+                [issue.model_copy(deep=True) for issue in previous_issues]
+                if turn_index > 0 else None
+            )
             issues = self.eval_router.evaluate(
                 extractions, png_paths,
                 case_state.task_brief, source_summary,
                 blueprint=self._cached_blueprint,
                 evidence=case_state.evidence,
-                previous_issues=previous_issues if turn_index > 0 else None,
+                previous_issues=previous_for_eval,
                 modified_slides=modified_slide_ids,
                 turn_index=turn_index,
                 slide_codes=dict(self.codegen_compiler.slide_codes) if self.use_html_codegen else None,
@@ -498,6 +632,8 @@ class RunManager:
             bp_path = prebuilt_dir / "deck_blueprint.json"
         if not bp_path.exists():
             bp_path = prebuilt_dir / "turn_00" / "deck_blueprint.json"
+        if not bp_path.exists() and prebuilt_dir.name.startswith("turn_"):
+            bp_path = prebuilt_dir.parent / "turn_00" / "deck_blueprint.json"
         blueprint = DeckBlueprint.model_validate(read_json(bp_path))
 
         self._cached_blueprint = blueprint
@@ -558,16 +694,75 @@ class RunManager:
         code_ext = "html" if self.use_html_codegen else "py"
         for src_file in sorted(src_code_dir.glob(f"slide_*.{code_ext}")):
             dst_file = code_dir / src_file.name
-            shutil.copy2(src_file, dst_file)
             # Parse slide_id from filename: slide_01.py/html → 1
             sid = int(src_file.stem.split("_")[1])
             code = src_file.read_text(encoding="utf-8")
+            if self.use_html_codegen:
+                code, copied_assets = self._localize_prebuilt_generated_assets(
+                    code=code,
+                    prebuilt_dir=prebuilt_dir,
+                    src_code_dir=src_code_dir,
+                    turn_index=0,
+                )
+                if copied_assets:
+                    logger.info(
+                        "Localized %d generated asset reference(s) for prebuilt slide %d",
+                        copied_assets,
+                        sid,
+                    )
+            dst_file.write_text(code, encoding="utf-8")
             self.codegen_compiler.slide_codes[sid] = code
 
         logger.info(
             "Loaded %d slide codes from prebuilt",
             len(self.codegen_compiler.slide_codes),
         )
+
+        # Recover semantic theme and generation lineage so subsequent repair
+        # turns preserve the original palette, composition, and local idioms.
+        if self.codegen_compiler._theme is None and self.codegen_compiler.slide_codes:
+            from ..themes import match_theme_from_html
+            first_html = next(iter(self.codegen_compiler.slide_codes.values()))
+            matched_theme = match_theme_from_html(first_html)
+            if matched_theme is not None:
+                self.codegen_compiler._theme = matched_theme
+                logger.info("Recovered prebuilt HTML theme: %s", matched_theme.theme_name)
+
+        for manifest_path in (
+            prebuilt_dir / "compile_manifest.json",
+            prebuilt_dir / "turn_00" / "compile_manifest.json",
+        ):
+            if not manifest_path.exists():
+                continue
+            try:
+                from ..themes import COMPOSITION_VARIANTS, LAYOUT_GRAMMARS
+                from ..backends.html_codegen.visual_skills import get_visual_skill
+
+                prebuilt_manifest = read_json(manifest_path)
+                for slide_info in prebuilt_manifest.get("slides", []):
+                    sid = int(slide_info.get("slide_id", 0))
+                    if not sid:
+                        continue
+                    grammar_id = slide_info.get("layout_grammar")
+                    if grammar_id in LAYOUT_GRAMMARS:
+                        self.codegen_compiler._slide_grammars[sid] = LAYOUT_GRAMMARS[grammar_id]
+                    variant_id = slide_info.get("composition_variant")
+                    for variant in COMPOSITION_VARIANTS.get(grammar_id, ()):
+                        if variant.variant_id == variant_id:
+                            self.codegen_compiler._slide_variants[sid] = variant
+                            break
+                    skills = []
+                    for skill_id in slide_info.get("visual_skills", []):
+                        try:
+                            skills.append(get_visual_skill(skill_id))
+                        except KeyError:
+                            logger.warning("Unknown prebuilt visual skill '%s' on slide %d", skill_id, sid)
+                    if skills:
+                        self.codegen_compiler._slide_skills[sid] = skills
+                logger.info("Recovered prebuilt design lineage from %s", manifest_path)
+            except Exception as e:
+                logger.warning("Could not recover prebuilt design lineage from %s: %s", manifest_path, e)
+            break
 
         # Ensure task_brief is available for any subsequent repair turns
         self.codegen_compiler._task_brief = case_state.task_brief
@@ -587,7 +782,10 @@ class RunManager:
 
         # 4. Render
         render_dir = str(self.paths.render_dir(0))
-        render_result = self.render_manager.render_fast(pptx_path, render_dir)
+        if self.use_html_codegen:
+            render_result = self._html_render(code_dir, render_dir, 0)
+        else:
+            render_result = self.render_manager.render_fast(pptx_path, render_dir)
         if render_result.render_meta:
             write_json(render_result.render_meta, self.paths.render_meta_path(0))
         artifact_paths["render_dir"] = render_dir
@@ -600,8 +798,11 @@ class RunManager:
                 "Falling back to copying evaluation results from prebuilt dir."
             )
 
-        # 5. Extract
-        extractions = self.extractor.extract(pptx_path)
+        # 5. Extract from the same representation used by the active branch.
+        if self.use_html_codegen:
+            extractions = self._extract_from_html(0)
+        else:
+            extractions = self.extractor.extract(pptx_path)
         write_json(
             [e.model_dump() for e in extractions],
             self.paths.extractions_path(0),
@@ -610,14 +811,10 @@ class RunManager:
         # 6. Copy evaluation results from prebuilt dir (ensures identical T0 for A/B comparison)
         #    We do NOT re-evaluate because: (a) LLM judges are non-deterministic,
         #    (b) render failures would silently degrade visual evaluation.
-        #    Prefer issues_v6.jsonl (re-evaluated with per-slide evidence).
         src_issues_path = None
         for candidate in [
-            prebuilt_dir / "eval" / "issues_v6.jsonl",
             prebuilt_dir / "eval" / "issues.jsonl",
-            prebuilt_dir / "issues_v6.jsonl",
             prebuilt_dir / "issues.jsonl",
-            prebuilt_dir / "turn_00" / "eval" / "issues_v6.jsonl",
             prebuilt_dir / "turn_00" / "eval" / "issues.jsonl",
         ]:
             if candidate.exists():
@@ -632,6 +829,8 @@ class RunManager:
                        src_issues_path, src_issues_path.stat().st_size)
             # Load the copied issues
             issues = self._load_issues(0)
+            issues = self._defer_subjective_b02_pingpong(issues)
+            write_jsonl(issues, self.paths.issues_path(0))
         else:
             # Fallback: re-evaluate if no prebuilt issues found
             logger.warning(
@@ -668,6 +867,106 @@ class RunManager:
             previous_issue_counts=issue_count_history,
         )
         return summary
+
+    def _localize_prebuilt_generated_assets(
+        self,
+        *,
+        code: str,
+        prebuilt_dir: Path,
+        src_code_dir: Path,
+        turn_index: int,
+    ) -> tuple[str, int]:
+        """Copy chained repair assets into this run and use turn-local refs.
+
+        Repair-only runs are often chained from a previous ``turn_XX``.  The
+        prebuilt HTML may still point at ``runs/old_run/turn_YY/generated_assets``.
+        That works only while the old run directory remains present and breaks
+        when opening the copied HTML directly.  Keep the new run self-contained
+        by copying those assets into the current turn and rewriting references
+        to ``../generated_assets/<name>`` relative to ``slide_code/``.
+        """
+        if "generated_assets" not in code:
+            return code, 0
+
+        dst_asset_dir = self.paths.turn_dir(turn_index) / "generated_assets"
+        copied = 0
+
+        def candidate_paths(raw_ref: str) -> list[Path]:
+            ref = raw_ref.strip()
+            if ref.startswith("file://"):
+                ref = ref[7:]
+            if re.match(r"https?://|data:", ref, re.IGNORECASE):
+                return []
+            ref = ref.split("#", 1)[0].split("?", 1)[0]
+            candidate = Path(ref).expanduser()
+            candidates: list[Path] = []
+            if candidate.is_absolute():
+                candidates.append(candidate)
+            else:
+                candidates.extend([
+                    src_code_dir / candidate,
+                    prebuilt_dir / candidate,
+                    prebuilt_dir.parent / candidate,
+                    Path.cwd() / candidate,
+                ])
+            parts = candidate.parts
+            if "generated_assets" in parts:
+                idx = parts.index("generated_assets")
+                asset_rel = Path(*parts[idx + 1:]) if idx + 1 < len(parts) else Path(candidate.name)
+                if str(asset_rel):
+                    candidates.extend([
+                        prebuilt_dir / "generated_assets" / asset_rel,
+                        prebuilt_dir.parent / "generated_assets" / asset_rel,
+                    ])
+                    for sibling_assets in sorted(prebuilt_dir.parent.glob("turn_*/generated_assets")):
+                        candidates.append(sibling_assets / asset_rel)
+            return candidates
+
+        attr_re = re.compile(
+            r"(?P<prefix>\b(?:src|href)\s*=\s*['\"])(?P<ref>[^'\"]*generated_assets/[^'\"]+)(?P<suffix>['\"])",
+            re.IGNORECASE,
+        )
+
+        def replace_ref(match: re.Match[str]) -> str:
+            nonlocal copied
+            src_path = None
+            for candidate in candidate_paths(match.group("ref")):
+                try:
+                    resolved = candidate.resolve()
+                except OSError:
+                    continue
+                if resolved.exists() and resolved.is_file():
+                    src_path = resolved
+                    break
+            if src_path is None:
+                return match.group(0)
+
+            dst_asset_dir.mkdir(parents=True, exist_ok=True)
+            dst_path = dst_asset_dir / src_path.name
+            if not dst_path.exists() or src_path.resolve() != dst_path.resolve():
+                shutil.copy2(src_path, dst_path)
+            copied += 1
+            return f"{match.group('prefix')}../generated_assets/{dst_path.name}{match.group('suffix')}"
+
+        return attr_re.sub(replace_ref, code), copied
+
+    def _carry_forward_generated_assets(self, turn_index: int) -> int:
+        """Copy generated assets from the previous turn into the current turn."""
+        if turn_index <= 0:
+            return 0
+        src_dir = self.paths.base / f"turn_{turn_index - 1:02d}" / "generated_assets"
+        if not src_dir.exists() or not src_dir.is_dir():
+            return 0
+        dst_dir = self.paths.turn_dir(turn_index) / "generated_assets"
+        copied = 0
+        for src in sorted(src_dir.iterdir()):
+            if not src.is_file():
+                continue
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            dst = dst_dir / src.name
+            shutil.copy2(src, dst)
+            copied += 1
+        return copied
 
     def _backfill_source_doc_block_ids(self, blueprint, source_store, code_dir=None):
         """Assign source_doc_block_ids to slides that lack them.
@@ -785,6 +1084,8 @@ class RunManager:
         """
         from ..schemas.common import IssueStatus
 
+        new_issues = self._defer_subjective_b02_pingpong(new_issues)
+
         resolved_count = sum(
             1 for i in new_issues if i.status == IssueStatus.RESOLVED
         )
@@ -804,6 +1105,56 @@ class RunManager:
         )
 
         return new_issues
+
+    @staticmethod
+    def _defer_subjective_b02_pingpong(issues: list[Issue]) -> list[Issue]:
+        """Stop chasing minor B02 hierarchy preferences that flip direction.
+
+        B02 layout-appropriateness is intentionally subjective. In repair loops,
+        once a B02 on a slide is judged resolved, a new minor B02 can appear with
+        the opposite hierarchy preference (for example, right shorthand too
+        dominant, then left figure too dominant). Treat that as design-taste
+        drift rather than a remaining hard defect so the loop does not undo
+        already resolved B13/B17/content repairs.
+        """
+        from ..schemas.common import IssueStatus, RepairAction, Severity, Verdict
+
+        resolved_b02_slides: set[int] = set()
+        for issue in issues:
+            if (
+                issue.rubric_id.startswith("B02")
+                and issue.issue_type == "layout_inappropriate"
+                and issue.status == IssueStatus.RESOLVED
+            ):
+                resolved_b02_slides.update(issue.affected_slides or [])
+
+        if not resolved_b02_slides:
+            return issues
+
+        for issue in issues:
+            if not (
+                issue.rubric_id.startswith("B02")
+                and issue.issue_type == "layout_inappropriate"
+                and issue.status == IssueStatus.OPEN
+                and issue.severity == Severity.MINOR
+                and resolved_b02_slides.intersection(issue.affected_slides or [])
+            ):
+                continue
+            issue.status = IssueStatus.DEFERRED
+            issue.verdict = Verdict.PASS
+            issue.recommended_action = RepairAction.KEEP
+            issue.action_rationale = (
+                "Deferred as subjective B02 hierarchy drift: another B02 layout "
+                "preference on this slide was resolved in the same evaluation, "
+                "and continuing would risk ping-ponging visual hierarchy rather "
+                "than fixing a hard defect."
+            )
+            logger.info(
+                "Deferred subjective B02 ping-pong issue %s on slide(s) %s",
+                issue.issue_id,
+                issue.affected_slides,
+            )
+        return issues
 
     @staticmethod
     def _auto_keep_persistent_issues(
@@ -889,7 +1240,7 @@ class RunManager:
             backend = PlaywrightRenderBackend()
             backend.assemble_pngs_to_pdf(png_paths, pdf_path)
 
-        # Also create slides.pdf in the turn results directory.
+        # Also create slides.pdf in results dir for PresentBench
         slides_pdf = Path(render_dir).parent / "slides.pdf"
         if Path(pdf_path).exists():
             shutil.copy2(pdf_path, slides_pdf)
@@ -903,100 +1254,53 @@ class RunManager:
         )
 
     def _extract_from_html(self, turn_index: int):
-        """Extract slide structure from HTML codes for geom checks.
+        """Extract slide structure from HTML codes for judges (text input).
 
-        Returns a list of SlideExtraction objects built from HTML content
-        analysis. Tries Playwright for real DOM bounding boxes; falls back
-        to approximate coordinates if unavailable.
+        Returns SlideExtraction objects with text content and approximate
+        bounding boxes. Deterministic spatial checks (overlap, OOB, etc.)
+        are now handled by run_deterministic_checks() on SlideState directly,
+        so this method no longer needs Playwright for precise bbox.
         """
         from ..schemas.extraction import ExtractedObject, SlideExtraction
-        from ..schemas.issue_types import SlideDimensions
         from ..utils.html_text import extract_title_and_body
         import re
-
-        # Try to get real DOM layout from Playwright
-        pw_states: dict[int, object] = {}
-        try:
-            from ..modules.redeck.html_spatial_state import extract_html_slide_state
-            for sid, html in sorted(self.codegen_compiler.slide_codes.items()):
-                try:
-                    state = extract_html_slide_state(sid, html)
-                    pw_states[sid] = state
-                except Exception as e:
-                    logger.debug("Playwright extraction failed for slide %d: %s", sid, e)
-        except ImportError:
-            logger.debug("html_spatial_state not available, using approximate bboxes")
 
         extractions = []
         for sid, html in sorted(self.codegen_compiler.slide_codes.items()):
             title, body = extract_title_and_body(html)
-
-            # Combine for total text length
             text_only = f"{title} {body}".strip()
 
-            # Count images
-            img_count = len(re.findall(r'<img\b', html, re.IGNORECASE))
-
-            # Build objects from Playwright real DOM blocks if available
             objects = []
-            pw_state = pw_states.get(sid)
-
-            if pw_state and hasattr(pw_state, 'blocks') and pw_state.blocks:
-                emu = SlideDimensions.EMU_PER_INCH  # blocks are in inches, not pixels
-                for blk in pw_state.blocks:
-                    obj_type = "text_box"
-                    has_img = False
-                    if blk.shape_type in ("picture", "image"):
-                        obj_type = "picture"
-                        has_img = True
-                    elif blk.shape_type in ("chart", "table"):
-                        obj_type = blk.shape_type
-
-                    objects.append(ExtractedObject(
-                        object_id=blk.block_id,
-                        shape_name=blk.var_name or blk.block_id,
-                        object_type=obj_type,
-                        bbox_emu=[
-                            int(blk.x * emu), int(blk.y * emu),
-                            int(blk.w * emu), int(blk.h * emu),
-                        ],
-                        text_content=" ".join(blk.text_lines) if blk.text_lines else '',
-                        font_sizes_pt=[18.0],
-                        has_image=has_img,
-                        z_order=0,
-                    ))
-            else:
-                # Fallback: approximate bboxes
-                if title:
-                    objects.append(ExtractedObject(
-                        object_id=f"slide_{sid}_title",
-                        shape_name="title",
-                        object_type="text_box",
-                        bbox_emu=[457200, 228600, 11430000, 914400],
-                        text_content=title,
-                        font_sizes_pt=[28.0],
-                        z_order=0,
-                    ))
-                if body:
-                    objects.append(ExtractedObject(
-                        object_id=f"slide_{sid}_body",
-                        shape_name="body",
-                        object_type="text_box",
-                        bbox_emu=[457200, 1371600, 11430000, 4572000],
-                        text_content=body,
-                        font_sizes_pt=[18.0],
-                        z_order=1,
-                    ))
-                for i, img_match in enumerate(re.finditer(r'<img\s[^>]*src=["\']([^"\']+)["\']', html)):
-                    objects.append(ExtractedObject(
-                        object_id=f"slide_{sid}_img_{i}",
-                        shape_name=f"image_{i}",
-                        object_type="picture",
-                        bbox_emu=[6096000, 1371600, 5334000, 4572000],
-                        has_image=True,
-                        image_path=img_match.group(1),
-                        z_order=10 + i,
-                    ))
+            if title:
+                objects.append(ExtractedObject(
+                    object_id=f"slide_{sid}_title",
+                    shape_name="title",
+                    object_type="text_box",
+                    bbox_emu=[457200, 228600, 11430000, 914400],
+                    text_content=title,
+                    font_sizes_pt=[28.0],
+                    z_order=0,
+                ))
+            if body:
+                objects.append(ExtractedObject(
+                    object_id=f"slide_{sid}_body",
+                    shape_name="body",
+                    object_type="text_box",
+                    bbox_emu=[457200, 1371600, 11430000, 4572000],
+                    text_content=body,
+                    font_sizes_pt=[18.0],
+                    z_order=1,
+                ))
+            for i, img_match in enumerate(re.finditer(r'<img\s[^>]*src=["\']([^"\']+)["\']', html)):
+                objects.append(ExtractedObject(
+                    object_id=f"slide_{sid}_img_{i}",
+                    shape_name=f"image_{i}",
+                    object_type="picture",
+                    bbox_emu=[6096000, 1371600, 5334000, 4572000],
+                    has_image=True,
+                    image_path=img_match.group(1),
+                    z_order=10 + i,
+                ))
 
             extractions.append(SlideExtraction(
                 slide_id=sid,

@@ -1,0 +1,728 @@
+<!--
+  SKILL: SVG Charts (12 patterns — Bar, Grouped, Line, Lollipop, Scatter, Stacked, Radar, Area, Waterfall, Heatmap, Donut, Butterfly)
+  Use when: comparing numeric results across models/methods/conditions
+  THIS IS YOUR PRIMARY VISUAL TOOL — use on every slide that has numbers to compare.
+
+  ╔═══════════════════════════════════════════════════════════════╗
+  ║  CHART TYPE SELECTION (DO NOT always use horiz bar!)         ║
+  ╠═══════════════════════════════════════════════════════════════╣
+  ║ Data shows a PROGRESSION (small→big, epoch 1→5)?             ║
+  ║   → LINE CHART (Pattern 3)                                   ║
+  ║ Comparing 2-3 METRICS per model?                             ║
+  ║   → GROUPED BAR (Pattern 2)                                  ║
+  ║ Ranking 5+ items on ONE metric?                              ║
+  ║   → LOLLIPOP (Pattern 4) or HORIZONTAL BAR                   ║
+  ║ Simple comparison, ≤6 items, 1 metric?                       ║
+  ║   → HORIZONTAL BAR (Pattern 1)                               ║
+  ║ Two variables with correlation/fit?                           ║
+  ║   → SCATTER + TREND LINE (Pattern 5)                         ║
+  ║ Win/loss, composition, proportions?                           ║
+  ║   → STACKED BAR (Pattern 6)                                  ║
+  ║ Multi-dimensional comparison (4-6 axes)?                     ║
+  ║   → RADAR/SPIDER (Pattern 7)                                 ║
+  ║ Non-monotonic trend, U-shape, or filled area comparison?     ║
+  ║   → AREA CHART (Pattern 8)                                   ║
+  ║ Ablation: full model vs removing components one by one?      ║
+  ║   → WATERFALL / DELTA (Pattern 9)                            ║
+  ║ Model × metric matrix, cross-comparison grid?                ║
+  ║   → HEATMAP / COLOR GRID (Pattern 10)                        ║
+  ║ Single-metric emphasis (%, accuracy, completion)?            ║
+  ║   → DONUT / RING GAUGE (Pattern 11)                          ║
+  ║ Before vs after, gain vs loss, bidirectional comparison?     ║
+  ║   → BUTTERFLY / DIVERGING BAR (Pattern 12)                   ║
+  ╚═══════════════════════════════════════════════════════════════╝
+
+  VARIETY: Use at least 3 different chart types across a deck.
+
+  KEY RULES:
+  - Pure SVG, no external library
+  - Use gradient fills for visual polish
+  - Highlight the BEST bar/point with ACCENT gradient, others use PRIMARY
+  - Always label axes and values
+  - Rounded bar corners (rx="5") for modern look
+  - A 12-slide deck should have 4-6 data charts minimum
+-->
+
+<style>
+  .chart-area {
+    margin: 16px 0;
+    background: #fafbfd;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  }
+  .chart-area svg text {
+    font-family: 'Segoe UI', Arial, sans-serif;
+  }
+  .chart-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: PRIMARY_DARK;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 12px;
+  }
+</style>
+
+<!--
+  ═══════════════════════════════════════════════════════
+  PATTERN 1: HORIZONTAL BAR CHART (default for model comparisons)
+  ═══════════════════════════════════════════════════════
+
+  <div class="chart-area">
+    <div class="chart-title">F1-Score Comparison</div>
+    <svg width="520" height="180" viewBox="0 0 520 180">
+      <defs>
+        <linearGradient id="barGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="PRIMARY_DARK"/>
+          <stop offset="100%" stop-color="PRIMARY_MID"/>
+        </linearGradient>
+        <linearGradient id="barAccent" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="ACCENT"/>
+          <stop offset="100%" stop-color="ACCENT" stop-opacity="0.7"/>
+        </linearGradient>
+      </defs>
+
+      <!-- Subtle grid lines -->
+      <line x1="150" y1="10" x2="150" y2="140" stroke="#e8ecf0" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="270" y1="10" x2="270" y2="140" stroke="#e8ecf0" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="390" y1="10" x2="390" y2="140" stroke="#e8ecf0" stroke-width="1" stroke-dasharray="3,3"/>
+
+      <!-- Y-axis labels (model names) -->
+      <text x="140" y="38" text-anchor="end" font-size="13" fill="#333">Model A</text>
+      <text x="140" y="78" text-anchor="end" font-size="13" fill="#333">Model B</text>
+      <text x="140" y="118" text-anchor="end" font-size="13" font-weight="700" fill="ACCENT">Our Method</text>
+
+      <!-- Bars with gradient fills and rounded corners -->
+      <rect x="150" y="22" width="260" height="24" rx="5" fill="url(#barGrad)" opacity="0.8"/>
+      <rect x="150" y="62" width="300" height="24" rx="5" fill="url(#barGrad)" opacity="0.8"/>
+      <rect x="150" y="102" width="350" height="24" rx="5" fill="url(#barAccent)"/>
+
+      <!-- Value labels with background pill -->
+      <rect x="414" y="26" width="46" height="18" rx="9" fill="#f0f3f7"/>
+      <text x="437" y="39" text-anchor="middle" font-size="11" font-weight="700" fill="#333">0.78</text>
+      <rect x="454" y="66" width="46" height="18" rx="9" fill="#f0f3f7"/>
+      <text x="477" y="79" text-anchor="middle" font-size="11" font-weight="700" fill="#333">0.82</text>
+      <rect x="504" y="106" width="46" height="18" rx="9" fill="rgba(ACCENT_RGB,0.12)"/>
+      <text x="527" y="119" text-anchor="middle" font-size="11" font-weight="700" fill="ACCENT">0.91</text>
+    </svg>
+  </div>
+
+  ═══════════════════════════════════════════════════════
+  PATTERN 2: GROUPED BAR CHART (multi-metric comparison)
+  Use when comparing 2-3 metrics (e.g., Precision, Recall, F1) across models
+  ═══════════════════════════════════════════════════════
+
+  <div class="chart-area">
+    <div class="chart-title">Performance Across Metrics</div>
+    <svg width="480" height="200" viewBox="0 0 480 200">
+      <defs>
+        <linearGradient id="g1" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0%" stop-color="PRIMARY_DARK"/>
+          <stop offset="100%" stop-color="PRIMARY_MID"/>
+        </linearGradient>
+        <linearGradient id="g2" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0%" stop-color="ACCENT"/>
+          <stop offset="100%" stop-color="ACCENT" stop-opacity="0.7"/>
+        </linearGradient>
+      </defs>
+
+      <!-- X-axis labels -->
+      <text x="100" y="185" text-anchor="middle" font-size="12" fill="#555">Model A</text>
+      <text x="240" y="185" text-anchor="middle" font-size="12" fill="#555">Model B</text>
+      <text x="380" y="185" text-anchor="middle" font-size="12" font-weight="700" fill="ACCENT">Ours</text>
+
+      <!-- Grouped bars (3 per group: Precision, Recall, F1) -->
+      <!-- Model A -->
+      <rect x="70" y="80" width="20" height="85" rx="4" fill="url(#g1)" opacity="0.6"/>
+      <rect x="92" y="60" width="20" height="105" rx="4" fill="url(#g1)" opacity="0.8"/>
+      <rect x="114" y="50" width="20" height="115" rx="4" fill="url(#g1)"/>
+      <!-- Model B -->
+      <rect x="210" y="70" width="20" height="95" rx="4" fill="url(#g1)" opacity="0.6"/>
+      <rect x="232" y="45" width="20" height="120" rx="4" fill="url(#g1)" opacity="0.8"/>
+      <rect x="254" y="40" width="20" height="125" rx="4" fill="url(#g1)"/>
+      <!-- Ours (accent) -->
+      <rect x="350" y="50" width="20" height="115" rx="4" fill="url(#g2)" opacity="0.7"/>
+      <rect x="372" y="30" width="20" height="135" rx="4" fill="url(#g2)" opacity="0.85"/>
+      <rect x="394" y="20" width="20" height="145" rx="4" fill="url(#g2)"/>
+
+      <!-- Legend -->
+      <rect x="150" y="3" width="12" height="12" rx="3" fill="url(#g1)" opacity="0.6"/>
+      <text x="166" y="13" font-size="10" fill="#555">Prec</text>
+      <rect x="200" y="3" width="12" height="12" rx="3" fill="url(#g1)" opacity="0.8"/>
+      <text x="216" y="13" font-size="10" fill="#555">Recall</text>
+      <rect x="260" y="3" width="12" height="12" rx="3" fill="url(#g1)"/>
+      <text x="276" y="13" font-size="10" fill="#555">F1</text>
+    </svg>
+  </div>
+
+  ═══════════════════════════════════════════════════════
+  PATTERN 3: LINE CHART (trends, ablation across stages)
+  Use when showing performance change across conditions/epochs/datasets
+  ═══════════════════════════════════════════════════════
+
+  <div class="chart-area">
+    <div class="chart-title">Accuracy Across Training Stages</div>
+    <svg width="480" height="180" viewBox="0 0 480 180">
+      <!-- Grid -->
+      <line x1="60" y1="150" x2="440" y2="150" stroke="#e0e0e0" stroke-width="1"/>
+      <line x1="60" y1="110" x2="440" y2="110" stroke="#f0f0f0" stroke-width="1" stroke-dasharray="4,3"/>
+      <line x1="60" y1="70" x2="440" y2="70" stroke="#f0f0f0" stroke-width="1" stroke-dasharray="4,3"/>
+      <line x1="60" y1="30" x2="440" y2="30" stroke="#f0f0f0" stroke-width="1" stroke-dasharray="4,3"/>
+
+      <!-- Y-axis values -->
+      <text x="50" y="154" text-anchor="end" font-size="10" fill="#888">0.60</text>
+      <text x="50" y="114" text-anchor="end" font-size="10" fill="#888">0.70</text>
+      <text x="50" y="74" text-anchor="end" font-size="10" fill="#888">0.80</text>
+      <text x="50" y="34" text-anchor="end" font-size="10" fill="#888">0.90</text>
+
+      <!-- X-axis labels -->
+      <text x="100" y="168" text-anchor="middle" font-size="10" fill="#555">Stage 1</text>
+      <text x="210" y="168" text-anchor="middle" font-size="10" fill="#555">Stage 2</text>
+      <text x="320" y="168" text-anchor="middle" font-size="10" fill="#555">Stage 3</text>
+      <text x="430" y="168" text-anchor="middle" font-size="10" fill="#555">Stage 4</text>
+
+      <!-- Line: Baseline (dashed, gray) -->
+      <polyline points="100,130 210,110 320,100 430,90"
+        fill="none" stroke="#aaa" stroke-width="2" stroke-dasharray="6,4"/>
+      <!-- Line: Our method (solid, accent) -->
+      <polyline points="100,120 210,85 320,55 430,35"
+        fill="none" stroke="ACCENT" stroke-width="2.5"/>
+      <!-- Data points (circles) -->
+      <circle cx="100" cy="120" r="5" fill="ACCENT"/>
+      <circle cx="210" cy="85" r="5" fill="ACCENT"/>
+      <circle cx="320" cy="55" r="5" fill="ACCENT"/>
+      <circle cx="430" cy="35" r="5" fill="ACCENT" stroke="#fff" stroke-width="2"/>
+
+      <!-- Legend -->
+      <line x1="280" y1="12" x2="300" y2="12" stroke="#aaa" stroke-width="2" stroke-dasharray="4,3"/>
+      <text x="305" y="16" font-size="10" fill="#666">Baseline</text>
+      <line x1="360" y1="12" x2="380" y2="12" stroke="ACCENT" stroke-width="2.5"/>
+      <text x="385" y="16" font-size="10" fill="ACCENT" font-weight="600">Ours</text>
+    </svg>
+  </div>
+
+  ═══════════════════════════════════════════════════════
+  PATTERN 4: LOLLIPOP/DOT CHART (ranked list, many items)
+  Use when ranking 5-10 items — cleaner than bars for long lists
+  ═══════════════════════════════════════════════════════
+
+  <div class="chart-area">
+    <div class="chart-title">Model Ranking by F1</div>
+    <svg width="480" height="160" viewBox="0 0 480 160">
+      <!-- Items (label — line — dot — value) -->
+      <text x="120" y="28" text-anchor="end" font-size="12" fill="#333">GPT-5</text>
+      <line x1="130" y1="24" x2="380" y2="24" stroke="#e8ecf0" stroke-width="1"/>
+      <circle cx="380" cy="24" r="6" fill="ACCENT"/>
+      <text x="395" y="28" font-size="11" font-weight="700" fill="ACCENT">0.91</text>
+
+      <text x="120" y="58" text-anchor="end" font-size="12" fill="#333">Llama 3.2</text>
+      <line x1="130" y1="54" x2="350" y2="54" stroke="#e8ecf0" stroke-width="1"/>
+      <circle cx="350" cy="54" r="5" fill="PRIMARY_DARK"/>
+      <text x="365" y="58" font-size="11" fill="#333">0.85</text>
+
+      <text x="120" y="88" text-anchor="end" font-size="12" fill="#333">Mistral 7B</text>
+      <line x1="130" y1="84" x2="320" y2="84" stroke="#e8ecf0" stroke-width="1"/>
+      <circle cx="320" cy="84" r="5" fill="PRIMARY_DARK"/>
+      <text x="335" y="88" font-size="11" fill="#333">0.79</text>
+
+      <text x="120" y="118" text-anchor="end" font-size="12" fill="#333">KNN Graph</text>
+      <line x1="130" y1="114" x2="280" y2="114" stroke="#e8ecf0" stroke-width="1"/>
+      <circle cx="280" cy="114" r="5" fill="PRIMARY_MID" opacity="0.6"/>
+      <text x="295" y="118" font-size="11" fill="#666">0.71</text>
+    </svg>
+  </div>
+
+  ═══════════════════════════════════════════════════════
+  PATTERN 5: SCATTER PLOT + TREND/REGRESSION LINE
+  Use when showing correlation between two variables (e.g., α vs β, size vs perf)
+  ═══════════════════════════════════════════════════════
+
+  <div class="chart-area">
+    <div class="chart-title">Zipf exponent vs Heaps exponent (R² = 0.80)</div>
+    <svg width="440" height="200" viewBox="0 0 440 200">
+      <defs>
+        <linearGradient id="trendGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="ACCENT"/>
+          <stop offset="100%" stop-color="ACCENT" stop-opacity="0.6"/>
+        </linearGradient>
+      </defs>
+
+      <!-- Axes -->
+      <line x1="60" y1="165" x2="400" y2="165" stroke="#ccc" stroke-width="1.2"/>
+      <line x1="60" y1="165" x2="60" y2="20" stroke="#ccc" stroke-width="1.2"/>
+
+      <!-- Grid lines -->
+      <line x1="60" y1="120" x2="400" y2="120" stroke="#f0f0f0" stroke-dasharray="4,3"/>
+      <line x1="60" y1="75" x2="400" y2="75" stroke="#f0f0f0" stroke-dasharray="4,3"/>
+
+      <!-- Trend/regression line -->
+      <line x1="80" y1="40" x2="380" y2="150" stroke="url(#trendGrad)" stroke-width="2.5" stroke-linecap="round"/>
+
+      <!-- Data points (scattered around the trend) -->
+      <circle cx="95" cy="48" r="5" fill="PRIMARY_DARK" opacity="0.8"/>
+      <circle cx="130" cy="62" r="5" fill="PRIMARY_DARK" opacity="0.8"/>
+      <circle cx="155" cy="78" r="5" fill="PRIMARY_DARK" opacity="0.8"/>
+      <circle cx="190" cy="88" r="5" fill="PRIMARY_DARK" opacity="0.8"/>
+      <circle cx="220" cy="100" r="5" fill="PRIMARY_DARK" opacity="0.8"/>
+      <circle cx="255" cy="108" r="5" fill="PRIMARY_DARK" opacity="0.8"/>
+      <circle cx="290" cy="125" r="5" fill="PRIMARY_DARK" opacity="0.8"/>
+      <circle cx="320" cy="132" r="5" fill="PRIMARY_DARK" opacity="0.8"/>
+      <circle cx="360" cy="148" r="6" fill="ACCENT"/>
+
+      <!-- Highlighted point label -->
+      <rect x="340" y="126" width="80" height="18" rx="9" fill="rgba(ACCENT_RGB,0.12)"/>
+      <text x="380" y="139" text-anchor="middle" font-size="10" font-weight="700" fill="ACCENT">Outlier cuisine</text>
+
+      <!-- R² annotation -->
+      <rect x="300" y="30" width="90" height="22" rx="8" fill="rgba(ACCENT_RGB,0.1)"/>
+      <text x="345" y="45" text-anchor="middle" font-size="12" font-weight="700" fill="ACCENT">R² = 0.80</text>
+
+      <!-- Axis labels -->
+      <text x="230" y="190" text-anchor="middle" font-size="11" fill="#555">X variable (e.g., α)</text>
+      <text x="20" y="95" font-size="11" fill="#555" transform="rotate(-90 20 95)">Y variable (e.g., β)</text>
+    </svg>
+  </div>
+
+  ═══════════════════════════════════════════════════════
+  PATTERN 6: STACKED / PROPORTIONAL BAR
+  Use when showing composition, win/loss splits, or part-of-whole
+  ═══════════════════════════════════════════════════════
+
+  <div class="chart-area">
+    <div class="chart-title">Win/Loss Share by Training Scale</div>
+    <svg width="480" height="160" viewBox="0 0 480 160">
+      <defs>
+        <linearGradient id="stackWin" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="ACCENT"/>
+          <stop offset="100%" stop-color="ACCENT" stop-opacity="0.8"/>
+        </linearGradient>
+        <linearGradient id="stackLoss" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="PRIMARY_MID"/>
+          <stop offset="100%" stop-color="PRIMARY_LIGHT"/>
+        </linearGradient>
+      </defs>
+
+      <!-- Y-axis labels -->
+      <text x="115" y="38" text-anchor="end" font-size="12" fill="#333">10 computers</text>
+      <text x="115" y="72" text-anchor="end" font-size="12" fill="#333">100 computers</text>
+      <text x="115" y="106" text-anchor="end" font-size="12" fill="#333">500 computers</text>
+      <text x="115" y="140" text-anchor="end" font-size="12" font-weight="700" fill="ACCENT">900 computers</text>
+
+      <!-- Stacked bars (win portion + loss portion, total width = 320) -->
+      <!-- 10 computers: 48% win, 52% loss -->
+      <rect x="120" y="24" width="154" height="22" rx="4" fill="url(#stackWin)"/>
+      <rect x="274" y="24" width="166" height="22" rx="4" fill="url(#stackLoss)" opacity="0.6"/>
+      <text x="197" y="39" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">48%</text>
+      <text x="357" y="39" text-anchor="middle" font-size="11" fill="#fff">52%</text>
+
+      <!-- 100 computers: 64% win, 36% loss -->
+      <rect x="120" y="58" width="205" height="22" rx="4" fill="url(#stackWin)"/>
+      <rect x="325" y="58" width="115" height="22" rx="4" fill="url(#stackLoss)" opacity="0.6"/>
+      <text x="222" y="73" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">64%</text>
+      <text x="382" y="73" text-anchor="middle" font-size="11" fill="#fff">36%</text>
+
+      <!-- 500 computers: 75% win, 25% loss -->
+      <rect x="120" y="92" width="240" height="22" rx="4" fill="url(#stackWin)"/>
+      <rect x="360" y="92" width="80" height="22" rx="4" fill="url(#stackLoss)" opacity="0.6"/>
+      <text x="240" y="107" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">75%</text>
+      <text x="400" y="107" text-anchor="middle" font-size="11" fill="#fff">25%</text>
+
+      <!-- 900 computers: 83% win, 17% loss -->
+      <rect x="120" y="126" width="266" height="22" rx="4" fill="url(#stackWin)"/>
+      <rect x="386" y="126" width="54" height="22" rx="4" fill="url(#stackLoss)" opacity="0.6"/>
+      <text x="253" y="141" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">83%</text>
+      <text x="413" y="141" text-anchor="middle" font-size="11" fill="#fff">17%</text>
+
+      <!-- Legend -->
+      <rect x="120" y="155" width="10" height="10" rx="3" fill="url(#stackWin)"/>
+      <text x="134" y="164" font-size="10" fill="#555">Skill wins</text>
+      <rect x="200" y="155" width="10" height="10" rx="3" fill="url(#stackLoss)" opacity="0.6"/>
+      <text x="214" y="164" font-size="10" fill="#555">Baseline wins</text>
+    </svg>
+  </div>
+
+  ═══════════════════════════════════════════════════════
+  PATTERN 7: RADAR / SPIDER CHART
+  Use when comparing models across 4-6 different dimensions/metrics
+  ═══════════════════════════════════════════════════════
+
+  <div class="chart-area">
+    <div class="chart-title">Multi-Metric Model Comparison</div>
+    <svg width="360" height="280" viewBox="0 0 360 280">
+      <defs>
+        <linearGradient id="radarFill1" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="PRIMARY_DARK" stop-opacity="0.25"/>
+          <stop offset="100%" stop-color="PRIMARY_MID" stop-opacity="0.08"/>
+        </linearGradient>
+        <linearGradient id="radarFill2" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="ACCENT" stop-opacity="0.3"/>
+          <stop offset="100%" stop-color="ACCENT" stop-opacity="0.08"/>
+        </linearGradient>
+      </defs>
+
+      <!-- Center: 180, 140; Radius: 100 -->
+      <!-- Pentagon grid (5 axes: Accuracy, Speed, Memory, Robustness, Interpretability) -->
+      <!-- Outer ring -->
+      <polygon points="180,40 275,91 256,190 104,190 85,91"
+        fill="none" stroke="#e0e5ea" stroke-width="1"/>
+      <!-- Middle ring -->
+      <polygon points="180,70 247.5,105.5 238,165 122,165 112.5,105.5"
+        fill="none" stroke="#eff2f5" stroke-width="1"/>
+      <!-- Inner ring -->
+      <polygon points="180,100 220,120 214,148 146,148 140,120"
+        fill="none" stroke="#f5f7f9" stroke-width="1"/>
+
+      <!-- Axis lines -->
+      <line x1="180" y1="140" x2="180" y2="40" stroke="#ddd" stroke-width="1"/>
+      <line x1="180" y1="140" x2="275" y2="91" stroke="#ddd" stroke-width="1"/>
+      <line x1="180" y1="140" x2="256" y2="190" stroke="#ddd" stroke-width="1"/>
+      <line x1="180" y1="140" x2="104" y2="190" stroke="#ddd" stroke-width="1"/>
+      <line x1="180" y1="140" x2="85" y2="91" stroke="#ddd" stroke-width="1"/>
+
+      <!-- Axis labels -->
+      <text x="180" y="28" text-anchor="middle" font-size="11" font-weight="600" fill="#333">Accuracy</text>
+      <text x="290" y="91" font-size="11" font-weight="600" fill="#333">Speed</text>
+      <text x="268" y="205" font-size="11" font-weight="600" fill="#333">Memory</text>
+      <text x="80" y="205" text-anchor="end" font-size="11" font-weight="600" fill="#333">Robust.</text>
+      <text x="70" y="91" text-anchor="end" font-size="11" font-weight="600" fill="#333">Interp.</text>
+
+      <!-- Model A polygon (baseline — smaller area) -->
+      <polygon points="180,65 248,110 235,170 120,162 110,105"
+        fill="url(#radarFill1)" stroke="PRIMARY_DARK" stroke-width="1.8" opacity="0.7"/>
+
+      <!-- Model B polygon (ours — larger area, accent) -->
+      <polygon points="180,50 268,96 250,182 112,178 92,96"
+        fill="url(#radarFill2)" stroke="ACCENT" stroke-width="2.2"/>
+
+      <!-- Data points on "Ours" -->
+      <circle cx="180" cy="50" r="4" fill="ACCENT"/>
+      <circle cx="268" cy="96" r="4" fill="ACCENT"/>
+      <circle cx="250" cy="182" r="4" fill="ACCENT"/>
+      <circle cx="112" cy="178" r="4" fill="ACCENT"/>
+      <circle cx="92" cy="96" r="4" fill="ACCENT"/>
+
+      <!-- Legend -->
+      <line x1="110" y1="258" x2="130" y2="258" stroke="PRIMARY_DARK" stroke-width="2.5"/>
+      <text x="135" y="262" font-size="10" fill="#555">Baseline</text>
+      <line x1="200" y1="258" x2="220" y2="258" stroke="ACCENT" stroke-width="2.5"/>
+      <text x="225" y="262" font-size="10" fill="ACCENT" font-weight="600">Ours</text>
+    </svg>
+  </div>
+
+  ═══════════════════════════════════════════════════════
+  PATTERN 8: AREA CHART (filled curve, U-shape, non-monotonic)
+  Use when showing how a metric changes non-linearly (e.g., complexity vs size)
+  ═══════════════════════════════════════════════════════
+
+  <div class="chart-area">
+    <div class="chart-title">Information Content vs Recipe Size</div>
+    <svg width="440" height="190" viewBox="0 0 440 190">
+      <defs>
+        <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="ACCENT" stop-opacity="0.3"/>
+          <stop offset="100%" stop-color="ACCENT" stop-opacity="0.03"/>
+        </linearGradient>
+        <linearGradient id="areaLine" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="ACCENT"/>
+          <stop offset="100%" stop-color="PRIMARY_MID"/>
+        </linearGradient>
+      </defs>
+
+      <!-- Grid -->
+      <line x1="55" y1="155" x2="410" y2="155" stroke="#e0e0e0" stroke-width="1"/>
+      <line x1="55" y1="155" x2="55" y2="20" stroke="#e0e0e0" stroke-width="1"/>
+      <line x1="55" y1="115" x2="410" y2="115" stroke="#f0f0f0" stroke-dasharray="4,3"/>
+      <line x1="55" y1="75" x2="410" y2="75" stroke="#f0f0f0" stroke-dasharray="4,3"/>
+      <line x1="55" y1="35" x2="410" y2="35" stroke="#f0f0f0" stroke-dasharray="4,3"/>
+
+      <!-- Y-axis labels -->
+      <text x="48" y="158" text-anchor="end" font-size="10" fill="#888">8.0</text>
+      <text x="48" y="118" text-anchor="end" font-size="10" fill="#888">9.0</text>
+      <text x="48" y="78" text-anchor="end" font-size="10" fill="#888">10.0</text>
+      <text x="48" y="38" text-anchor="end" font-size="10" fill="#888">11.0</text>
+
+      <!-- X-axis labels -->
+      <text x="80" y="172" text-anchor="middle" font-size="10" fill="#555">3</text>
+      <text x="145" y="172" text-anchor="middle" font-size="10" fill="#555">6</text>
+      <text x="210" y="172" text-anchor="middle" font-size="10" fill="#555">9</text>
+      <text x="275" y="172" text-anchor="middle" font-size="10" fill="#555">12</text>
+      <text x="345" y="172" text-anchor="middle" font-size="10" fill="#555">18</text>
+      <text x="395" y="172" text-anchor="middle" font-size="10" fill="#555">25</text>
+
+      <!-- Filled area under curve (U-shape: starts high, dips, rises again) -->
+      <path d="M80,30 C120,38 145,85 175,115 C200,135 240,145 280,140 C320,132 360,110 395,80 L395,155 L80,155 Z"
+        fill="url(#areaGrad)"/>
+
+      <!-- Curve line on top -->
+      <path d="M80,30 C120,38 145,85 175,115 C200,135 240,145 280,140 C320,132 360,110 395,80"
+        fill="none" stroke="url(#areaLine)" stroke-width="2.5" stroke-linecap="round"/>
+
+      <!-- Data points at key positions -->
+      <circle cx="80" cy="30" r="4" fill="ACCENT"/>
+      <circle cx="145" cy="85" r="4" fill="ACCENT" opacity="0.8"/>
+      <circle cx="210" cy="130" r="4" fill="ACCENT" opacity="0.8"/>
+      <circle cx="280" cy="140" r="5" fill="ACCENT" stroke="#fff" stroke-width="2"/>
+      <circle cx="345" cy="118" r="4" fill="PRIMARY_MID" opacity="0.8"/>
+      <circle cx="395" cy="80" r="4" fill="PRIMARY_MID" opacity="0.8"/>
+
+      <!-- Annotation at minimum -->
+      <rect x="248" y="144" width="64" height="16" rx="8" fill="rgba(ACCENT_RGB,0.12)"/>
+      <text x="280" y="155" text-anchor="middle" font-size="9" font-weight="700" fill="ACCENT">minimum</text>
+
+      <!-- Axis titles -->
+      <text x="230" y="188" text-anchor="middle" font-size="11" fill="#555">Size (number of items)</text>
+    </svg>
+  </div>
+
+  ═══════════════════════════════════════════════════════
+  PATTERN 9: WATERFALL / DELTA CHART (ablation, component contribution)
+  Use when showing how removing components degrades from full model, or incremental gains
+  ═══════════════════════════════════════════════════════
+
+  <div class="chart-area">
+    <div class="chart-title">Ablation: Component Contribution to F1</div>
+    <svg width="480" height="200" viewBox="0 0 480 200">
+      <defs>
+        <linearGradient id="wfFull" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0%" stop-color="ACCENT"/>
+          <stop offset="100%" stop-color="ACCENT" stop-opacity="0.8"/>
+        </linearGradient>
+        <linearGradient id="wfDrop" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0%" stop-color="#e74c3c"/>
+          <stop offset="100%" stop-color="#e74c3c" stop-opacity="0.7"/>
+        </linearGradient>
+      </defs>
+
+      <!-- Baseline axis -->
+      <line x1="60" y1="170" x2="450" y2="170" stroke="#e0e0e0" stroke-width="1"/>
+
+      <!-- Full model (starting point — tall bar) -->
+      <rect x="75" y="30" width="50" height="140" rx="5" fill="url(#wfFull)"/>
+      <text x="100" y="22" text-anchor="middle" font-size="11" font-weight="700" fill="ACCENT">0.91</text>
+      <text x="100" y="188" text-anchor="middle" font-size="10" fill="#555">Full</text>
+
+      <!-- Connector line from full to first drop -->
+      <line x1="125" y1="30" x2="155" y2="30" stroke="#ccc" stroke-width="1" stroke-dasharray="3,2"/>
+
+      <!-- −Component A (drops from 0.91 to 0.85) -->
+      <rect x="155" y="30" width="50" height="25" rx="4" fill="url(#wfDrop)"/>
+      <text x="180" y="22" text-anchor="middle" font-size="10" fill="#e74c3c">−0.06</text>
+      <text x="180" y="188" text-anchor="middle" font-size="10" fill="#555">−Comp A</text>
+      <line x1="205" y1="55" x2="235" y2="55" stroke="#ccc" stroke-width="1" stroke-dasharray="3,2"/>
+
+      <!-- −Component B (drops from 0.85 to 0.80) -->
+      <rect x="235" y="55" width="50" height="20" rx="4" fill="url(#wfDrop)"/>
+      <text x="260" y="47" text-anchor="middle" font-size="10" fill="#e74c3c">−0.05</text>
+      <text x="260" y="188" text-anchor="middle" font-size="10" fill="#555">−Comp B</text>
+      <line x1="285" y1="75" x2="315" y2="75" stroke="#ccc" stroke-width="1" stroke-dasharray="3,2"/>
+
+      <!-- −Component C (drops from 0.80 to 0.73) -->
+      <rect x="315" y="75" width="50" height="28" rx="4" fill="url(#wfDrop)"/>
+      <text x="340" y="67" text-anchor="middle" font-size="10" fill="#e74c3c">−0.07</text>
+      <text x="340" y="188" text-anchor="middle" font-size="10" fill="#555">−Comp C</text>
+      <line x1="365" y1="103" x2="395" y2="103" stroke="#ccc" stroke-width="1" stroke-dasharray="3,2"/>
+
+      <!-- Remaining (final bar from axis) -->
+      <rect x="395" y="103" width="50" height="67" rx="5" fill="PRIMARY_MID" opacity="0.5"/>
+      <text x="420" y="95" text-anchor="middle" font-size="11" font-weight="600" fill="PRIMARY_DARK">0.73</text>
+      <text x="420" y="188" text-anchor="middle" font-size="10" fill="#555">Base</text>
+    </svg>
+  </div>
+
+  ═══════════════════════════════════════════════════════
+  PATTERN 10: HEATMAP / COLOR GRID
+  Use for model × metric matrices, cross-comparison grids, confusion-style displays
+  ═══════════════════════════════════════════════════════
+
+  <div class="chart-area">
+    <div class="chart-title">Model × Metric Performance Grid</div>
+    <svg width="440" height="200" viewBox="0 0 440 200">
+      <defs>
+        <!-- Color scale: lower=light, higher=dark accent -->
+        <linearGradient id="hmScale" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#f0f4f8"/>
+          <stop offset="50%" stop-color="ACCENT" stop-opacity="0.4"/>
+          <stop offset="100%" stop-color="ACCENT"/>
+        </linearGradient>
+      </defs>
+
+      <!-- Column headers (metrics) -->
+      <text x="175" y="20" text-anchor="middle" font-size="11" font-weight="600" fill="#333">F1</text>
+      <text x="255" y="20" text-anchor="middle" font-size="11" font-weight="600" fill="#333">Precision</text>
+      <text x="335" y="20" text-anchor="middle" font-size="11" font-weight="600" fill="#333">Recall</text>
+      <text x="415" y="20" text-anchor="middle" font-size="11" font-weight="600" fill="#333">Latency</text>
+
+      <!-- Row 1: Model A -->
+      <text x="80" y="52" text-anchor="end" font-size="12" fill="#333">Model A</text>
+      <rect x="140" y="33" width="70" height="28" rx="6" fill="ACCENT" opacity="0.35"/>
+      <text x="175" y="52" text-anchor="middle" font-size="11" fill="#333">0.78</text>
+      <rect x="220" y="33" width="70" height="28" rx="6" fill="ACCENT" opacity="0.30"/>
+      <text x="255" y="52" text-anchor="middle" font-size="11" fill="#333">0.81</text>
+      <rect x="300" y="33" width="70" height="28" rx="6" fill="ACCENT" opacity="0.25"/>
+      <text x="335" y="52" text-anchor="middle" font-size="11" fill="#333">0.75</text>
+      <rect x="380" y="33" width="70" height="28" rx="6" fill="#e74c3c" opacity="0.25"/>
+      <text x="415" y="52" text-anchor="middle" font-size="11" fill="#333">120ms</text>
+
+      <!-- Row 2: Model B -->
+      <text x="80" y="90" text-anchor="end" font-size="12" fill="#333">Model B</text>
+      <rect x="140" y="71" width="70" height="28" rx="6" fill="ACCENT" opacity="0.50"/>
+      <text x="175" y="90" text-anchor="middle" font-size="11" fill="#333">0.84</text>
+      <rect x="220" y="71" width="70" height="28" rx="6" fill="ACCENT" opacity="0.45"/>
+      <text x="255" y="90" text-anchor="middle" font-size="11" fill="#333">0.86</text>
+      <rect x="300" y="71" width="70" height="28" rx="6" fill="ACCENT" opacity="0.40"/>
+      <text x="335" y="90" text-anchor="middle" font-size="11" fill="#333">0.82</text>
+      <rect x="380" y="71" width="70" height="28" rx="6" fill="#e74c3c" opacity="0.35"/>
+      <text x="415" y="90" text-anchor="middle" font-size="11" fill="#333">85ms</text>
+
+      <!-- Row 3: Ours (highlighted) -->
+      <text x="80" y="128" text-anchor="end" font-size="12" font-weight="700" fill="ACCENT">Ours</text>
+      <rect x="140" y="109" width="70" height="28" rx="6" fill="ACCENT" opacity="0.85"/>
+      <text x="175" y="128" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">0.91</text>
+      <rect x="220" y="109" width="70" height="28" rx="6" fill="ACCENT" opacity="0.75"/>
+      <text x="255" y="128" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">0.93</text>
+      <rect x="300" y="109" width="70" height="28" rx="6" fill="ACCENT" opacity="0.65"/>
+      <text x="335" y="128" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">0.89</text>
+      <rect x="380" y="109" width="70" height="28" rx="6" fill="#27ae60" opacity="0.6"/>
+      <text x="415" y="128" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">42ms</text>
+
+      <!-- Color scale legend -->
+      <rect x="140" y="160" width="120" height="10" rx="5" fill="url(#hmScale)"/>
+      <text x="140" y="185" font-size="9" fill="#888">low</text>
+      <text x="260" y="185" text-anchor="end" font-size="9" fill="#888">high</text>
+      <text x="290" y="175" font-size="9" fill="#888">■ best in column</text>
+    </svg>
+  </div>
+
+  ═══════════════════════════════════════════════════════
+  PATTERN 11: DONUT / RING GAUGE
+  Use for single-metric emphasis (%, accuracy, completion rate) — more visual than hero number alone
+  ═══════════════════════════════════════════════════════
+
+  <div class="chart-area">
+    <div class="chart-title">Overall Accuracy</div>
+    <svg width="200" height="200" viewBox="0 0 200 200">
+      <defs>
+        <linearGradient id="donutGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="ACCENT"/>
+          <stop offset="100%" stop-color="PRIMARY_DARK"/>
+        </linearGradient>
+      </defs>
+
+      <!-- Background ring (track) -->
+      <circle cx="100" cy="100" r="70" fill="none" stroke="#eff2f5" stroke-width="18"/>
+
+      <!-- Progress ring (91% = 91/100 × 2π×70 ≈ 401 of circumference 440) -->
+      <!-- stroke-dasharray = filled, gap; rotate -90° to start from top -->
+      <circle cx="100" cy="100" r="70" fill="none"
+        stroke="url(#donutGrad)" stroke-width="18" stroke-linecap="round"
+        stroke-dasharray="401 440"
+        transform="rotate(-90 100 100)"/>
+
+      <!-- Center value -->
+      <text x="100" y="92" text-anchor="middle" font-size="36" font-weight="800" fill="PRIMARY_DARK">91%</text>
+      <text x="100" y="115" text-anchor="middle" font-size="12" fill="#666">F1-Score</text>
+      <text x="100" y="132" text-anchor="middle" font-size="10" fill="#999">GPT-5 + Ours</text>
+    </svg>
+  </div>
+
+  ═══════════════════════════════════════════════════════
+  PATTERN 12: BUTTERFLY / DIVERGING BAR CHART
+  Use for before-vs-after, gain-vs-loss, or bidirectional comparison from center axis
+  ═══════════════════════════════════════════════════════
+
+  <div class="chart-area">
+    <div class="chart-title">Performance Change: Before → After Refinement</div>
+    <svg width="480" height="180" viewBox="0 0 480 180">
+      <defs>
+        <linearGradient id="bfLeft" x1="1" y1="0" x2="0" y2="0">
+          <stop offset="0%" stop-color="PRIMARY_MID"/>
+          <stop offset="100%" stop-color="PRIMARY_LIGHT"/>
+        </linearGradient>
+        <linearGradient id="bfRight" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="ACCENT"/>
+          <stop offset="100%" stop-color="ACCENT" stop-opacity="0.7"/>
+        </linearGradient>
+      </defs>
+
+      <!-- Center axis -->
+      <line x1="240" y1="10" x2="240" y2="155" stroke="#ccc" stroke-width="1.5"/>
+
+      <!-- Column headers -->
+      <text x="140" y="16" text-anchor="middle" font-size="11" font-weight="600" fill="PRIMARY_DARK">Before</text>
+      <text x="340" y="16" text-anchor="middle" font-size="11" font-weight="600" fill="ACCENT">After</text>
+
+      <!-- Row labels (center) -->
+      <text x="240" y="48" text-anchor="middle" font-size="11" fill="#333">Accuracy</text>
+      <text x="240" y="88" text-anchor="middle" font-size="11" fill="#333">Recall</text>
+      <text x="240" y="128" text-anchor="middle" font-size="11" fill="#333">Precision</text>
+
+      <!-- Accuracy: before=0.72 (left), after=0.91 (right) -->
+      <rect x="132" y="32" width="108" height="18" rx="4" fill="url(#bfLeft)"/>
+      <text x="125" y="45" text-anchor="end" font-size="10" font-weight="600" fill="PRIMARY_DARK">0.72</text>
+      <rect x="240" y="32" width="145" height="18" rx="4" fill="url(#bfRight)"/>
+      <text x="392" y="45" font-size="10" font-weight="700" fill="ACCENT">0.91 (+0.19)</text>
+
+      <!-- Recall: before=0.68 (left), after=0.85 (right) -->
+      <rect x="150" y="72" width="90" height="18" rx="4" fill="url(#bfLeft)"/>
+      <text x="143" y="85" text-anchor="end" font-size="10" font-weight="600" fill="PRIMARY_DARK">0.68</text>
+      <rect x="240" y="72" width="120" height="18" rx="4" fill="url(#bfRight)"/>
+      <text x="367" y="85" font-size="10" font-weight="700" fill="ACCENT">0.85 (+0.17)</text>
+
+      <!-- Precision: before=0.80 (left), after=0.93 (right) -->
+      <rect x="120" y="112" width="120" height="18" rx="4" fill="url(#bfLeft)"/>
+      <text x="113" y="125" text-anchor="end" font-size="10" font-weight="600" fill="PRIMARY_DARK">0.80</text>
+      <rect x="240" y="112" width="155" height="18" rx="4" fill="url(#bfRight)"/>
+      <text x="402" y="125" font-size="10" font-weight="700" fill="ACCENT">0.93 (+0.13)</text>
+
+      <!-- Legend -->
+      <rect x="160" y="155" width="12" height="10" rx="3" fill="url(#bfLeft)"/>
+      <text x="176" y="164" font-size="10" fill="#555">Before refinement</text>
+      <rect x="290" y="155" width="12" height="10" rx="3" fill="url(#bfRight)"/>
+      <text x="306" y="164" font-size="10" fill="ACCENT" font-weight="600">After refinement</text>
+    </svg>
+  </div>
+
+  ═══════════════════════════════════════════════════════
+  DESIGN RULES (apply to ALL chart types):
+  ═══════════════════════════════════════════════════════
+
+  - Max 8-10 items per chart (more = show top-N with "..." or use table alongside)
+  - Use gradient fills: url(#barGrad) for normal, url(#barAccent) for best
+  - Rounded corners: rx="5" on bars
+  - Subtle dashed grid lines for reference
+  - Value labels with pill background for readability
+  - Chart area has light background (#fafbfd) and rounded corners (12px)
+  - ALWAYS highlight the "best" or "our method" result with ACCENT color
+  - Chart width: 400-560px depending on layout (leave room for side content)
+
+  CRITICAL POSITIONING RULE:
+  - SVG charts MUST be INSIDE a positioned container (the .chart-area div)
+  - NEVER place a bare <svg> as a sibling of position:absolute elements —
+    it will be occluded. Always wrap SVG inside the .chart-area div or give
+    the <svg> itself position:absolute/relative with an explicit z-index.
+  - If you use a background panel (.top-band etc.), the SVG must be INSIDE
+    that panel or positioned ABOVE it with z-index.
+
+  WHEN TO USE WHICH:
+  - Model vs model comparison → horizontal bar (Pattern 1)
+  - Multiple metrics per model → grouped bar (Pattern 2)
+  - Performance over time/stages → line chart (Pattern 3)
+  - Ranking many items → lollipop (Pattern 4)
+  - Correlation between 2 variables → scatter + trend (Pattern 5)
+  - Win/loss, composition, proportions → stacked bar (Pattern 6)
+  - Multi-dimensional model profile (4-6 axes) → radar (Pattern 7)
+  - Non-monotonic trend, U-shape, or continuous curve → area chart (Pattern 8)
+  - Ablation: full → remove components → delta → waterfall (Pattern 9)
+  - Model × metric matrix, many-to-many comparison → heatmap (Pattern 10)
+  - Single key metric emphasis (%, score, rate) → donut gauge (Pattern 11)
+  - Before/after, gain/loss, bidirectional → butterfly bars (Pattern 12)
+  - 2 conditions × many items → side-by-side bars or paired dots
+
+  AVOID:
+  - Pie charts (hard to compare, wastes space)
+  - 3D effects or heavy shadows on bars
+  - Legend boxes when you can label bars directly
+  - Chart without a title
+  - Table when a chart would work (TABLE IS LAST RESORT)
+-->

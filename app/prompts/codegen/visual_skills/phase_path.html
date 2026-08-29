@@ -1,0 +1,14 @@
+<!-- Local skill: use three to six real phases; keep structure editorial, not an abstract connector diagram. -->
+<style>
+  .skill-phase-path { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; border-top: 3px solid var(--primary); padding-top: 14px; }
+  .skill-phase { min-width: 0; padding: 0 16px 14px 0; border-bottom: 1px solid color-mix(in srgb, var(--secondary) 34%, transparent); }
+  .skill-phase-index { display: block; color: var(--primary-text); font-size: 12px; line-height: 1; font-weight: 800; text-transform: uppercase; }
+  .skill-phase-time { display: block; margin: 5px 0 12px; color: var(--accent-text); font-size: 15px; line-height: 1; font-weight: 750; }
+  .skill-phase h3 { margin: 0 0 5px; color: var(--ink); font-size: 19px; line-height: 1.05; }
+  .skill-phase p { margin: 0; color: var(--ink); font-size: 14px; line-height: 1.2; }
+</style>
+<div class="skill-phase-path">
+  <section class="skill-phase"><span class="skill-phase-index">{{phase}}</span><span class="skill-phase-time">{{time_or_duration}}</span><h3>{{action}}</h3><p>{{outcome}}</p></section>
+  <section class="skill-phase"><span class="skill-phase-index">{{phase}}</span><span class="skill-phase-time">{{time_or_duration}}</span><h3>{{action}}</h3><p>{{outcome}}</p></section>
+  <section class="skill-phase"><span class="skill-phase-index">{{phase}}</span><span class="skill-phase-time">{{time_or_duration}}</span><h3>{{action}}</h3><p>{{outcome}}</p></section>
+</div>

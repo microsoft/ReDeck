@@ -1,0 +1,38 @@
+<!-- Local skill: change node count, scale, and topology to match the evidence; this is not a fixed three-step flow. -->
+<style>
+  .skill-process-field {
+    width: 100%;
+    border-top: 2px solid var(--secondary);
+    padding-top: 10px;
+    color: var(--primary);
+  }
+  .skill-process-field svg { display: block; width: 100%; height: auto; }
+  .skill-process-node { fill: var(--canvas); stroke: var(--primary); stroke-width: 2; }
+  .skill-process-focus { fill: color-mix(in srgb, var(--accent) 18%, var(--canvas)); stroke: var(--accent); stroke-width: 3; }
+  .skill-process-link { fill: none; stroke: var(--secondary); stroke-width: 3; }
+  .skill-process-label { fill: var(--ink); font-size: 17px; font-weight: 750; }
+  .skill-process-note { fill: var(--ink); font-size: 13px; }
+</style>
+<div class="skill-process-field">
+  <svg viewBox="0 0 760 280" role="img" aria-label="{{supported_process_description}}">
+    <defs>
+      <marker id="skill-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="var(--secondary)"></path>
+      </marker>
+    </defs>
+    <path class="skill-process-link" d="M170 135 C235 135 245 70 320 70" marker-end="url(#skill-arrow)"></path>
+    <path class="skill-process-link" d="M170 145 C235 145 245 215 320 215" marker-end="url(#skill-arrow)"></path>
+    <path class="skill-process-link" d="M470 70 C535 70 540 140 600 140" marker-end="url(#skill-arrow)"></path>
+    <path class="skill-process-link" d="M470 215 C535 215 540 150 600 150" marker-end="url(#skill-arrow)"></path>
+    <rect class="skill-process-node" x="30" y="100" width="140" height="80" rx="8"></rect>
+    <rect class="skill-process-node" x="320" y="32" width="150" height="76" rx="8"></rect>
+    <rect class="skill-process-node" x="320" y="177" width="150" height="76" rx="8"></rect>
+    <rect class="skill-process-focus" x="600" y="96" width="130" height="96" rx="8"></rect>
+    <text class="skill-process-label" x="100" y="133" text-anchor="middle">{{input}}</text>
+    <text class="skill-process-note" x="100" y="155" text-anchor="middle">{{input_note}}</text>
+    <text class="skill-process-label" x="395" y="67" text-anchor="middle">{{branch_a}}</text>
+    <text class="skill-process-label" x="395" y="212" text-anchor="middle">{{branch_b}}</text>
+    <text class="skill-process-label" x="665" y="135" text-anchor="middle">{{outcome}}</text>
+    <text class="skill-process-note" x="665" y="159" text-anchor="middle">{{outcome_note}}</text>
+  </svg>
+</div>

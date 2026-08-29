@@ -244,7 +244,11 @@ class TestMultiTurnTrace:
     def _make_router(self) -> EvalRouter:
         config = ExperimentConfig(
             run_id="trace_test",
-            eval_mode=EvalMode(enabled=True, use_judge_agent=False),
+            eval_mode=EvalMode(
+                enabled=True,
+                use_judge_agent=False,
+                use_probe_planner=False,
+            ),
         )
         llm = MagicMock()
         router = EvalRouter(llm, config)
@@ -333,7 +337,11 @@ class TestMultiTurnTrace:
         """Empty set() modified slides should still run differential eval."""
         router = self._make_router()
         exts = [_extraction(1)]
-        prev = [_issue("i1", slide=1)]
+        prev = [
+            _issue("i1", slide=1),
+            _issue("a1", slide=1, itype="narrative", rubric="A1"),
+            _issue("c1", slide=1, itype="missing_content", rubric="C1"),
+        ]
         modified = set()  # empty set, not None
 
         with patch.object(router.narrative_judge, 'evaluate', return_value=[]), \
@@ -349,8 +357,8 @@ class TestMultiTurnTrace:
                 turn_index=1,
             )
 
-        # i1 is on slide 1, but slide 1 is NOT in modified set → should be carried
-        assert any(i.issue_id == "i1" for i in issues)
+        # Nothing changed, so per-slide and deck-level issues must all survive.
+        assert {i.issue_id for i in issues} == {"i1", "a1", "c1"}
 
     def test_spatial_only_de_carryforward(self):
         """D/E issues on spatial-only slides should be carried, not re-evaluated."""
@@ -605,6 +613,43 @@ class TestPostProcessing:
         types = {i.issue_type for i in result if i.affected_slides == [1]}
         # At least one should remain (dedup keeps higher severity)
         assert len(result) >= 1
+
+
+class TestRunManagerIssueConvergence:
+    def test_defer_minor_b02_pingpong_after_same_slide_b02_resolved(self):
+        from app.orchestrator.run_manager import RunManager
+
+        resolved = _issue(
+            "b02_old",
+            itype="layout_inappropriate",
+            rubric="B02",
+            slide=9,
+            status=IssueStatus.RESOLVED,
+            severity=Severity.MINOR,
+        )
+        new_open = _issue(
+            "b02_new",
+            itype="layout_inappropriate",
+            rubric="B02",
+            slide=9,
+            status=IssueStatus.OPEN,
+            severity=Severity.MINOR,
+        )
+        hard_open = _issue(
+            "b13",
+            itype="alignment_inconsistency",
+            rubric="B13",
+            slide=9,
+            status=IssueStatus.OPEN,
+            severity=Severity.MAJOR,
+        )
+
+        result = RunManager._defer_subjective_b02_pingpong([resolved, new_open, hard_open])
+
+        assert result[1].status == IssueStatus.DEFERRED
+        assert result[1].recommended_action == RepairAction.KEEP
+        assert "subjective B02 hierarchy drift" in result[1].action_rationale
+        assert result[2].status == IssueStatus.OPEN
 
 
 # ================================================================

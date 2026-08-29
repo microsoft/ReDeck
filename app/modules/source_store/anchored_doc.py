@@ -7,6 +7,35 @@ from pathlib import Path
 from .models import AtomicBlock, Asset, TableData
 
 
+FIGURE_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
+
+
+def find_sidecar_image(json_path: Path) -> Path | None:
+    """Return the image belonging to a figure JSON sidecar.
+
+    PDF extraction preserves native raster formats, so a sidecar is not
+    necessarily paired with a PNG. Match the complete stem and compare the
+    suffix case-insensitively to also support files copied from other tools.
+    """
+    candidates = [
+        path
+        for path in json_path.parent.iterdir()
+        if path.is_file()
+        and path.stem == json_path.stem
+        and path.suffix.lower() in FIGURE_IMAGE_SUFFIXES
+    ]
+    if not candidates:
+        return None
+
+    suffix_priority = {
+        suffix: index for index, suffix in enumerate(FIGURE_IMAGE_SUFFIXES)
+    }
+    return min(
+        candidates,
+        key=lambda path: (suffix_priority[path.suffix.lower()], path.name),
+    )
+
+
 class AnchoredDocumentBuilder:
     """Build anchored document from paper_full.md and figure sidecars."""
 
@@ -115,13 +144,13 @@ class AnchoredDocumentBuilder:
         if figures_dir.exists():
             for json_path in sorted(figures_dir.glob("*.json")):
                 data = json.loads(json_path.read_text())
-                png_path = json_path.with_suffix(".png")
+                image_path = find_sidecar_image(json_path)
                 aid = f"A{counter:03d}"
                 assets.append(Asset(
                     asset_id=aid,
                     type="figure",
                     page=data.get("page"),
-                    image_path=str(png_path) if png_path.exists() else "",
+                    image_path=str(image_path) if image_path else "",
                     caption=data.get("caption", ""),
                     bbox=data.get("bbox", []),
                 ))

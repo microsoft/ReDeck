@@ -1,0 +1,178 @@
+<!--
+  SKILL: Icon Process Flow
+  Use when: showing a 3-5 step method overview where each step is a
+  conceptual phase (not a mathematical equation or data flow)
+
+  DIFFERENT FROM pipeline:
+  - pipeline: linear box-and-arrow for data/computation flow
+  - icon_process: conceptual stages with illustrative icons, for
+    high-level method overviews
+
+  DIFFERENT FROM numbered_steps:
+  - numbered_steps: vertical timeline with detail panel
+  - icon_process: horizontal flow with visual icons, for overview slides
+
+  KEY RULES:
+  - 3-5 stages arranged horizontally
+  - Each stage: round or rounded-square icon area + label + 1-line description
+  - Connecting arrows between stages
+  - Below: 2-3 sentence description per stage
+  - Clean, spacious layout — this is a SUMMARY, not detailed
+-->
+
+<style>
+  .iproc-flow {
+    position: absolute;
+    left: 60px;
+    top: 140px;
+    right: 60px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .iproc-step {
+    flex: 1;
+    max-width: 220px;
+    text-align: center;
+  }
+  .iproc-icon-wrap {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    margin: 0 auto 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+  }
+  .iproc-icon-wrap.primary { background: rgba(PRIMARY_RGB, 0.08); border: 2px solid PRIMARY_MID; }
+  .iproc-icon-wrap.accent { background: rgba(ACCENT_RGB, 0.08); border: 2px solid ACCENT; }
+  .iproc-icon-wrap.dark { background: PRIMARY_DARK; border: none; color: #fff; }
+
+  .iproc-step-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: PRIMARY_DARK;
+    margin-bottom: 6px;
+  }
+  .iproc-step-desc {
+    font-size: 12px;
+    line-height: 1.5;
+    color: #5a6977;
+  }
+
+  /* Arrow connector */
+  .iproc-arrow {
+    display: flex;
+    align-items: center;
+    padding-top: 30px;
+    color: #b0b8c4;
+    font-size: 24px;
+    flex-shrink: 0;
+  }
+
+  /* Detail cards below */
+  .iproc-details {
+    position: absolute;
+    left: 60px;
+    right: 60px;
+    bottom: 80px;
+    display: flex;
+    gap: 16px;
+  }
+  .iproc-detail-card {
+    flex: 1;
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: #f7f8fa;
+    border-top: 3px solid PRIMARY_LIGHT;
+  }
+  .iproc-detail-card.highlight {
+    border-top-color: ACCENT;
+    background: rgba(ACCENT_RGB, 0.03);
+  }
+  .iproc-detail-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: PRIMARY_MID;
+    margin-bottom: 6px;
+  }
+  .iproc-detail-card.highlight .iproc-detail-label {
+    color: ACCENT;
+  }
+  .iproc-detail-text {
+    font-size: 13px;
+    line-height: 1.5;
+    color: #3a4a5c;
+  }
+</style>
+
+<!--
+  USAGE:
+
+  <div class="iproc-flow">
+    <div class="iproc-step">
+      <div class="iproc-icon-wrap primary">👤</div>
+      <div class="iproc-step-title">Persona</div>
+      <div class="iproc-step-desc">Sample a high-level user description</div>
+    </div>
+    <div class="iproc-arrow">→</div>
+    <div class="iproc-step">
+      <div class="iproc-icon-wrap primary">📋</div>
+      <div class="iproc-step-title">User Profile</div>
+      <div class="iproc-step-desc">Expand into identity, role, projects</div>
+    </div>
+    <div class="iproc-arrow">→</div>
+    <div class="iproc-step">
+      <div class="iproc-icon-wrap accent">📁</div>
+      <div class="iproc-step-title">Filesystem</div>
+      <div class="iproc-step-desc">Plan folders, artifacts, relationships</div>
+    </div>
+    <div class="iproc-arrow">→</div>
+    <div class="iproc-step">
+      <div class="iproc-icon-wrap dark">🖥️</div>
+      <div class="iproc-step-title">Synthetic Computer</div>
+      <div class="iproc-step-desc">Instantiate populated environment</div>
+    </div>
+  </div>
+
+  <div class="iproc-details">
+    <div class="iproc-detail-card">
+      <div class="iproc-detail-label">Stage 1</div>
+      <div class="iproc-detail-text">A persona is expanded into a detailed user profile with identity, organization context, and behavior traits.</div>
+    </div>
+    <div class="iproc-detail-card">
+      <div class="iproc-detail-label">Stage 2</div>
+      <div class="iproc-detail-text">The profile drives filesystem planning: artifacts to create, folder organization, naming conventions.</div>
+    </div>
+    <div class="iproc-detail-card highlight">
+      <div class="iproc-detail-label">Stage 3</div>
+      <div class="iproc-detail-text">Dependency-aware instantiation populates the filesystem with realistic, inter-connected artifacts.</div>
+    </div>
+  </div>
+
+  DESIGN RULES:
+  - 3-5 stages, horizontal flow
+  - Icons: use emoji or simple SVG symbols (not complex illustrations)
+  - One highlighted stage (the novel contribution)
+  - Each icon circle: ~80px diameter
+  - Arrow connectors: simple → characters or thin SVG lines
+  - Detail cards below for 2-3 sentences per stage
+  - This is a SUMMARY slide — keep text minimal
+
+  WHEN TO USE:
+  - Method overview / high-level pipeline
+  - System architecture at a glance
+  - Multi-phase experiment setup
+  - Any 3-5 step conceptual flow
+
+  AVOID:
+  - More than 5 stages (too crowded — use pipeline or architecture instead)
+  - Long text in step descriptions (max 10 words)
+  - Mixing icons and detailed diagrams (pick one)
+  - Using for data flow (use pipeline instead)
+-->

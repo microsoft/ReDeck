@@ -1,0 +1,206 @@
+<!--
+  SKILL: Title / Opening Slide
+  Use when: slide role is "title" or "opening"
+
+  The paper title is the HERO — the single most prominent element on the slide.
+  Everything else (authors, affiliation, overview) is secondary.
+
+  ⚠️ CRITICAL RULES (NON-NEGOTIABLE):
+  - .paper-title element contains ONLY the paper name — NO authors mixed in
+  - font-size: 34px MINIMUM for .paper-title (even if the title is 150 chars)
+  - Long titles wrap to 2-3 lines — that's correct, do NOT shrink below 34px
+  - Authors go in a SEPARATE .authors element at 20-22px
+  - Affiliation goes in a SEPARATE .affiliation element at 18px gray
+  - Background: white or light gradient — NO dark header band
+  - The paper title is the FIRST and LARGEST text the eye sees
+-->
+
+<style>
+  .slide {
+    width: 1280px; height: 720px; overflow: hidden;
+    position: relative;
+    font-family: FONT;
+    background: linear-gradient(135deg, #f7f9fc 0%, #eef3f9 100%);
+    color: BODY_TEXT;
+  }
+
+  /* Paper title — the HERO element */
+  .paper-title {
+    position: absolute;
+    left: 60px; top: 70px;
+    width: 850px;
+    font-size: 36px;
+    font-weight: 700;
+    line-height: 1.18;
+    color: PRIMARY_DARK;
+  }
+
+  /* Authors */
+  .authors {
+    position: absolute;
+    left: 62px; top: 180px;
+    width: 760px;
+    font-size: 20px;
+    line-height: 1.4;
+    color: #1f2f3f;
+  }
+
+  /* Affiliation */
+  .affiliation {
+    position: absolute;
+    left: 62px; top: 240px;
+    width: 760px;
+    font-size: 18px;
+    line-height: 1.35;
+    color: #5a6b7d;
+  }
+
+  /* Accent bar above title */
+  .accent-bar {
+    position: absolute;
+    left: 60px; top: 52px;
+    width: 120px; height: 6px;
+    background: ACCENT;
+    border-radius: 3px;
+  }
+
+  /* Right-side panel (metrics or topic overview) */
+  .side-panel {
+    position: absolute;
+    right: 60px; top: 90px;
+    width: 310px;
+    background: PRIMARY_DARK;
+    border-radius: 16px;
+    color: #fff;
+    padding: 24px;
+  }
+  .side-panel h3 {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 14px;
+  }
+  .side-panel ul {
+    padding-left: 18px;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+
+  /* Metric boxes (stacked on right side) */
+  .metric-box {
+    position: absolute;
+    right: 60px;
+    width: 300px;
+    height: 100px;
+    border-radius: 14px;
+    color: #fff;
+    text-align: center;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .metric-box .big {
+    font-size: 42px;
+    font-weight: 800;
+  }
+  .metric-box .label {
+    font-size: 15px;
+    line-height: 1.2;
+    margin-top: 4px;
+  }
+
+  /* Abstract/overview box (below authors on left) */
+  .overview-box {
+    position: absolute;
+    left: 60px;
+    bottom: 80px;
+    width: 750px;
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    padding: 20px 24px;
+  }
+  .overview-box h3 {
+    font-size: 18px;
+    color: PRIMARY_MID;
+    margin-bottom: 8px;
+  }
+  .overview-box p {
+    font-size: 16px;
+    line-height: 1.4;
+    color: #24384d;
+  }
+
+  /* Footer */
+  .footer {
+    position: absolute;
+    left: 60px;
+    bottom: 28px;
+    font-size: 14px;
+    color: #5a6b7d;
+  }
+</style>
+
+<!--
+  LAYOUT OPTION A — Title + Authors + Overview + Metrics:
+
+  <div class="slide">
+    <div class="accent-bar"></div>
+    <div class="paper-title">Full Paper Title Here in 36px Bold</div>
+    <div class="authors">Author One, Author Two, Author Three</div>
+    <div class="affiliation">Department of X, University of Y</div>
+
+    <div class="overview-box">
+      <h3>Core idea</h3>
+      <p>Brief 2-sentence summary of what this paper does...</p>
+    </div>
+
+    <div class="metric-box" style="top:120px; background:PRIMARY_DARK;">
+      <div class="big">1,000</div>
+      <div class="label">key metric description</div>
+    </div>
+    <div class="metric-box" style="top:240px; background:PRIMARY_MID;">
+      <div class="big">95.2%</div>
+      <div class="label">another metric</div>
+    </div>
+
+    <div class="footer">arXiv:XXXX.XXXXX • Conference 2026</div>
+  </div>
+
+  LAYOUT OPTION B — Title + Authors + Dark Focus Panel:
+
+  <div class="slide">
+    <div class="accent-bar"></div>
+    <div class="paper-title">Full Paper Title Here in 36px Bold</div>
+    <div class="authors">Author One, Author Two, Author Three</div>
+    <div class="affiliation">University A; University B</div>
+
+    <div class="side-panel">
+      <h3>Talk focus</h3>
+      <ul>
+        <li>Key contribution 1</li>
+        <li>Key contribution 2</li>
+        <li>Key contribution 3</li>
+      </ul>
+    </div>
+
+    <div class="footer">arXiv link or venue</div>
+  </div>
+
+  DESIGN RULES:
+  - Paper title MUST be 34-42px — it's the largest text on the slide
+  - Place title at top-left on white/light gradient background
+  - DO NOT use a dark header band containing the title
+  - Accent bar (small colored strip) ABOVE the title adds polish
+  - Authors 20-22px, one line if possible
+  - Affiliation 18px, gray, can span 2 lines
+  - Right side: either metric boxes (stacked, different colors) or a dark focus panel
+  - Overview box: white card with subtle shadow, sits in lower-left if there's room
+  - Footer: venue/arXiv link, small gray text at bottom
+
+  AVOID:
+  - Putting paper title inside a header band (makes it feel like a section header)
+  - Title smaller than 30px (this is the most important text on slide 1)
+  - Too many elements — max 3 metric boxes or one side panel
+  - Dark backgrounds covering more than 30% of the slide
+-->

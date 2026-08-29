@@ -1,0 +1,45 @@
+<!-- Local skill: preserve supplied rows/columns, align numeric values, and emphasize only evidence-supported signals. -->
+<style>
+  .skill-table-field { border-top: 3px solid var(--primary); }
+  .skill-table-field table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  .skill-table-field th {
+    padding: 9px 8px;
+    border-bottom: 2px solid color-mix(in srgb, var(--secondary) 45%, transparent);
+    color: var(--primary-text);
+    font-size: 13px;
+    line-height: 1.05;
+    text-align: left;
+    text-transform: uppercase;
+  }
+  .skill-table-field td {
+    padding: 8px;
+    border-bottom: 1px solid color-mix(in srgb, var(--secondary) 24%, transparent);
+    color: var(--ink);
+    font-size: 16px;
+    line-height: 1.12;
+    vertical-align: middle;
+  }
+  .skill-table-field .label { font-weight: 750; }
+  .skill-table-field .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .skill-table-field .signal { color: var(--accent-text); font-weight: 800; }
+  .skill-table-note {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(240px, .75fr);
+    gap: 24px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid color-mix(in srgb, var(--secondary) 35%, transparent);
+  }
+  .skill-table-note strong { display: block; margin-bottom: 3px; color: var(--ink); font-size: 17px; }
+  .skill-table-note p { margin: 0; color: var(--ink); font-size: 14px; line-height: 1.2; }
+</style>
+<div class="skill-table-field">
+  <table>
+    <thead><tr><th>{{row_dimension}}</th><th class="num">{{measure}}</th><th class="num">{{measure}}</th><th>{{interpretive_dimension}}</th></tr></thead>
+    <tbody>
+      <tr><td class="label">{{supplied_row}}</td><td class="num signal">{{supplied_value}}</td><td class="num">{{supplied_value}}</td><td>{{supplied_text}}</td></tr>
+      <tr><td class="label">{{supplied_row}}</td><td class="num">{{supplied_value}}</td><td class="num signal">{{supplied_value}}</td><td>{{supplied_text}}</td></tr>
+    </tbody>
+  </table>
+  <div class="skill-table-note"><div><strong>{{supported_takeaway}}</strong><p>{{why_the_highlight_matters}}</p></div><div><strong>{{method_or_scope_label}}</strong><p>{{supplied_scope_note}}</p></div></div>
+</div>

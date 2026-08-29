@@ -1,0 +1,103 @@
+<!--
+  SKILL: Text-Forward Content Layout
+  Use when: slide content is primarily text-based (bullets, explanations, claims)
+
+  KEY PHILOSOPHY:
+  - Structure comes from TYPOGRAPHY HIERARCHY + selective colored accents
+  - Sections separated by colored left-borders and bold headers
+  - At most 1-2 highlight elements (callout boxes, accent panels)
+  - Text-heavy slides still need visual structure — don't make them plain
+-->
+
+<style>
+  .slide-content {
+    padding: 24px 40px;
+    color: #2c3e50;
+    line-height: 1.6;
+  }
+  .slide-title {
+    font-size: 28px; font-weight: 700; color: PRIMARY_DARK;
+    margin-bottom: 20px; line-height: 1.2;
+  }
+
+  /* Section with colored left-border accent */
+  .text-section {
+    border-left: 4px solid rgba(PRIMARY_RGB, 0.2);
+    padding-left: 18px;
+    margin-bottom: 20px;
+  }
+  .section-header {
+    font-size: 16px; font-weight: 700; color: PRIMARY_DARK;
+    margin-bottom: 10px;
+  }
+  .body-text {
+    font-size: 14px; color: #333; line-height: 1.6;
+  }
+  .body-text li {
+    margin-bottom: 6px;
+  }
+  .body-text strong {
+    color: PRIMARY_DARK; font-weight: 700;
+  }
+
+  /* Numbered section circles */
+  .section-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: PRIMARY_DARK;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    margin-right: 10px;
+    flex-shrink: 0;
+  }
+  .section-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    margin-bottom: 16px;
+  }
+
+  /* Callout with rounded corners */
+  .callout {
+    background: rgba(PRIMARY_RGB, 0.05);
+    border-left: 4px solid PRIMARY_DARK;
+    border-radius: 0 10px 10px 0;
+    padding: 14px 18px; margin-top: 20px;
+    font-size: 14px; font-weight: 600;
+  }
+</style>
+
+<!--
+  LAYOUT PATTERNS for text-heavy slides:
+
+  SECTIONED with colored borders:
+    <div class="text-section">
+      <div class="section-header">Why this matters</div>
+      <div class="body-text">
+        <ul><li>Point one...</li><li>Point two...</li></ul>
+      </div>
+    </div>
+
+  NUMBERED sections with circles:
+    <div class="section-row">
+      <span class="section-num">1</span>
+      <div>
+        <div class="section-header">First contribution</div>
+        <div class="body-text">We propose a novel framework...</div>
+      </div>
+    </div>
+
+  TWO COLUMNS (separated by whitespace):
+    Title → [Left column: content A] [Right column: content B]
+    Use CSS: display:flex; gap:40px;
+
+  RULES:
+  - Use colored left-borders on sections for visual structure
+  - Numbered circles for ordered content (contributions, steps)
+  - Max 5-6 bullets per column, each 10-20 words
+  - Bold key terms inline for emphasis
+-->

@@ -1,0 +1,177 @@
+<!--
+  SKILL: Problem-Solution Split
+  Use when: showing a limitation/problem on one side and the proposed
+  solution/approach on the other (common in motivation/context slides)
+
+  DIFFERENT FROM two_panel:
+  - two_panel: equal-weight parallel content
+  - problem_solution: contrasting sides (problem=gray/red, solution=green/accent)
+
+  DIFFERENT FROM split_comparison:
+  - split_comparison: before/after or vs comparison
+  - problem_solution: problem statement → our approach
+
+  KEY RULES:
+  - Left: the PROBLEM (gray or muted styling, ✗ markers)
+  - Right: the SOLUTION (accent/primary styling, ✓ markers)
+  - Visual contrast makes the improvement obvious
+  - Short bullet points only (5 words per bullet max)
+-->
+
+<style>
+  .ps-split {
+    position: absolute;
+    left: 50px;
+    top: 110px;
+    right: 50px;
+    display: flex;
+    gap: 24px;
+    height: 480px;
+  }
+
+  .ps-problem {
+    flex: 1;
+    background: #fafafa;
+    border: 1px solid #e0e0e0;
+    border-radius: 14px;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .ps-problem::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 5px;
+    background: #c0392b;
+    border-radius: 14px 0 0 14px;
+  }
+
+  .ps-solution {
+    flex: 1;
+    background: rgba(ACCENT_RGB, 0.03);
+    border: 1px solid rgba(ACCENT_RGB, 0.2);
+    border-radius: 14px;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .ps-solution::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 5px;
+    background: ACCENT;
+    border-radius: 14px 0 0 14px;
+  }
+
+  .ps-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    margin-bottom: 14px;
+  }
+  .ps-problem .ps-label { color: #c0392b; }
+  .ps-solution .ps-label { color: ACCENT; }
+
+  .ps-heading {
+    font-size: 20px;
+    font-weight: 700;
+    color: PRIMARY_DARK;
+    margin-bottom: 16px;
+    line-height: 1.25;
+  }
+
+  .ps-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .ps-list li {
+    font-size: 15px;
+    line-height: 1.5;
+    margin-bottom: 10px;
+    padding-left: 26px;
+    position: relative;
+    color: #2c3e50;
+  }
+  .ps-problem .ps-list li::before {
+    content: '✗';
+    position: absolute;
+    left: 0;
+    color: #c0392b;
+    font-weight: 700;
+  }
+  .ps-solution .ps-list li::before {
+    content: '✓';
+    position: absolute;
+    left: 0;
+    color: ACCENT;
+    font-weight: 700;
+  }
+
+  /* Arrow/transition between panels */
+  .ps-arrow {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 40px;
+    height: 40px;
+    background: PRIMARY_DARK;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 18px;
+    font-weight: 700;
+    z-index: 5;
+  }
+</style>
+
+<!--
+  USAGE:
+
+  <div class="ps-split">
+    <div class="ps-problem">
+      <div class="ps-label">Current limitation</div>
+      <div class="ps-heading">Existing methods lack structural reasoning</div>
+      <ul class="ps-list">
+        <li>Graph construction relies on statistical heuristics</li>
+        <li>No explicit edge-level validation or interpretation</li>
+        <li>Fixed topology ignores contextual relationships</li>
+        <li>Results in noisy, biologically implausible connections</li>
+      </ul>
+    </div>
+    <div class="ps-arrow">→</div>
+    <div class="ps-solution">
+      <div class="ps-label">Our approach</div>
+      <div class="ps-heading">LLM-based graph structure refinement</div>
+      <ul class="ps-list">
+        <li>LLM reasons about each candidate edge explicitly</li>
+        <li>Contextual judgment based on textual + statistical features</li>
+        <li>Produces cleaner, interpretable graph structures</li>
+        <li>Edge-level decisions are explainable and auditable</li>
+      </ul>
+    </div>
+  </div>
+
+  DESIGN RULES:
+  - Problem side: gray background, red accent stripe and markers
+  - Solution side: faint accent tint, green/accent markers
+  - Arrow circle in the middle shows the transition
+  - Max 4-5 bullets per side (keep them SHORT)
+  - Headings summarize each side in one phrase
+
+  WHEN TO USE:
+  - Motivation slides: "The problem" → "Our approach"
+  - Related work slides: "Existing methods" → "Our contribution"
+  - Any slide contrasting limitations with a proposed fix
+
+  AVOID:
+  - Long sentences (use 5-8 word phrases)
+  - More than 5 bullets per side
+  - Using for non-contrasting content (use two_panel instead)
+-->

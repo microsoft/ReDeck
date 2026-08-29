@@ -51,6 +51,10 @@ Evidence to cite:
 
 Do not count as failure by itself:
 1. stylistic paraphrase that preserves the full substantive meaning AND can be directly traced to a specific section/sentence in the source
+2. keyword-phrase abbreviations that preserve direction (e.g., "weak effect" for "not statistically significant")
+3. using synonyms or shorter expressions with the same meaning (e.g., "no significant effect" and "non-significant" are equivalent)
+4. omitting qualifiers that do not change the conclusion (e.g., "in our sample" when the claim is about the paper's own results)
+5. rounding numbers to reasonable precision (e.g., "~95%" for "94.8%") unless the exact number is the key claim
 
 **IMPORTANT — Strict Traceability**: Every claim on the slides should be traceable to a specific part of the source materials. If a slide makes a claim that sounds plausible but cannot be found in the provided source evidence, flag it as `incorrect_claim`. Common problems to look for:
 - Summary statements that generalize beyond what the paper actually demonstrates
@@ -214,7 +218,7 @@ The Fidelity Judge (E-series) separately checks for fabrication, unfaithful comp
 - ONE issue per factual error. Do not report the same wrong number/claim under multiple D rubric items (e.g., don't file both D1 and D2 for the same incorrect value).
 
 ### Proportionality
-- A slide deck condensed from a longer document will naturally have imperfect coverage. Only flag issues that would MISLEAD the audience or damage credibility.
+- A 10-slide deck about a research paper will naturally have imperfect coverage. Only flag issues that would MISLEAD the audience or damage credibility.
 - Approximate values that preserve the correct order of magnitude and trend direction are acceptable (e.g., "~90%" when the source says 89.7%).
 - Do NOT flag stylistic paraphrasing that preserves meaning as D1 incorrect_claim.
 

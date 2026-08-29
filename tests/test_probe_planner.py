@@ -10,15 +10,16 @@ from app.schemas.common import (
 )
 from app.schemas.experiment_config import ExperimentConfig, EvalMode
 from app.schemas.extraction import ExtractedObject, SlideExtraction
-from app.schemas.issue import Issue
+from app.schemas.issue import FixDetail, Issue, IssueEvidence
+from app.modules.evaluators.probe_planner_agent import ProbePlannerAgent
 
 
-def _make_extraction(slide_id: int) -> SlideExtraction:
+def _make_extraction(slide_id: int, text: str | None = None) -> SlideExtraction:
     obj = ExtractedObject(
         object_id=f"obj_{slide_id}",
         object_type="text_box",
         bbox_emu=[457200, 457200, 5000000, 3000000],
-        text_content=f"Content for slide {slide_id}",
+        text_content=text or f"Content for slide {slide_id}",
         font_sizes_pt=[18.0],
     )
     return SlideExtraction(
@@ -48,6 +49,197 @@ def _make_issue(
         verdict=Verdict.FAIL,
         why_this_fails=f"Test {issue_type} on slide {slide_id}",
     )
+
+
+def test_run_checks_scopes_slides_and_passes_atomic_selection():
+    planner = object.__new__(ProbePlannerAgent)
+    planner._extractions = [_make_extraction(1), _make_extraction(2)]
+    planner._png_paths = []
+    planner._spatial_signals = {}
+    planner._source_summary = ""
+    planner._task_brief = ""
+    planner._blueprint = None
+    planner._evidence = None
+    planner._source_store = None
+    planner._previous_issues = None
+    planner._content_modified_slides = {1}
+    planner._turn_index = 1
+    planner._collected_issues = []
+    planner.probe_runner = MagicMock()
+    planner.probe_runner.run_probe.return_value = []
+
+    planner._handle_run_checks({
+        "checks": [{"check_id": "D01.1", "slide_ids": [1, 2]}],
+    })
+
+    call_kwargs = planner.probe_runner.run_probe.call_args.kwargs
+    assert call_kwargs["slide_ids"] == [1]
+    assert call_kwargs["selected_check_ids"] == ["D01.1"]
+
+
+def test_run_checks_merges_same_parent_probe_across_slide_groups():
+    planner = object.__new__(ProbePlannerAgent)
+    planner._extractions = [_make_extraction(1), _make_extraction(2)]
+    planner._png_paths = []
+    planner._spatial_signals = {}
+    planner._source_summary = ""
+    planner._task_brief = ""
+    planner._blueprint = None
+    planner._evidence = None
+    planner._source_store = None
+    planner._previous_issues = [_make_issue(1, "low_contrast", "B5")]
+    planner._content_modified_slides = None
+    planner._turn_index = 2
+    planner._collected_issues = []
+    planner.probe_runner = MagicMock()
+    planner.probe_runner.run_probe.return_value = []
+
+    planner._handle_run_checks({
+        "checks": [
+            {"check_id": "B05.1", "slide_ids": [1]},
+            {"check_id": "B05.2", "slide_ids": [1, 2]},
+        ],
+    })
+
+    planner.probe_runner.run_probe.assert_called_once()
+    call_kwargs = planner.probe_runner.run_probe.call_args.kwargs
+    assert call_kwargs["slide_ids"] == [1, 2]
+    assert call_kwargs["selected_check_ids"] == ["B05.1", "B05.2"]
+
+
+def test_same_turn_triage_increments_persistence_only_once():
+    from app.modules.evaluators.probe_runner import ProbeRunner
+    from app.schemas.issue_types import PROBE_REGISTRY
+
+    llm = MagicMock()
+    llm.call_text.return_value = json.dumps({
+        "previous_issue_verdicts": [{
+            "issue_id": "B5_low_contrast_slide1",
+            "verdict": "PERSISTED",
+            "reasoning": "still visible",
+            "updated_planned_fix": "Use the current background color for contrast",
+        }],
+    })
+    runner = ProbeRunner(llm, ExperimentConfig(run_id="triage_once"))
+    issue = _make_issue(1, "low_contrast", "B5")
+    issue.fix_detail.correct_content = "stale exact correction"
+
+    kwargs = dict(
+        probe_def=PROBE_REGISTRY["B05"],
+        system_prompt="test",
+        previous_issues=[issue],
+        slide_ids=[1],
+        extractions=[_make_extraction(1)],
+        png_paths=None,
+        spatial_signals=None,
+        source_summary="",
+        blueprint=None,
+        evidence=None,
+        source_store=None,
+        turn_index=2,
+    )
+    runner._triage_previous(**kwargs)
+    runner._triage_previous(**kwargs)
+
+
+    assert issue.persisted_turns == 1
+    assert issue.last_triaged_turn == 2
+    assert issue.status == IssueStatus.OPEN
+    assert "NEEDS_REGEN" not in issue.planned_fix
+    assert issue.fix_detail.correct_content == ""
+
+
+def test_probe_triage_refreshes_persisted_issue_description():
+    from app.modules.evaluators.probe_runner import ProbeRunner
+    from app.schemas.issue_types import PROBE_REGISTRY
+
+    llm = MagicMock()
+    llm.call_text.return_value = json.dumps({
+        "previous_issue_verdicts": [{
+            "issue_id": "B02_layout_inappropriate_slide1",
+            "verdict": "PERSISTED",
+            "reasoning": "The footer is now light but the top cards still dominate.",
+            "updated_description": "Current slide has light footer; top cards still dominate the conclusion.",
+            "updated_planned_fix": "Shrink the top cards and expand the conclusion region.",
+        }],
+    })
+    runner = ProbeRunner(llm, ExperimentConfig(run_id="triage_desc"))
+    issue = _make_issue(1, "layout_inappropriate", "B02")
+    issue.evidence = IssueEvidence(description="Old dark footer description")
+
+    result = runner._triage_previous(
+        probe_def=PROBE_REGISTRY["B02"],
+        system_prompt="test",
+        previous_issues=[issue],
+        slide_ids=[1],
+        extractions=[_make_extraction(1)],
+        png_paths=None,
+        spatial_signals=None,
+        source_summary="",
+        blueprint=None,
+        evidence=None,
+        source_store=None,
+        turn_index=2,
+    )
+
+    assert result[0].status == IssueStatus.OPEN
+    assert result[0].evidence.description == "Current slide has light footer; top cards still dominate the conclusion."
+    assert result[0].why_this_fails == "Current slide has light footer; top cards still dominate the conclusion."
+    assert result[0].planned_fix == "Shrink the top cards and expand the conclusion region."
+
+
+def test_finalize_resolves_untriaged_content_issue_when_correction_present():
+    planner = object.__new__(ProbePlannerAgent)
+    planner._collected_issues = []
+    planner._turn_index = 2
+    planner._extractions = [
+        _make_extraction(7, "Representative row: GPT-5-mini + Transformer G"),
+    ]
+    issue = _make_issue(7, "spelling_error", "D6")
+    issue.evidence = IssueEvidence(
+        description=(
+            'Deck claim reads "GPT5-mini + Transformer G". Source evidence: '
+            '"GPT-5-mini + Transformer G | 0.7859 | 0.9275"'
+        )
+    )
+    issue.fix_detail = FixDetail(
+        correct_content="GPT-5-mini + Transformer G",
+        target_location='row label currently reading "GPT5-mini + Transformer G"',
+        action_type="replace_text",
+    )
+    planner._previous_issues = [issue]
+
+    result = planner._finalize()
+
+    assert len(result) == 1
+    assert result[0].status == IssueStatus.RESOLVED
+    assert result[0].resolved_at_turn == 2
+    assert "fallback text check" in result[0].planned_fix
+
+
+def test_finalize_keeps_untriaged_content_issue_when_bad_string_remains():
+    planner = object.__new__(ProbePlannerAgent)
+    planner._collected_issues = []
+    planner._turn_index = 2
+    planner._extractions = [
+        _make_extraction(
+            7,
+            "Rows include GPT5-mini + Transformer G and GPT-5-mini + Transformer G",
+        ),
+    ]
+    issue = _make_issue(7, "spelling_error", "D6")
+    issue.evidence = IssueEvidence(description='Deck claim reads "GPT5-mini + Transformer G"')
+    issue.fix_detail = FixDetail(
+        correct_content="GPT-5-mini + Transformer G",
+        target_location='row label currently reading "GPT5-mini + Transformer G"',
+        action_type="replace_text",
+    )
+    planner._previous_issues = [issue]
+
+    result = planner._finalize()
+
+    assert result[0].status == IssueStatus.OPEN
+    assert result[0].planned_fix == "[PERSISTED] (not triaged by probe planner at turn 2)"
 
 
 class TestProbePlannerAgent:
@@ -128,7 +320,7 @@ class TestProbePlannerAgent:
 
     def test_planner_submit_returns_collected(self, mock_llm, planner_config, extractions):
         """Planner should return issues collected from probe tools."""
-        # Set up LLM to: 1) call probe_visual, 2) submit
+        # Set up LLM to: 1) run the text-overflow probe, 2) submit
         call_count = [0]
 
         def mock_multiturn(**kwargs):
@@ -136,8 +328,8 @@ class TestProbePlannerAgent:
             if call_count[0] == 1:
                 # First call: agent decides to probe visual
                 return json.dumps({
-                    "tool": "probe_visual",
-                    "slide_ids": [1, 2],
+                    "tool": "run_probes",
+                    "probes": [{"probe_id": "B04", "slide_ids": [1, 2]}],
                 })
             else:
                 # Second call: submit
@@ -155,8 +347,9 @@ class TestProbePlannerAgent:
                     return_value="mock prompt"):
             router = EvalRouter(mock_llm, planner_config)
 
-            # Mock visual judge to return our test issue
-            router.visual_judge.evaluate = MagicMock(return_value=[visual_issue])
+            router.probe_planner.probe_runner.run_probe = MagicMock(
+                return_value=[visual_issue]
+            )
 
             result = router.probe_planner.evaluate(
                 extractions, [], "brief", "summary",
@@ -168,7 +361,7 @@ class TestProbePlannerAgent:
 
             assert len(result) == 1
             assert result[0].issue_type == "text_overflow"
-            router.visual_judge.evaluate.assert_called_once()
+            router.probe_planner.probe_runner.run_probe.assert_called_once()
 
     def test_planner_fallback_on_error(self, mock_llm, planner_config, extractions):
         """Planner should fall back to full eval if LLM call fails."""
@@ -202,8 +395,8 @@ class TestProbePlannerAgent:
             call_count[0] += 1
             if call_count[0] == 1:
                 return json.dumps({
-                    "tool": "probe_correctness",
-                    "slide_ids": [1, 2],  # agent asks for both
+                    "tool": "run_probes",
+                    "probes": [{"probe_id": "D01", "slide_ids": [1, 2]}],
                 })
             else:
                 return json.dumps({
@@ -216,7 +409,7 @@ class TestProbePlannerAgent:
         with patch("app.modules.evaluators.base_judge.BaseJudge._load_prompt",
                     return_value="mock prompt"):
             router = EvalRouter(mock_llm, planner_config)
-            router.correctness_judge.evaluate = MagicMock(return_value=[])
+            router.probe_planner.probe_runner.run_probe = MagicMock(return_value=[])
 
             # Slide 2 is spatial-only (not in content_modified_slides)
             router.probe_planner.evaluate(
@@ -227,14 +420,8 @@ class TestProbePlannerAgent:
                 content_modified_slides={1},  # only slide 1 has content changes
             )
 
-            # Correctness judge should only get extractions for slide 1
-            if router.correctness_judge.evaluate.called:
-                call_args = router.correctness_judge.evaluate.call_args
-                exts = call_args[0][0]  # first positional arg
-                slide_ids = [e.slide_id for e in exts]
-                assert 2 not in slide_ids, (
-                    f"Slide 2 is spatial-only, should not be in correctness judge. Got: {slide_ids}"
-                )
+            call_kwargs = router.probe_planner.probe_runner.run_probe.call_args.kwargs
+            assert call_kwargs["slide_ids"] == [1]
 
     def test_de_carryforward_spatial_only(self, mock_llm, extractions):
         """D/E issues on spatial-only slides should be carried forward, not dropped."""
@@ -277,10 +464,10 @@ class TestProbePlannerParsing:
     def test_parse_json_block(self):
         from app.modules.evaluators.probe_planner_agent import ProbePlannerAgent
         action = ProbePlannerAgent._parse_action(
-            '```json\n{"tool": "probe_visual", "slide_ids": [1,2]}\n```'
+            '```json\n{"tool": "run_probe", "probe_id": "B04", "slide_ids": [1,2]}\n```'
         )
         assert action is not None
-        assert action["tool"] == "probe_visual"
+        assert action["tool"] == "run_probe"
         assert action["slide_ids"] == [1, 2]
 
     def test_parse_inline_json(self):
@@ -294,10 +481,10 @@ class TestProbePlannerParsing:
     def test_parse_raw_json(self):
         from app.modules.evaluators.probe_planner_agent import ProbePlannerAgent
         action = ProbePlannerAgent._parse_action(
-            '{"tool": "probe_narrative"}'
+            '{"tool": "run_probe", "probe_id": "A01", "slide_ids": [1]}'
         )
         assert action is not None
-        assert action["tool"] == "probe_narrative"
+        assert action["tool"] == "run_probe"
 
     def test_parse_garbage_returns_none(self):
         from app.modules.evaluators.probe_planner_agent import ProbePlannerAgent
@@ -395,7 +582,10 @@ class TestPipelineDefects:
         def mock_multiturn(**kwargs):
             call_count[0] += 1
             if call_count[0] <= 2:
-                return json.dumps({"tool": "probe_visual", "slide_ids": [1]})
+                return json.dumps({
+                    "tool": "run_probes",
+                    "probes": [{"probe_id": "B04", "slide_ids": [1]}],
+                })
             else:
                 return json.dumps({"tool": "submit_evaluation", "reasoning": "done"})
 
@@ -406,7 +596,9 @@ class TestPipelineDefects:
         with patch("app.modules.evaluators.base_judge.BaseJudge._load_prompt",
                     return_value="mock prompt"):
             router = EvalRouter(mock_llm, config)
-            router.visual_judge.evaluate = MagicMock(return_value=[issue])
+            router.probe_planner.probe_runner.run_probe = MagicMock(
+                return_value=[issue]
+            )
 
             result = router.probe_planner.evaluate(
                 extractions, [], "brief", "summary",
@@ -416,8 +608,8 @@ class TestPipelineDefects:
                 content_modified_slides={1},
             )
 
-            # Visual judge called twice, but dedup should produce 1 issue
-            assert router.visual_judge.evaluate.call_count == 2
+            # Probe called twice, but dedup should produce 1 issue
+            assert router.probe_planner.probe_runner.run_probe.call_count == 2
             assert len(result) == 1, (
                 f"Same issue from two probe calls should be deduped. Got {len(result)}"
             )
@@ -439,7 +631,10 @@ class TestPipelineDefects:
         def mock_multiturn(**kwargs):
             call_count[0] += 1
             if call_count[0] == 1:
-                return json.dumps({"tool": "probe_correctness", "slide_ids": [1]})
+                return json.dumps({
+                    "tool": "run_probes",
+                    "probes": [{"probe_id": "D01", "slide_ids": [1]}],
+                })
             else:
                 return json.dumps({"tool": "submit_evaluation", "reasoning": "done"})
 
@@ -451,7 +646,7 @@ class TestPipelineDefects:
         with patch("app.modules.evaluators.base_judge.BaseJudge._load_prompt",
                     return_value="mock prompt"):
             router = EvalRouter(mock_llm, config)
-            router.correctness_judge.evaluate = MagicMock(return_value=[])
+            router.probe_planner.probe_runner.run_probe = MagicMock(return_value=[])
 
             router.probe_planner.evaluate(
                 extractions, [], "brief", "summary",
@@ -461,12 +656,5 @@ class TestPipelineDefects:
                 content_modified_slides={1, 2},
             )
 
-            # Correctness judge should be called with prev issues scoped to slide 1 only
-            call_kwargs = router.correctness_judge.evaluate.call_args
-            prev_passed = call_kwargs.kwargs.get("previous_issues")
-            if prev_passed:
-                for iss in prev_passed:
-                    assert 1 in iss.affected_slides, (
-                        f"Previous issue on slide 2 should not be passed when probing slide 1. "
-                        f"Got affected_slides={iss.affected_slides}"
-                    )
+            call_kwargs = router.probe_planner.probe_runner.run_probe.call_args.kwargs
+            assert call_kwargs["previous_issues"] is None

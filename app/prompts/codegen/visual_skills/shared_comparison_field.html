@@ -1,0 +1,21 @@
+<!-- Local skill: alternatives share one criteria spine; adapt row count and column widths to the evidence. -->
+<style>
+  .skill-comparison { border-top: 3px solid var(--primary); }
+  .skill-comparison-row {
+    display: grid;
+    grid-template-columns: minmax(150px, .8fr) repeat(3, minmax(0, 1fr));
+    border-bottom: 1px solid color-mix(in srgb, var(--secondary) 28%, transparent);
+  }
+  .skill-comparison-row > * { min-width: 0; padding: 10px 12px; }
+  .skill-comparison-row.header { color: var(--primary-text); font-size: 14px; font-weight: 800; text-transform: uppercase; }
+  .skill-criterion { color: var(--ink); font-size: 15px; font-weight: 750; }
+  .skill-option { color: var(--ink); font-size: 15px; line-height: 1.18; border-left: 1px solid color-mix(in srgb, var(--secondary) 24%, transparent); }
+  .skill-option.focus { background: color-mix(in srgb, var(--accent) 12%, transparent); font-weight: 750; }
+  .skill-comparison-conclusion { margin-top: 12px; padding-left: 14px; border-left: 4px solid var(--accent); color: var(--ink); font-size: 17px; line-height: 1.2; }
+</style>
+<div class="skill-comparison">
+  <div class="skill-comparison-row header"><span>Criterion</span><span>{{option_a}}</span><span>{{option_b}}</span><span>{{option_c}}</span></div>
+  <div class="skill-comparison-row"><strong class="skill-criterion">{{shared_criterion}}</strong><span class="skill-option">{{supported_attribute}}</span><span class="skill-option">{{supported_attribute}}</span><span class="skill-option focus">{{supported_attribute}}</span></div>
+  <div class="skill-comparison-row"><strong class="skill-criterion">{{shared_criterion}}</strong><span class="skill-option">{{supported_attribute}}</span><span class="skill-option">{{supported_attribute}}</span><span class="skill-option focus">{{supported_attribute}}</span></div>
+  <div class="skill-comparison-conclusion">{{evidence_supported_comparison_takeaway}}</div>
+</div>
