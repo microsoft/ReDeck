@@ -1,10 +1,8 @@
-# ReDeck
-
-### 📄 Document → Slides &nbsp;|&nbsp; 🔧 Auto-detect & fix layout issues &nbsp;|&nbsp; 🔄 Multi-turn refinement with render feedback
+# ReDeck: Render-Grounded Slide Generation and Repair
 
 [![🌐 Project Page](https://img.shields.io/badge/🌐_Project_Page-ReDeck-FF6B35?style=for-the-badge&logoColor=white)](https://microsoft.github.io/ReDeck/) [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **Generate presentation slides from papers, reports, and documents — then automatically detect and repair spatial layout problems (overflow, overlap, clipping, low contrast) through an LLM agent that sees rendered results after every edit.**
+> Generate presentation slides from documents. Automatically detect and fix spatial layout issues (overflow, overlap, clipping) via an LLM repair agent that observes rendered results after every edit.
 
 ## 🎬 Demo Video
 
