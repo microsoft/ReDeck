@@ -141,29 +141,26 @@ playwright install chromium
 ### Environment Variables
 
 ```bash
-# Option 1: OpenAI API (default)
-export OPENAI_API_KEY="sk-..."
-export OPENAI_MODEL="gpt-4o"
+# Option 1: OpenAI-compatible API (recommended)
+export OPENAI_BASE_URL="https://your-api-endpoint/v1"
+export OPENAI_API_KEY="your-key"
 
 # Option 2: Azure OpenAI
 export AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com/"
-export AZURE_OPENAI_API_KEY="your-azure-key"
-
-# Optional: OpenAI-compatible proxy (vLLM, Ollama, etc.)
-export OPENAI_BASE_URL="http://localhost:8000/v1"
+# Uses AzureCliCredential by default; set REDECK_AZURE_AUTH=api_key for static keys
 ```
 
 ### Repair a Single Slide
 
 ```bash
 # Fix spatial issues in one HTML slide
-python scripts/redeck_repair.py my_slide.html -o repaired/
+python scripts/redeck_repair.py my_slide.html -o repaired/ --model gpt-5.5
 ```
 
 ### Repair a Batch of Slides
 
 ```bash
-python scripts/redeck_repair.py --dir path/to/slides/ -o repaired/ --model gpt-4o
+python scripts/redeck_repair.py --dir path/to/slides/ -o repaired/ --model gpt-5.5
 ```
 
 ### Run the Full Pipeline
@@ -172,14 +169,16 @@ python scripts/redeck_repair.py --dir path/to/slides/ -o repaired/ --model gpt-4
 # Generate a deck from a prepared document case
 python scripts/run_pdf_pipeline.py \
     --case my_document \
+    --configs html_codegen \
     --html-codegen \
-    --html-theme demo_curated \
-    --max-turns 3
+    --max-turns 3 \
+    --model gpt-5.5
 
 # Multi-turn repair loop on existing slides
 python scripts/redeck_loop.py \
     --dir path/to/slides \
-    --max-turns 3
+    --max-turns 3 \
+    --model gpt-5.5
 ```
 
 ### HTML Design Profile
