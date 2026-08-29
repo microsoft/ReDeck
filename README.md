@@ -1,4 +1,4 @@
-# ReDeck: Render-Grounded Slide Generation and Repair
+# ReDeck: Environment-Grounded Slide Generation and Refinement
 
 [![🌐 Project Page](https://img.shields.io/badge/🌐_Project_Page-ReDeck-FF6B35?style=for-the-badge&logoColor=white)](https://microsoft.github.io/ReDeck/) [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -108,15 +108,15 @@ The key insight: **the repair agent sees rendered results after every edit, not 
 
 The detection engine (`app/modules/redeck/html_spatial_state.py`) renders each slide via Playwright and extracts spatial state through DOM geometry analysis:
 
-| Category | What it catches |
-|----------|----------------|
-| **Overlap** | Sibling elements colliding (partial or full containment), with filters for legitimate nesting (parent-child, SVG rect+text) |
-| **Text overflow** | Content exceeding its container via `scrollHeight > clientHeight`, styled-boundary overflow (`overflow:visible` past CSS height), and SVG text exceeding sibling rects (using `getComputedTextLength()`) |
-| **Clipping** | Content hidden by `overflow:hidden` ancestors |
-| **Out-of-bounds** | Elements extending past the 1280×720 slide canvas |
-| **Low contrast** | WCAG AA violations for text (including SVG `fill`-based text) |
-| **Occlusion** | Higher z-index opaque elements covering content (full and partial) |
-| **SVG internals** | viewBox clipping of all SVG elements (not just text), text-rect overflow within SVG |
+| Category                | What it catches                                                                                                                                                                                               |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Overlap**       | Sibling elements colliding (partial or full containment), with filters for legitimate nesting (parent-child, SVG rect+text)                                                                                   |
+| **Text overflow** | Content exceeding its container via`scrollHeight > clientHeight`, styled-boundary overflow (`overflow:visible` past CSS height), and SVG text exceeding sibling rects (using `getComputedTextLength()`) |
+| **Clipping**      | Content hidden by`overflow:hidden` ancestors                                                                                                                                                                |
+| **Out-of-bounds** | Elements extending past the 1280×720 slide canvas                                                                                                                                                            |
+| **Low contrast**  | WCAG AA violations for text (including SVG`fill`-based text)                                                                                                                                                |
+| **Occlusion**     | Higher z-index opaque elements covering content (full and partial)                                                                                                                                            |
+| **SVG internals** | viewBox clipping of all SVG elements (not just text), text-rect overflow within SVG                                                                                                                           |
 
 All detections pass through `count_significant_issues()` — the single source of truth for defect thresholds — ensuring the repair agent and external scorers agree on issue counts.
 
@@ -150,7 +150,6 @@ demo/                     # Static project website and demo assets
 assets/                   # README and paper figures
 tests/                    # Unit tests
 ```
-
 
 ## Demo Website
 
