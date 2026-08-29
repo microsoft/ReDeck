@@ -141,13 +141,8 @@ playwright install chromium
 ### Environment Variables
 
 ```bash
-# Option 1: OpenAI-compatible API (recommended)
 export OPENAI_BASE_URL="https://your-api-endpoint/v1"
 export OPENAI_API_KEY="your-key"
-
-# Option 2: Azure OpenAI
-export AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com/"
-# Uses AzureCliCredential by default; set REDECK_AZURE_AUTH=api_key for static keys
 ```
 
 ### Repair a Single Slide
