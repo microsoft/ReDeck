@@ -2,7 +2,7 @@
 
 *Generate presentation slides from documents — then automatically detect and repair spatial layout issues through render-grounded feedback, without manual intervention.*
 
-[![Project Page](https://img.shields.io/badge/Project%20Page-ReDeck-4285f4)](https://microsoft.github.io/ReDeck/) [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![🌐 Project Page](https://img.shields.io/badge/🌐_Project_Page-ReDeck-FF6B35?style=for-the-badge&logoColor=white)](https://microsoft.github.io/ReDeck/) [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
