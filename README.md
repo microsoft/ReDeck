@@ -10,11 +10,6 @@
 
 🔧 **Automatically fix spatial layout issues** — Overflow, overlap, clipping, low contrast? The repair agent detects and fixes them through iterative editing with real-time render feedback.
 
-🎯 **Use cases:**
-- Researchers preparing conference talks from papers
-- Analysts turning reports into presentation decks
-- Anyone who wants slides from a document without manual layout work
-
 ## 🎬 Demo Video
 
 https://github.com/user-attachments/assets/c3f5d87e-d96e-4da0-b5de-f242e23bbc54
