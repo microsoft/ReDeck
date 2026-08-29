@@ -178,34 +178,13 @@ python scripts/redeck_loop.py \
 
 ### HTML Design Profile
 
-Default HTML generation uses the demo-derived `demo_curated` palette pool and
-selects a content-driven composition grammar for each slide. The default set
-includes editorial statements, annotated figures, quantitative stories,
-comparative fields, process/system diagrams, timelines, evidence dashboards,
-and structured evidence grids. The generated design contract specifies the
-dominant object, evidence structure, visual devices, spatial rhythm, and depth
-strategy instead of selecting a fixed slide template.
+A theme is automatically selected based on the input document. To override, use `--theme-id` on the CLI:
 
-The compiler also retrieves two or three component-level HTML visual skills for
-each slide. These are compact CSS/HTML/SVG references for elements such as
-editorial headers, inspectable figures, process topology, metric rails, ranked
-evidence rows, quantitative tables, comparison fields, and phase paths. Skills
-describe local element language and composition affordances; they do not
-provide whole-page coordinates. A deck keeps one deterministic palette while
-its slides may compose different skills and layouts.
-
-Use `--html-theme coral_tide` on the PDF pipeline CLI, or set `html_theme`
-in an experiment config to control palette selection:
-
-```json
-{
-  "use_html_codegen": true,
-  "html_theme": "coral_tide"
-}
+```bash
+python scripts/run_pdf_pipeline.py --case my_doc --html-codegen --theme-id coral_tide
 ```
 
-Use `"legacy"` to select from the original five-theme pool, or pin any concrete
-theme ID such as `"ocean_breeze"`, `"sea_glass"`, or `"editorial_slate"`.
+Available themes include `ocean_breeze`, `coral_tide`, `sea_glass`, `editorial_slate`, and others. See `app/themes.py` for the full list.
 
 ### Input Format
 
