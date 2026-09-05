@@ -1,8 +1,22 @@
 # ReDeck: Environment-Grounded Slide Generation and Refinement
 
-[![🌐 Project Page](https://img.shields.io/badge/🌐_Project_Page-ReDeck-FF6B35?style=for-the-badge&logoColor=white)](https://aka.ms/ReDeck) [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+*Turn slide refinement from “one draft, one verdict” into “one edit, one observation” — so the model can see what it changed before it moves on.*
 
-> Generate presentation slides from documents. Automatically detect and fix spatial layout issues (overflow, overlap, clipping) via an LLM repair agent that observes rendered results after every edit.
+[![Project Page](<https://img.shields.io/badge/Project%20Page-ReDeck-FF6B35>)](https://aka.ms/ReDeck) [![Paper](https://img.shields.io/badge/Paper-arXiv-b31b1b)](https://arxiv.org/abs/2609.00194) [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+## Overview
+
+Today's slide agents can produce an impressive first draft, but they still revise it almost blind. A model may fix one overlap while creating another, or improve the layout at the cost of content fidelity. Templates avoid some of these failures, but only by limiting what the model can design.
+
+**ReDeck treats the rendered deck as part of the agent's environment.** It breaks revision into small edits, renders after every step, and shows the agent the spatial consequences before it continues. A deck-level critic handles narrative and content quality, while a final validation gate keeps new layout failures from slipping through.
+
+With this repo, you can:
+
+- **Generate** a complete, source-grounded deck from a paper or document.
+- **Repair** existing HTML slides with overflow, overlap, clipping, contrast, and other spatial issues.
+- **Inspect and extend** every stage through saved slide code, renders, issue traces, and turn-by-turn artifacts.
+
+ReDeck is designed for researchers, students, educators, designers, and developers who need to turn source documents into presentation decks or systematically improve decks they already have. Across GPT-5.4, Claude-4.6, and Gemini-3.1, it consistently improves document-to-slide generation; on GPT-5.4, refinement raises spatial clean rate by **27.4 points**, content fidelity by **8.2 points**, and aesthetics by **0.69** over the initial draft. See the [paper](https://arxiv.org/abs/2609.00194) for the full evaluation and the [project page](https://aka.ms/ReDeck) for examples.
 
 ## 🎬 Demo Video
 
