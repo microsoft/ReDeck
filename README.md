@@ -162,7 +162,6 @@ scripts/                  # Pipeline and repair CLI scripts
 demo/                     # Static project website and demo assets
   repair_pairs/           # 14 before/after repair examples (HTML + PNG)
 assets/                   # README and paper figures
-tests/                    # Unit tests
 ```
 
 ## Demo Website
