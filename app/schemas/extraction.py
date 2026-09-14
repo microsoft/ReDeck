@@ -1,4 +1,4 @@
-"""SlideExtraction schema - structural data extracted from compiled PPTX."""
+"""SlideExtraction schema - structural observations from presentation slides."""
 
 from pydantic import BaseModel, Field
 

@@ -1,0 +1,14 @@
+include SECURITY.md .env.example .gitignore
+recursive-include docs *.md
+recursive-include tests/current *.py
+recursive-include tests/fixtures *.json
+prune tests/showcase
+recursive-include skills *.md
+prune runs
+prune output
+prune cases
+prune demo
+prune redeck-video
+prune offline
+global-exclude __pycache__ *.py[cod] *.log *.pem *.key *.pfx *.p12 *.jks *.keystore .env .env.* credentials*
+include .env.example

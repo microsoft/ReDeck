@@ -49,6 +49,7 @@ class DeckPlanner:
         task_brief: str,
         paper_full_md: str | None = None,
         source_store=None,
+        allow_fallback: bool = True,
     ) -> DeckBlueprint:
         """Generate a deck blueprint.
 
@@ -95,6 +96,8 @@ class DeckPlanner:
                 input_packet={"intent": intent.model_dump()},
             )
         except Exception as e:
+            if not allow_fallback:
+                raise
             # Last-ditch: if planner keeps returning need_more_context, fall
             # back to a minimal blueprint built from source_store structure.
             logger.error("DeckPlanner failed validation after retries: %s. "

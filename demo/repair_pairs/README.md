@@ -1,15 +1,16 @@
 # ReDeck Demo Repair Pairs
 
-14 before/after slide pairs demonstrating ReDeck's automated spatial-issue repair pipeline.
+14 curated historical before/after pairs from automated spatial repair, including manual post-edits on 8 pairs.
+These are not 14 untouched agent outputs or a current-runtime success-rate benchmark.
 
 ## Directory Structure
 
 ```
-demo_pairs/
+repair_pairs/
 ├── before/          # Defective slides (input to repair)
 │   ├── html/        # Source HTML
 │   └── png/         # Rendered 1280×720 @2x screenshots
-├── after/           # Repaired slides (output of 4-turn repair)
+├── after/           # Curated finals (4-turn repair; 8 pairs also manually edited)
 │   ├── html/        # Repaired HTML
 │   └── png/         # Rendered 1280×720 @2x screenshots
 └── README.md
@@ -34,7 +35,9 @@ demo_pairs/
 | 13 | d120 | demo_200 (injected) | 17 | 0 | overlap(8), clip(4), OOB(2), overflow(2) | ✓ floating-note border removed |
 | 14 | p43 | v2.0_batch_palette (transfer) | 7 | 0 | overlap(7) | — |
 
-**Total**: 707 issues detected before → 0 after repair.
+**Historical reported total**: 707 issues before → 0 in the curated final assets, including manual post-edits.
+These counts do not establish that the automated agent alone resolved all 707 issues; they have not
+been recomputed with the current probes and must not be compared directly with current blocker counts.
 
 ## Source Datasets
 
@@ -71,4 +74,5 @@ demo_pairs/
 
 ## Viewing
 
-Open `runs/selected_demo_pairs.html` in a browser for an interactive side-by-side comparison with comment/annotation support.
+Open the [website repair gallery](../index.html#repairs) for side-by-side comparisons.
+The historical run paths above identify provenance; those run directories are not included in this repository.

@@ -12,10 +12,16 @@ dist/
 .ruff_cache/
 
 # Environments and secrets
+.venv/
+venv/
 .env
 .env.*
 !.env.example
 *.key
+*.pfx
+*.p12
+*.jks
+*.keystore
 credentials*
 
 # Editors and OS
@@ -37,21 +43,20 @@ audit_assets/
 case_studies/
 SESSION_NOTES.md
 CLAUDE.md
-docs/
+output/
+offline/
+*.pem
 
 # Large or generated benchmark artifacts
 benchmarks/quizdeck_runs/
 benchmarks/**/*.pptx
 benchmarks/**/*.png
 
-# Frontend/video generated artifacts
+# Logs and temp files
 node_modules/
-redeck-video/node_modules/
 redeck-video/out/
 redeck-video/.cache/
 redeck-video/.remotion/
-
-# Logs and temp files
 *.log
 *.tmp
 *.bak

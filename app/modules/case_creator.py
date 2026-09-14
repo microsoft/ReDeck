@@ -437,7 +437,7 @@ not 1:1 section-to-slide mapping.
 {page_budget[0]}-{page_budget[1]} slides
 {figures_info}{tables_info}
 ## Constraints
-- Editable PPTX output required
+- Editable HTML/CSS slide source with PNG previews
 - Use figures from the source where appropriate
 - No more than 5 bullet points per slide
 - Include slide numbers

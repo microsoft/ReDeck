@@ -2,7 +2,7 @@
   "A01": {
     "issue_type": "weak_thesis",
     "family": "A",
-    "summary": "Thesis clarity — deck lacks clear central objective",
+    "summary": "A01: Weak Thesis — thesis_clarity",
     "checks": [
       {
         "id": "A01.1",
@@ -44,7 +44,7 @@
   "A02": {
     "issue_type": "missing_context",
     "family": "A",
-    "summary": "Opening context — first slides don't frame the problem",
+    "summary": "A02: Missing Context — opening_context",
     "checks": [
       {
         "id": "A02.1",
@@ -86,7 +86,7 @@
   "A03": {
     "issue_type": "poor_flow",
     "family": "A",
-    "summary": "Logical flow — slide order breaks coherent progression",
+    "summary": "A03: Poor Flow — logical_flow",
     "checks": [
       {
         "id": "A03.1",
@@ -113,7 +113,7 @@
   "A04": {
     "issue_type": "title_content_mismatch",
     "family": "A",
-    "summary": "Title-content alignment — title doesn't match body",
+    "summary": "A04: Title–Content Mismatch — title_content_alignment",
     "checks": [
       {
         "id": "A04.1",
@@ -155,7 +155,7 @@
   "A05": {
     "issue_type": "misallocated_detail",
     "family": "A",
-    "summary": "Detail allocation — core under-developed, secondary over-expanded",
+    "summary": "A05: Misallocated Detail — detail_allocation",
     "checks": [
       {
         "id": "A05.1",
@@ -187,7 +187,7 @@
   "A06": {
     "issue_type": "weak_closing",
     "family": "A",
-    "summary": "Closing closure — ending doesn't synthesize or close",
+    "summary": "A06: Weak Closing — closing_closure",
     "checks": [
       {
         "id": "A06.1",
@@ -229,7 +229,7 @@
   "A07": {
     "issue_type": "placeholder_slide",
     "family": "A",
-    "summary": "Placeholder slide — slide has only title, no content",
+    "summary": "A07: Placeholder Slide — placeholder_slide",
     "checks": [
       {
         "id": "A07.1",
@@ -271,7 +271,7 @@
   "B01": {
     "issue_type": "visual_inconsistency",
     "family": "B_visual",
-    "summary": "Visual consistency — cross-slide style drift",
+    "summary": "B01: Visual Consistency — visual_inconsistency",
     "checks": [
       {
         "id": "B01.1",
@@ -318,7 +318,7 @@
   "B02": {
     "issue_type": "layout_inappropriate",
     "family": "B_visual",
-    "summary": "Layout appropriateness — structure doesn't fit content",
+    "summary": "B02: Layout Appropriateness - layout_inappropriate",
     "checks": [
       {
         "id": "B02.1",
@@ -370,7 +370,7 @@
   "B03": {
     "issue_type": "overlap",
     "family": "B_visual",
-    "summary": "Overlap / occlusion — elements hidden behind others",
+    "summary": "B03: Overlap / Occlusion - overlap",
     "checks": [
       {
         "id": "B03.1",
@@ -422,7 +422,7 @@
   "B04": {
     "issue_type": "text_overflow",
     "family": "B_visual",
-    "summary": "Text overflow — text cut off or beyond container",
+    "summary": "B04: Text Overflow — text_overflow",
     "checks": [
       {
         "id": "B04.1",
@@ -454,7 +454,7 @@
   "B05": {
     "issue_type": "low_contrast",
     "family": "B_visual",
-    "summary": "Low contrast — text hard to read against background",
+    "summary": "B05: Low Contrast - low_contrast",
     "checks": [
       {
         "id": "B05.1",
@@ -506,7 +506,7 @@
   "B06": {
     "issue_type": "text_visual_imbalance",
     "family": "B_visual",
-    "summary": "Text-visual balance — too much text, no visuals",
+    "summary": "B06: Text-Visual Imbalance - text_visual_imbalance",
     "checks": [
       {
         "id": "B06.1",
@@ -558,7 +558,7 @@
   "B07": {
     "issue_type": "form_misfit",
     "family": "B_visual",
-    "summary": "Form misfit — chart/diagram type wrong for data",
+    "summary": "B07: Form Misfit - form_misfit",
     "checks": [
       {
         "id": "B07.1",
@@ -630,7 +630,7 @@
   "B08": {
     "issue_type": "irrelevant_visual",
     "family": "B_visual",
-    "summary": "Irrelevant visual — decorative image adds no value",
+    "summary": "B08: Irrelevant Visual — irrelevant_visual",
     "checks": [
       {
         "id": "B08.1",
@@ -667,7 +667,7 @@
   "B09": {
     "issue_type": "density_imbalance",
     "family": "B_visual",
-    "summary": "Density imbalance — too crowded, sparse, or uneven",
+    "summary": "B09: Density Imbalance - density_imbalance",
     "checks": [
       {
         "id": "B09.1",
@@ -774,7 +774,7 @@
   "B10": {
     "issue_type": "missing_data_visualization",
     "family": "B_visual",
-    "summary": "Missing data visualization — numbers in bullets should be chart",
+    "summary": "B10: Missing Data Visualization - missing_data_visualization",
     "checks": [
       {
         "id": "B10.1",
@@ -826,7 +826,7 @@
   "B11": {
     "issue_type": "typography_error",
     "family": "B_visual",
-    "summary": "Typography error — garbled characters, rendering artifacts",
+    "summary": "B11: Text Clarity — typography_error",
     "checks": [
       {
         "id": "B11.1",
@@ -878,7 +878,7 @@
   "B12": {
     "issue_type": "formatting_error",
     "family": "B_visual",
-    "summary": "Formatting consistency — font/spacing inconsistency",
+    "summary": "B12: Formatting Consistency — formatting_error",
     "checks": [
       {
         "id": "B12.1",
@@ -925,7 +925,7 @@
   "B13": {
     "issue_type": "alignment_inconsistency",
     "family": "B_visual",
-    "summary": "Spatial coherence — misalignment, uneven spacing",
+    "summary": "B13: Spatial Coherence / Alignment - alignment_inconsistency",
     "checks": [
       {
         "id": "B13.1",
@@ -987,7 +987,7 @@
   "B14": {
     "issue_type": "form_redundancy",
     "family": "B_visual",
-    "summary": "Form redundancy — same info in chart AND bullets",
+    "summary": "B14: Form Redundancy — form_redundancy",
     "checks": [
       {
         "id": "B14.1",
@@ -1019,7 +1019,7 @@
   "B15": {
     "issue_type": "container_contract_breach",
     "family": "B_visual",
-    "summary": "Container contract breach — content overflows container",
+    "summary": "B15: Container Contract Breach — container_contract_breach",
     "checks": [
       {
         "id": "B15.1",
@@ -1056,7 +1056,7 @@
   "B16": {
     "issue_type": "text_wall",
     "family": "B_visual",
-    "summary": "Text wall — ≥7 ungrouped bullets, no structure",
+    "summary": "B16: Text Wall — text_wall",
     "checks": [
       {
         "id": "B16.1",
@@ -1083,7 +1083,7 @@
   "B17": {
     "issue_type": "raw_figure",
     "family": "B_visual",
-    "summary": "Raw figure adaptation — source figure fails the slide-scale task",
+    "summary": "B17: Raw Figure - raw_figure",
     "checks": [
       {
         "id": "B17.1",
@@ -1130,7 +1130,7 @@
   "B18": {
     "issue_type": "color_semantic_mismatch",
     "family": "B_visual",
-    "summary": "Color semantic mismatch — colors imply wrong values",
+    "summary": "B18: Color Semantic Mismatch - color_semantic_mismatch",
     "checks": [
       {
         "id": "B18.1",
@@ -1184,10 +1184,77 @@
       }
     ]
   },
+  "B20": {
+    "issue_type": "svg_visual_defect",
+    "family": "B_visual",
+    "summary": "B20: SVG Visual Integrity — svg_visual_defect",
+    "checks": [
+      {
+        "id": "B20.1",
+        "text": "Two or more visible roles merge so that their separate jobs are difficult to parse.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B20.2",
+        "text": "Content visibly lacks sufficient room in its apparent owner, crosses a structural boundary, or appears to belong to the wrong region.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B20.3",
+        "text": "A relationship is detached, interrupted, misdirected, ambiguously attached, or routed through unrelated content in a misleading way.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B20.4",
+        "text": "An intersection or occlusion creates false grouping, false continuation, or an unclear foreground/background order.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B20.5",
+        "text": "Independent contours remain visibly continuous through the same junction and create a merged boundary, attachment, or label field with no clear reason.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B20.6",
+        "text": "A relationship passes a non-target enclosure or supporting contour through a fused, one-stroke-width crossing with no optical separation corridor.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B20.7",
+        "text": "Several otherwise legible parts create a full-slide-visible concentration of competing contours, marks, and labels.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B20.8",
+        "text": "Repeated peers use visibly inconsistent spacing, attachment, endpoints, or visual weight without semantic purpose.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B20.9",
+        "text": "Information-bearing content is clipped, distorted, duplicated, or visibly misregistered.",
+        "source": "fail_if"
+      },
+      {
+        "id": "B20.10",
+        "text": "the visible structure is materially misleading or unusable",
+        "source": "severity_critical"
+      },
+      {
+        "id": "B20.11",
+        "text": "an immediately visible failure impedes interpretation or looks clearly broken",
+        "source": "severity_major"
+      },
+      {
+        "id": "B20.12",
+        "text": "the scene is understandable but has a specific, perceptible craft inconsistency",
+        "source": "severity_minor"
+      }
+    ]
+  },
   "C01": {
     "issue_type": "missing_section",
     "family": "C",
-    "summary": "Required sections present — thematic area completely missing",
+    "summary": "C01: Required Sections Present — missing_section",
     "checks": [
       {
         "id": "C01.1",
@@ -1229,7 +1296,7 @@
   "C02": {
     "issue_type": "missing_point",
     "family": "C",
-    "summary": "Must-cover points — mandatory key points absent",
+    "summary": "C02: Must-Cover Points — missing_point",
     "checks": [
       {
         "id": "C02.1",
@@ -1256,7 +1323,7 @@
   "C03": {
     "issue_type": "missing_evidence",
     "family": "C",
-    "summary": "Evidence included — claims without supporting evidence",
+    "summary": "C03: Evidence Included — missing_evidence",
     "checks": [
       {
         "id": "C03.1",
@@ -1283,7 +1350,7 @@
   "C04": {
     "issue_type": "missing_entity",
     "family": "C",
-    "summary": "Entities present — key metrics/names/datasets missing",
+    "summary": "C04: Entities Present — missing_entity",
     "checks": [
       {
         "id": "C04.1",
@@ -1310,7 +1377,7 @@
   "C05": {
     "issue_type": "missing_conclusion",
     "family": "C",
-    "summary": "Conclusions present — required conclusions/limitations absent",
+    "summary": "C05: Conclusions Present — missing_conclusion",
     "checks": [
       {
         "id": "C05.1",
@@ -1332,7 +1399,7 @@
   "D01": {
     "issue_type": "incorrect_claim",
     "family": "D",
-    "summary": "Key claims correct — claim contradicts source",
+    "summary": "D01: Key Claims Correct — incorrect_claim",
     "checks": [
       {
         "id": "D01.1",
@@ -1359,7 +1426,7 @@
   "D02": {
     "issue_type": "numeric_error",
     "family": "D",
-    "summary": "Numeric accuracy — numbers/percentages wrong",
+    "summary": "D02: Numeric Accuracy — numeric_error",
     "checks": [
       {
         "id": "D02.1",
@@ -1386,7 +1453,7 @@
   "D03": {
     "issue_type": "entity_error",
     "family": "D",
-    "summary": "Entity accuracy — names/terms incorrect",
+    "summary": "D03: Entity Accuracy — entity_error",
     "checks": [
       {
         "id": "D03.1",
@@ -1413,7 +1480,7 @@
   "D04": {
     "issue_type": "chart_misinterpretation",
     "family": "D",
-    "summary": "Chart interpretation — chart data doesn't match source",
+    "summary": "D04: Chart/Diagram Interpretation — chart_misinterpretation",
     "checks": [
       {
         "id": "D04.1",
@@ -1455,7 +1522,7 @@
   "D05": {
     "issue_type": "unsupported_causality",
     "family": "D",
-    "summary": "Causality check — unsupported causal/comparative claims",
+    "summary": "D05: Causality Check — unsupported_causality",
     "checks": [
       {
         "id": "D05.1",
@@ -1480,9 +1547,9 @@
     ]
   },
   "D06": {
-    "issue_type": "spelling_error",
-    "family": "D",
-    "summary": "Spelling & terminology — typos, grammar, language mixing",
+    "issue_type": "language_inconsistency",
+    "family": "A",
+    "summary": "D06: Spelling, Grammar & Language Consistency — spelling_error, grammar_error, language_inconsistency",
     "checks": [
       {
         "id": "D06.1",
@@ -1539,7 +1606,7 @@
   "E01": {
     "issue_type": "untraceable",
     "family": "E",
-    "summary": "Traceability — content can't be mapped to source",
+    "summary": "E01: Traceability — untraceable",
     "checks": [
       {
         "id": "E01.1",
@@ -1566,7 +1633,7 @@
   "E02": {
     "issue_type": "fabricated",
     "family": "E",
-    "summary": "No fabrication — invented numbers/facts/conclusions",
+    "summary": "E02: No Fabrication — fabricated",
     "checks": [
       {
         "id": "E02.1",
@@ -1593,7 +1660,7 @@
   "E03": {
     "issue_type": "unfaithful_compression",
     "family": "E",
-    "summary": "Faithful compression — paraphrase changes meaning",
+    "summary": "E03: Faithful Compression — unfaithful_compression",
     "checks": [
       {
         "id": "E03.1",
@@ -1620,7 +1687,7 @@
   "E04": {
     "issue_type": "misleading_omission",
     "family": "E",
-    "summary": "Non-misleading omission — omissions distort stance",
+    "summary": "E04: Non-Misleading Omission — misleading_omission",
     "checks": [
       {
         "id": "E04.1",

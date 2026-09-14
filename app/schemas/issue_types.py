@@ -213,7 +213,6 @@ def _types_for_family(fam: IssueFamily) -> set[str]:
     return {d.name for d in ISSUE_TYPE_DEFS.values() if d.family == fam}
 
 
-# Per-family valid types (used by base_judge for LLM output normalization)
 VALID_ISSUE_TYPES: dict[str, set[str]] = {
     "A": _types_for_family(IssueFamily.A),
     "B_visual": _types_for_family(IssueFamily.B),

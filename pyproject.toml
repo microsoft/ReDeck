@@ -4,33 +4,47 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "redeck"
-version = "0.1.0"
+version = "0.2.0"
 description = "ReDeck: LLM-powered slide deck generation from academic papers with constraint-aware multi-turn refinement"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [{name = "Microsoft Corporation"}]
 dependencies = [
     "pydantic>=2.5,<3",
-    "python-pptx>=1.0,<2",
-    "openai>=1.30,<2",
-    "Pillow>=10.0,<11",
-    "pdf2image>=1.17,<2",
-    "httpx>=0.27,<1",
+    "openai>=2.54,<3",
+    "Pillow>=12.3,<13",
+    "httpx>=0.28.1,<1",
     "tenacity>=8.2,<10",
     "azure-identity>=1.15,<2",
     "PyMuPDF>=1.24,<2",
     "rank_bm25>=0.2.2,<1",
     "beautifulsoup4>=4.12,<5",
-    "numpy>=1.24,<3",
-    "playwright>=1.40,<2",
+    "numpy>=2.2,<3",
+    "playwright>=1.62,<2",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=9.0.3,<10", "build>=1.2,<2"]
+
 [project.scripts]
+redeck = "redeck_style.cli:main"
 slide-agent = "app.main:main"
+
+[tool.setuptools]
+include-package-data = false
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["app*"]
+include = ["app*", "redeck_style*", "pattern_library*", "scripts*", "examples*"]
+
+[tool.setuptools.package-data]
+app = ["prompts/**/*.md", "prompts/probes/probe_registry.json"]
+pattern_library = ["artifacts/*.json", "metadata/*.json"]
+examples = ["**/*.json", "**/*.md", "**/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/current"]
+pythonpath = ["."]
 
 [project.urls]
 Homepage = "https://github.com/microsoft/ReDeck"

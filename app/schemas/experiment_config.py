@@ -92,19 +92,11 @@ class RenderMode(BaseModel):
 
 
 class ExperimentConfig(BaseModel):
-    """Complete experiment configuration for a run.
+    """Shared configuration schema for preparation and content probes.
 
-    Active fields (all others were removed as dead code):
-    - run_id: unique identifier for this run
-    - ablation_tags: metadata tags for experiment tracking (not used in logic)
-    - models: per-module model overrides
-    - eval_mode: evaluation pipeline switches
-    - render_mode: rendering backend selection
-    - max_turns: total turns (turn 0 = generate, turns 1+ = evaluate+repair)
-    - use_html_codegen: HTML/CSS codegen vs python-pptx
-    - repair_strategy: "redeck" (agentic) or "baseline" (naive)
-    - layout_strategy: "template" | "constraint" | "freeform" | "none"
-    - prebuilt_turn0_dir: skip generation, reuse existing T0 artifacts
+    Historical serialized fields remain readable for source-context compatibility.
+    They do not activate removed backends or control the current CLI repair budget.
+    Current generation and repair switches are defined by their CLI entry points.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -130,15 +122,13 @@ class ExperimentConfig(BaseModel):
     use_html_codegen: bool = Field(
         default=True,
         description=(
-            "When True, use HTML/CSS code generation (Playwright rendering). "
-            "When False, use python-pptx codegen."
+            "Historical serialization field; current CLI supports HTML/CSS only."
         ),
     )
     repair_strategy: str = Field(
         default="redeck",
         description=(
-            "Repair strategy: 'redeck' (agentic local patching with regression "
-            "protection) or 'baseline' (naive full-rewrite)."
+            "Historical serialization field; current CLI uses the unified repair controller."
         ),
     )
     repair_text_loss_budget: int = Field(

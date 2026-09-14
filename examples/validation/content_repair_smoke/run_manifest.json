@@ -1,0 +1,5 @@
+{
+  "case": "content_repair_smoke",
+  "blueprint": "examples/validation/content_repair_smoke/blueprint.json",
+  "source_dir": "examples/validation/content_repair_smoke/source_pack"
+}

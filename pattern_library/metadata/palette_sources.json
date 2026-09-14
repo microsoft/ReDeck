@@ -1,0 +1,362 @@
+[
+  {
+    "id": "red-accent_dark",
+    "palette_name": "red-accent",
+    "luminance": "dark",
+    "palette": {
+      "bg_dark": "#05080b",
+      "bg_light": "#f7f7f6",
+      "accent": "#e31f2b",
+      "text_dark": "#f31b31",
+      "text_light": "#f3f4f5"
+    }
+  },
+  {
+    "id": "purple-violet_dark",
+    "palette_name": "purple-violet",
+    "luminance": "dark",
+    "palette": {
+      "bg_dark": "#02051a",
+      "bg_light": "#808080",
+      "accent": "#a46dff",
+      "text_dark": "#808080",
+      "text_light": "#ffffff"
+    }
+  },
+  {
+    "id": "blue-corporate_light",
+    "palette_name": "blue-corporate",
+    "luminance": "light",
+    "palette": {
+      "bg_dark": "#ffffff",
+      "bg_light": "#ffffff",
+      "accent": "#08518a",
+      "text_dark": "#081f43",
+      "text_light": "#ffffff"
+    }
+  },
+  {
+    "id": "multi-vibrant_medium",
+    "palette_name": "multi-vibrant",
+    "luminance": "medium",
+    "palette": {
+      "bg_dark": "#082547",
+      "bg_light": "#f2f1ec",
+      "accent": "#158097",
+      "text_dark": "#102034",
+      "text_light": "#ffffff"
+    }
+  },
+  {
+    "id": "pastel-soft_medium",
+    "palette_name": "pastel-soft",
+    "luminance": "medium",
+    "palette": {
+      "bg_dark": "#fbf8fc",
+      "bg_light": "#fbfaff",
+      "accent": "#8987bd",
+      "text_dark": "#222a42",
+      "text_light": "#808080"
+    }
+  },
+  {
+    "id": "earth-warm_medium",
+    "palette_name": "earth-warm",
+    "luminance": "medium",
+    "palette": {
+      "bg_dark": "#eadcc8",
+      "bg_light": "#efe2cf",
+      "accent": "#b8562d",
+      "text_dark": "#322018",
+      "text_light": "#fffdf7"
+    }
+  },
+  {
+    "id": "earth-warm_light",
+    "palette_name": "earth-warm",
+    "luminance": "light",
+    "palette": {
+      "bg_dark": "#f8f3eb",
+      "bg_light": "#f8f4ed",
+      "accent": "#c36436",
+      "text_dark": "#3c2418",
+      "text_light": "#ffffff"
+    }
+  },
+  {
+    "id": "gray-mono_medium",
+    "palette_name": "gray-mono",
+    "luminance": "medium",
+    "palette": {
+      "bg_dark": "#242424",
+      "bg_light": "#dcdcdc",
+      "accent": "#3b82f6",
+      "text_dark": "#151516",
+      "text_light": "#f2f2f2"
+    }
+  },
+  {
+    "id": "green-forest_light",
+    "palette_name": "green-forest",
+    "luminance": "light",
+    "palette": {
+      "bg_dark": "#f8f9f4",
+      "bg_light": "#f8f9f4",
+      "accent": "#5a7f3b",
+      "text_dark": "#173029",
+      "text_light": "#eff3e8"
+    }
+  },
+  {
+    "id": "orange-sunset_light",
+    "palette_name": "orange-sunset",
+    "luminance": "light",
+    "palette": {
+      "bg_dark": "#fffbf8",
+      "bg_light": "#fffdf9",
+      "accent": "#ff6a3d",
+      "text_dark": "#20262c",
+      "text_light": "#ffffff"
+    }
+  },
+  {
+    "id": "gray-mono_dark",
+    "palette_name": "gray-mono",
+    "luminance": "dark",
+    "palette": {
+      "bg_dark": "#07090a",
+      "bg_light": "#808080",
+      "accent": "#3b82f6",
+      "text_dark": "#808080",
+      "text_light": "#f2f2f2"
+    }
+  },
+  {
+    "id": "teal-cool_medium",
+    "palette_name": "teal-cool",
+    "luminance": "medium",
+    "palette": {
+      "bg_dark": "#eaedee",
+      "bg_light": "#eceeef",
+      "accent": "#068098",
+      "text_dark": "#13283e",
+      "text_light": "#f3f7f7"
+    }
+  },
+  {
+    "id": "blue-corporate_medium",
+    "palette_name": "blue-corporate",
+    "luminance": "medium",
+    "palette": {
+      "bg_dark": "#3d6389",
+      "bg_light": "#e8eaec",
+      "accent": "#225b88",
+      "text_dark": "#09244d",
+      "text_light": "#ffffff"
+    }
+  },
+  {
+    "id": "red-accent_light",
+    "palette_name": "red-accent",
+    "luminance": "light",
+    "palette": {
+      "bg_dark": "#ffffff",
+      "bg_light": "#ffffff",
+      "accent": "#c90f1b",
+      "text_dark": "#22222a",
+      "text_light": "#808080"
+    }
+  },
+  {
+    "id": "pastel-soft_light",
+    "palette_name": "pastel-soft",
+    "luminance": "light",
+    "palette": {
+      "bg_dark": "#ffffff",
+      "bg_light": "#ffffff",
+      "accent": "#bdadcf",
+      "text_dark": "#1e2238",
+      "text_light": "#808080"
+    }
+  },
+  {
+    "id": "teal-cool_light",
+    "palette_name": "teal-cool",
+    "luminance": "light",
+    "palette": {
+      "bg_dark": "#ffffff",
+      "bg_light": "#ffffff",
+      "accent": "#087e94",
+      "text_dark": "#14233a",
+      "text_light": "#ffffff"
+    }
+  },
+  {
+    "id": "multi-vibrant_dark",
+    "palette_name": "multi-vibrant",
+    "luminance": "dark",
+    "palette": {
+      "bg_dark": "#020717",
+      "bg_light": "#808080",
+      "accent": "#543dc5",
+      "text_dark": "#808080",
+      "text_light": "#ffffff"
+    }
+  },
+  {
+    "id": "orange-sunset_medium",
+    "palette_name": "orange-sunset",
+    "luminance": "medium",
+    "palette": {
+      "bg_dark": "#f7e2ca",
+      "bg_light": "#f8f0e5",
+      "accent": "#ff6242",
+      "text_dark": "#26283a",
+      "text_light": "#ffffff"
+    }
+  },
+  {
+    "id": "green-forest_dark",
+    "palette_name": "green-forest",
+    "luminance": "dark",
+    "palette": {
+      "bg_dark": "#001818",
+      "bg_light": "#808080",
+      "accent": "#86aa46",
+      "text_dark": "#808080",
+      "text_light": "#f3f4ee"
+    }
+  },
+  {
+    "id": "teal-cool_dark",
+    "palette_name": "teal-cool",
+    "luminance": "dark",
+    "palette": {
+      "bg_dark": "#031724",
+      "bg_light": "#808080",
+      "accent": "#13c7d5",
+      "text_dark": "#808080",
+      "text_light": "#f2f6f7"
+    }
+  },
+  {
+    "id": "orange-sunset_dark",
+    "palette_name": "orange-sunset",
+    "luminance": "dark",
+    "palette": {
+      "bg_dark": "#06060a",
+      "bg_light": "#808080",
+      "accent": "#ff6132",
+      "text_dark": "#808080",
+      "text_light": "#fff8fb"
+    }
+  },
+  {
+    "id": "purple-violet_medium",
+    "palette_name": "purple-violet",
+    "luminance": "medium",
+    "palette": {
+      "bg_dark": "#565a6c",
+      "bg_light": "#f7f5ff",
+      "accent": "#705ba8",
+      "text_dark": "#1d184b",
+      "text_light": "#ffffff"
+    }
+  },
+  {
+    "id": "green-forest_medium",
+    "palette_name": "green-forest",
+    "luminance": "medium",
+    "palette": {
+      "bg_dark": "#c8cbbb",
+      "bg_light": "#d8dfd4",
+      "accent": "#146239",
+      "text_dark": "#103c24",
+      "text_light": "#f7f7f4"
+    }
+  },
+  {
+    "id": "multi-vibrant_light",
+    "palette_name": "multi-vibrant",
+    "luminance": "light",
+    "palette": {
+      "bg_dark": "#fbfcff",
+      "bg_light": "#ffffff",
+      "accent": "#3053c3",
+      "text_dark": "#0b1637",
+      "text_light": "#ffffff"
+    }
+  },
+  {
+    "id": "gray-mono_light",
+    "palette_name": "gray-mono",
+    "luminance": "light",
+    "palette": {
+      "bg_dark": "#ffffff",
+      "bg_light": "#ffffff",
+      "accent": "#3b82f6",
+      "text_dark": "#202122",
+      "text_light": "#eeeeee"
+    }
+  },
+  {
+    "id": "earth-warm_dark",
+    "palette_name": "earth-warm",
+    "luminance": "dark",
+    "palette": {
+      "bg_dark": "#120d0b",
+      "bg_light": "#808080",
+      "accent": "#b56534",
+      "text_dark": "#808080",
+      "text_light": "#f3e9df"
+    }
+  },
+  {
+    "id": "pastel-soft_dark",
+    "palette_name": "pastel-soft",
+    "luminance": "dark",
+    "palette": {
+      "bg_dark": "#071324",
+      "bg_light": "#808080",
+      "accent": "#c09ac6",
+      "text_dark": "#808080",
+      "text_light": "#f6f6ff"
+    }
+  },
+  {
+    "id": "purple-violet_light",
+    "palette_name": "purple-violet",
+    "luminance": "light",
+    "palette": {
+      "bg_dark": "#ffffff",
+      "bg_light": "#ffffff",
+      "accent": "#7252cc",
+      "text_dark": "#171342",
+      "text_light": "#f5f0ff"
+    }
+  },
+  {
+    "id": "blue-corporate_dark",
+    "palette_name": "blue-corporate",
+    "luminance": "dark",
+    "palette": {
+      "bg_dark": "#020b18",
+      "bg_light": "#808080",
+      "accent": "#2678c6",
+      "text_dark": "#808080",
+      "text_light": "#f8f8ff"
+    }
+  },
+  {
+    "id": "red-accent_medium",
+    "palette_name": "red-accent",
+    "luminance": "medium",
+    "palette": {
+      "bg_dark": "#d2d3d3",
+      "bg_light": "#f6f6f5",
+      "accent": "#c91424",
+      "text_dark": "#26262b",
+      "text_light": "#f6f6f6"
+    }
+  }
+]

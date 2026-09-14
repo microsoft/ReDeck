@@ -1,0 +1,1307 @@
+{
+  "schema_version": "1.1.0",
+  "builder_version": "runtime-library-v2",
+  "source_hash": "13971bde0a654e10a453bb0f07773eda7448de9e9669bfb183ef546988d5e804",
+  "created_at": "2026-09-09T09:58:07.426470+00:00",
+  "items": [
+    {
+      "id": "type-large-display",
+      "tags": [
+        "large-display"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 46,
+        "typography_family": "large-display",
+        "selection_basis": "typography-family",
+        "color_independent": true
+      }
+    },
+    {
+      "id": "type-mixed-editorial",
+      "tags": [
+        "mixed-editorial"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 52,
+        "typography_family": "mixed-editorial",
+        "selection_basis": "typography-family",
+        "color_independent": true
+      }
+    },
+    {
+      "id": "type-mono-tech",
+      "tags": [
+        "mono-tech"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 53,
+        "typography_family": "mono-tech",
+        "selection_basis": "typography-family",
+        "color_independent": true
+      }
+    },
+    {
+      "id": "type-sans-bold",
+      "tags": [
+        "sans-bold"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 47,
+        "typography_family": "sans-bold",
+        "selection_basis": "typography-family",
+        "color_independent": true
+      }
+    },
+    {
+      "id": "type-sans-clean",
+      "tags": [
+        "sans-clean"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 51,
+        "typography_family": "sans-clean",
+        "selection_basis": "typography-family",
+        "color_independent": true
+      }
+    },
+    {
+      "id": "type-serif-classic",
+      "tags": [
+        "serif-classic"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 51,
+        "typography_family": "serif-classic",
+        "selection_basis": "typography-family",
+        "color_independent": true
+      }
+    },
+    {
+      "id": "type-small-dense",
+      "tags": [
+        "small-dense"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 45,
+        "typography_family": "small-dense",
+        "selection_basis": "typography-family",
+        "color_independent": true
+      }
+    }
+  ],
+  "legacy_source_groups": [
+    {
+      "id": "blue-corporate_dark",
+      "tags": [
+        "accent-bar",
+        "border-frame",
+        "concentric-circles",
+        "corner-accents",
+        "geometric-shapes",
+        "grid-lines",
+        "large-display",
+        "minimal-lines",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "pattern-overlay",
+        "radial-gradient",
+        "sans-clean",
+        "serif-classic",
+        "small-dense",
+        "stripe-bands",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 8,
+        "palette": "blue-corporate",
+        "luminance": "dark"
+      }
+    },
+    {
+      "id": "blue-corporate_light",
+      "tags": [
+        "border-frame",
+        "corner-accents",
+        "corner-blocks",
+        "diagonal-cut",
+        "diagonal-split",
+        "grid-lines",
+        "icon-badges",
+        "large-display",
+        "minimal-lines",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "pattern-overlay",
+        "radial-gradient",
+        "sans-bold",
+        "sans-clean",
+        "serif-classic",
+        "shadow-cards",
+        "solid-flat",
+        "split-half",
+        "stripe-bands"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 14,
+        "palette": "blue-corporate",
+        "luminance": "light"
+      }
+    },
+    {
+      "id": "blue-corporate_medium",
+      "tags": [
+        "accent-bar",
+        "concentric-circles",
+        "corner-accents",
+        "diagonal-cut",
+        "diagonal-split",
+        "dot-pattern",
+        "geometric-shapes",
+        "icon-badges",
+        "large-display",
+        "linear-gradient",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "pattern-overlay",
+        "radial-gradient",
+        "sans-bold",
+        "serif-classic",
+        "solid-flat",
+        "split-half",
+        "stripe-bands",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 14,
+        "palette": "blue-corporate",
+        "luminance": "medium"
+      }
+    },
+    {
+      "id": "earth-warm_dark",
+      "tags": [
+        "corner-accents",
+        "diagonal-split",
+        "geometric-shapes",
+        "icon-badges",
+        "linear-gradient",
+        "minimal-lines",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "sans-bold",
+        "sans-clean",
+        "shadow-cards",
+        "small-dense",
+        "solid-flat",
+        "split-half",
+        "stripe-bands",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 12,
+        "palette": "earth-warm",
+        "luminance": "dark"
+      }
+    },
+    {
+      "id": "earth-warm_light",
+      "tags": [
+        "corner-accents",
+        "corner-blocks",
+        "diagonal-cut",
+        "diagonal-split",
+        "geometric-shapes",
+        "grid-lines",
+        "icon-badges",
+        "large-display",
+        "linear-gradient",
+        "mixed-editorial",
+        "none",
+        "pattern-overlay",
+        "radial-gradient",
+        "sans-bold",
+        "sans-clean",
+        "serif-classic",
+        "shadow-cards",
+        "small-dense",
+        "solid-flat",
+        "stripe-bands",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 10,
+        "palette": "earth-warm",
+        "luminance": "light"
+      }
+    },
+    {
+      "id": "earth-warm_medium",
+      "tags": [
+        "accent-bar",
+        "border-frame",
+        "corner-accents",
+        "corner-blocks",
+        "diagonal-cut",
+        "dot-pattern",
+        "geometric-shapes",
+        "large-display",
+        "minimal-lines",
+        "mixed-editorial",
+        "mono-tech",
+        "radial-gradient",
+        "sans-bold",
+        "sans-clean",
+        "serif-classic",
+        "shadow-cards",
+        "small-dense",
+        "solid-flat",
+        "stripe-bands",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 11,
+        "palette": "earth-warm",
+        "luminance": "medium"
+      }
+    },
+    {
+      "id": "gray-mono_dark",
+      "tags": [
+        "accent-bar",
+        "border-frame",
+        "concentric-circles",
+        "corner-accents",
+        "corner-blocks",
+        "diagonal-split",
+        "geometric-shapes",
+        "icon-badges",
+        "linear-gradient",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "pattern-overlay",
+        "radial-gradient",
+        "sans-bold",
+        "sans-clean",
+        "serif-classic",
+        "shadow-cards",
+        "small-dense",
+        "solid-flat",
+        "split-half",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 13,
+        "palette": "gray-mono",
+        "luminance": "dark"
+      }
+    },
+    {
+      "id": "gray-mono_light",
+      "tags": [
+        "accent-bar",
+        "border-frame",
+        "diagonal-split",
+        "dot-pattern",
+        "geometric-shapes",
+        "icon-badges",
+        "large-display",
+        "linear-gradient",
+        "minimal-lines",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "pattern-overlay",
+        "radial-gradient",
+        "sans-bold",
+        "sans-clean",
+        "serif-classic",
+        "shadow-cards",
+        "small-dense",
+        "split-half",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 10,
+        "palette": "gray-mono",
+        "luminance": "light"
+      }
+    },
+    {
+      "id": "gray-mono_medium",
+      "tags": [
+        "accent-bar",
+        "border-frame",
+        "corner-blocks",
+        "diagonal-cut",
+        "dot-pattern",
+        "geometric-shapes",
+        "grid-lines",
+        "minimal-lines",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "pattern-overlay",
+        "radial-gradient",
+        "sans-bold",
+        "sans-clean",
+        "serif-classic",
+        "shadow-cards",
+        "small-dense",
+        "solid-flat",
+        "split-half",
+        "stripe-bands"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 14,
+        "palette": "gray-mono",
+        "luminance": "medium"
+      }
+    },
+    {
+      "id": "green-forest_dark",
+      "tags": [
+        "accent-bar",
+        "border-frame",
+        "concentric-circles",
+        "corner-accents",
+        "corner-blocks",
+        "dot-pattern",
+        "geometric-shapes",
+        "icon-badges",
+        "large-display",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "pattern-overlay",
+        "radial-gradient",
+        "sans-bold",
+        "sans-clean",
+        "serif-classic",
+        "shadow-cards",
+        "solid-flat",
+        "split-half",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 13,
+        "palette": "green-forest",
+        "luminance": "dark"
+      }
+    },
+    {
+      "id": "green-forest_light",
+      "tags": [
+        "border-frame",
+        "corner-blocks",
+        "diagonal-cut",
+        "diagonal-split",
+        "dot-pattern",
+        "geometric-shapes",
+        "grid-lines",
+        "icon-badges",
+        "large-display",
+        "linear-gradient",
+        "minimal-lines",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "pattern-overlay",
+        "radial-gradient",
+        "sans-bold",
+        "sans-clean",
+        "serif-classic",
+        "shadow-cards",
+        "small-dense",
+        "solid-flat",
+        "stripe-bands"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 17,
+        "palette": "green-forest",
+        "luminance": "light"
+      }
+    },
+    {
+      "id": "green-forest_medium",
+      "tags": [
+        "accent-bar",
+        "border-frame",
+        "concentric-circles",
+        "corner-accents",
+        "corner-blocks",
+        "diagonal-split",
+        "geometric-shapes",
+        "grid-lines",
+        "large-display",
+        "minimal-lines",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "sans-bold",
+        "sans-clean",
+        "solid-flat",
+        "stripe-bands"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 8,
+        "palette": "green-forest",
+        "luminance": "medium"
+      }
+    },
+    {
+      "id": "multi-vibrant_dark",
+      "tags": [
+        "accent-bar",
+        "corner-accents",
+        "diagonal-cut",
+        "diagonal-split",
+        "geometric-shapes",
+        "icon-badges",
+        "large-display",
+        "linear-gradient",
+        "minimal-lines",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "radial-gradient",
+        "sans-bold",
+        "serif-classic",
+        "shadow-cards",
+        "small-dense",
+        "stripe-bands",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 10,
+        "palette": "multi-vibrant",
+        "luminance": "dark"
+      }
+    },
+    {
+      "id": "multi-vibrant_light",
+      "tags": [
+        "concentric-circles",
+        "corner-blocks",
+        "diagonal-cut",
+        "diagonal-split",
+        "dot-pattern",
+        "geometric-shapes",
+        "grid-lines",
+        "icon-badges",
+        "large-display",
+        "linear-gradient",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "pattern-overlay",
+        "radial-gradient",
+        "sans-bold",
+        "sans-clean",
+        "serif-classic",
+        "shadow-cards",
+        "small-dense",
+        "stripe-bands"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 11,
+        "palette": "multi-vibrant",
+        "luminance": "light"
+      }
+    },
+    {
+      "id": "multi-vibrant_medium",
+      "tags": [
+        "accent-bar",
+        "corner-blocks",
+        "diagonal-cut",
+        "diagonal-split",
+        "geometric-shapes",
+        "grid-lines",
+        "icon-badges",
+        "minimal-lines",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "pattern-overlay",
+        "sans-bold",
+        "sans-clean",
+        "serif-classic",
+        "shadow-cards",
+        "small-dense",
+        "solid-flat",
+        "split-half"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 13,
+        "palette": "multi-vibrant",
+        "luminance": "medium"
+      }
+    },
+    {
+      "id": "orange-sunset_dark",
+      "tags": [
+        "border-frame",
+        "corner-accents",
+        "diagonal-cut",
+        "diagonal-split",
+        "geometric-shapes",
+        "icon-badges",
+        "large-display",
+        "linear-gradient",
+        "pattern-overlay",
+        "sans-bold",
+        "small-dense",
+        "stripe-bands"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 7,
+        "palette": "orange-sunset",
+        "luminance": "dark"
+      }
+    },
+    {
+      "id": "orange-sunset_light",
+      "tags": [
+        "accent-bar",
+        "corner-accents",
+        "corner-blocks",
+        "diagonal-cut",
+        "dot-pattern",
+        "geometric-shapes",
+        "icon-badges",
+        "large-display",
+        "linear-gradient",
+        "minimal-lines",
+        "mono-tech",
+        "pattern-overlay",
+        "radial-gradient",
+        "sans-bold",
+        "sans-clean",
+        "shadow-cards",
+        "small-dense",
+        "solid-flat",
+        "split-half",
+        "stripe-bands"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 13,
+        "palette": "orange-sunset",
+        "luminance": "light"
+      }
+    },
+    {
+      "id": "orange-sunset_medium",
+      "tags": [
+        "accent-bar",
+        "concentric-circles",
+        "corner-blocks",
+        "diagonal-cut",
+        "diagonal-split",
+        "dot-pattern",
+        "geometric-shapes",
+        "icon-badges",
+        "large-display",
+        "linear-gradient",
+        "minimal-lines",
+        "mixed-editorial",
+        "none",
+        "pattern-overlay",
+        "sans-bold",
+        "sans-clean",
+        "serif-classic",
+        "shadow-cards",
+        "split-half",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 11,
+        "palette": "orange-sunset",
+        "luminance": "medium"
+      }
+    },
+    {
+      "id": "pastel-soft_dark",
+      "tags": [
+        "accent-bar",
+        "border-frame",
+        "corner-accents",
+        "diagonal-cut",
+        "dot-pattern",
+        "geometric-shapes",
+        "linear-gradient",
+        "minimal-lines",
+        "mixed-editorial",
+        "mono-tech",
+        "pattern-overlay",
+        "radial-gradient",
+        "sans-bold",
+        "sans-clean",
+        "serif-classic",
+        "small-dense",
+        "split-half",
+        "stripe-bands",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 9,
+        "palette": "pastel-soft",
+        "luminance": "dark"
+      }
+    },
+    {
+      "id": "pastel-soft_light",
+      "tags": [
+        "accent-bar",
+        "border-frame",
+        "concentric-circles",
+        "corner-accents",
+        "corner-blocks",
+        "dot-pattern",
+        "geometric-shapes",
+        "grid-lines",
+        "icon-badges",
+        "large-display",
+        "minimal-lines",
+        "none",
+        "sans-bold",
+        "sans-clean",
+        "shadow-cards",
+        "small-dense",
+        "split-half",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 15,
+        "palette": "pastel-soft",
+        "luminance": "light"
+      }
+    },
+    {
+      "id": "pastel-soft_medium",
+      "tags": [
+        "accent-bar",
+        "concentric-circles",
+        "corner-accents",
+        "corner-blocks",
+        "diagonal-split",
+        "dot-pattern",
+        "geometric-shapes",
+        "icon-badges",
+        "large-display",
+        "linear-gradient",
+        "mixed-editorial",
+        "mono-tech",
+        "pattern-overlay",
+        "radial-gradient",
+        "sans-clean",
+        "serif-classic",
+        "shadow-cards",
+        "small-dense",
+        "split-half",
+        "stripe-bands"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 13,
+        "palette": "pastel-soft",
+        "luminance": "medium"
+      }
+    },
+    {
+      "id": "purple-violet_dark",
+      "tags": [
+        "accent-bar",
+        "border-frame",
+        "concentric-circles",
+        "corner-accents",
+        "diagonal-cut",
+        "dot-pattern",
+        "geometric-shapes",
+        "grid-lines",
+        "icon-badges",
+        "large-display",
+        "linear-gradient",
+        "minimal-lines",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "radial-gradient",
+        "sans-bold",
+        "sans-clean",
+        "serif-classic",
+        "small-dense",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 10,
+        "palette": "purple-violet",
+        "luminance": "dark"
+      }
+    },
+    {
+      "id": "purple-violet_light",
+      "tags": [
+        "border-frame",
+        "corner-blocks",
+        "diagonal-cut",
+        "diagonal-split",
+        "dot-pattern",
+        "geometric-shapes",
+        "grid-lines",
+        "icon-badges",
+        "large-display",
+        "mono-tech",
+        "none",
+        "sans-bold",
+        "sans-clean",
+        "small-dense",
+        "solid-flat",
+        "split-half",
+        "stripe-bands"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 9,
+        "palette": "purple-violet",
+        "luminance": "light"
+      }
+    },
+    {
+      "id": "purple-violet_medium",
+      "tags": [
+        "border-frame",
+        "corner-blocks",
+        "dot-pattern",
+        "geometric-shapes",
+        "grid-lines",
+        "large-display",
+        "linear-gradient",
+        "minimal-lines",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "pattern-overlay",
+        "radial-gradient",
+        "sans-bold",
+        "sans-clean",
+        "serif-classic",
+        "shadow-cards",
+        "small-dense",
+        "solid-flat",
+        "split-half",
+        "stripe-bands",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 12,
+        "palette": "purple-violet",
+        "luminance": "medium"
+      }
+    },
+    {
+      "id": "red-accent_dark",
+      "tags": [
+        "accent-bar",
+        "concentric-circles",
+        "corner-blocks",
+        "diagonal-cut",
+        "diagonal-split",
+        "dot-pattern",
+        "geometric-shapes",
+        "grid-lines",
+        "large-display",
+        "linear-gradient",
+        "minimal-lines",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "pattern-overlay",
+        "sans-clean",
+        "serif-classic",
+        "shadow-cards",
+        "small-dense",
+        "solid-flat",
+        "split-half"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 17,
+        "palette": "red-accent",
+        "luminance": "dark"
+      }
+    },
+    {
+      "id": "red-accent_light",
+      "tags": [
+        "border-frame",
+        "corner-accents",
+        "corner-blocks",
+        "diagonal-cut",
+        "diagonal-split",
+        "dot-pattern",
+        "geometric-shapes",
+        "grid-lines",
+        "linear-gradient",
+        "minimal-lines",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "pattern-overlay",
+        "sans-bold",
+        "serif-classic",
+        "shadow-cards",
+        "small-dense",
+        "split-half",
+        "stripe-bands",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 12,
+        "palette": "red-accent",
+        "luminance": "light"
+      }
+    },
+    {
+      "id": "red-accent_medium",
+      "tags": [
+        "corner-blocks",
+        "diagonal-cut",
+        "diagonal-split",
+        "mixed-editorial",
+        "pattern-overlay",
+        "radial-gradient",
+        "sans-bold",
+        "sans-clean",
+        "shadow-cards",
+        "solid-flat",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 6,
+        "palette": "red-accent",
+        "luminance": "medium"
+      }
+    },
+    {
+      "id": "teal-cool_dark",
+      "tags": [
+        "accent-bar",
+        "border-frame",
+        "corner-accents",
+        "corner-blocks",
+        "diagonal-split",
+        "geometric-shapes",
+        "grid-lines",
+        "icon-badges",
+        "large-display",
+        "mixed-editorial",
+        "mono-tech",
+        "pattern-overlay",
+        "radial-gradient",
+        "sans-bold",
+        "sans-clean",
+        "serif-classic",
+        "solid-flat",
+        "stripe-bands",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 11,
+        "palette": "teal-cool",
+        "luminance": "dark"
+      }
+    },
+    {
+      "id": "teal-cool_light",
+      "tags": [
+        "accent-bar",
+        "concentric-circles",
+        "corner-accents",
+        "corner-blocks",
+        "diagonal-cut",
+        "geometric-shapes",
+        "grid-lines",
+        "icon-badges",
+        "large-display",
+        "mixed-editorial",
+        "mono-tech",
+        "none",
+        "radial-gradient",
+        "sans-clean",
+        "serif-classic",
+        "shadow-cards",
+        "small-dense",
+        "solid-flat",
+        "split-half",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 13,
+        "palette": "teal-cool",
+        "luminance": "light"
+      }
+    },
+    {
+      "id": "teal-cool_medium",
+      "tags": [
+        "accent-bar",
+        "corner-accents",
+        "corner-blocks",
+        "geometric-shapes",
+        "grid-lines",
+        "large-display",
+        "linear-gradient",
+        "minimal-lines",
+        "mixed-editorial",
+        "none",
+        "sans-bold",
+        "sans-clean",
+        "serif-classic",
+        "shadow-cards",
+        "solid-flat",
+        "split-half",
+        "wave-curves"
+      ],
+      "allowed_kinds": [
+        "layout",
+        "background",
+        "typography",
+        "content",
+        "separator",
+        "decoration"
+      ],
+      "exclusions": [],
+      "rules": {
+        "member_count": 9,
+        "palette": "teal-cool",
+        "luminance": "medium"
+      }
+    }
+  ]
+}

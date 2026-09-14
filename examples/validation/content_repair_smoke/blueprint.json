@@ -1,0 +1,12 @@
+{
+  "case_id": "content_repair_smoke",
+  "total_slides": 1,
+  "narrative_arc": "One synthetic measurement and its scope limitation",
+  "slides": [{
+    "slide_id": 1,
+    "role": "results",
+    "primary_proposition": "Accuracy on the fixed validation sample is 48%.",
+    "narrative_position": "body",
+    "must_cover_subset": ["100 validation examples", "Measured sample accuracy", "Sample-only limitation", "Synthetic test fixture, not a research result"]
+  }]
+}

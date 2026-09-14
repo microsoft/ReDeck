@@ -1,173 +1,154 @@
-# ReDeck: Environment-Grounded Slide Generation and Refinement
+# ReDeck: Source-Grounded Slide Generation and Repair
 
-*Turn slide refinement from “one draft, one verdict” into “one edit, one observation” — so the model can see what it changed before it moves on.*
+[![Paper](https://img.shields.io/badge/Paper-arXiv-b31b1b)](https://arxiv.org/abs/2609.00194) [![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](https://www.python.org/) [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-[![Project Page](<https://img.shields.io/badge/Project%20Page-ReDeck-FF6B35>)](https://aka.ms/ReDeck) [![Paper](https://img.shields.io/badge/Paper-arXiv-b31b1b)](https://arxiv.org/abs/2609.00194) [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+ReDeck generates static HTML slides from documents, inspects their actual browser rendering,
+and repairs layout and source-grounded content in one bounded controller. This is a research
+preview: machine acceptance is not a substitute for human visual and factual review.
 
-## Overview
+This distribution contains one typed design-library generator and one unified repair runtime.
+Historical engines and experiment harnesses are not included in the runtime. The repository retains
+the [project website](demo/index.html), [demo video](demo/video.html), [video source](redeck-video/README.md)
+and [repair examples with provenance](demo/repair_pairs/README.md) as showcase materials.
+Historical paper scores are not claims for this version. Showcase provenance and manual edits
+are documented alongside the examples and video.
 
-Today's slide agents can produce an impressive first draft, but they still revise it almost blind. A model may fix one overlap while creating another, or improve the layout at the cost of content fidelity. Templates avoid some of these failures, but only by limiting what the model can design.
+## Install
 
-**ReDeck treats the rendered deck as part of the agent's environment.** It breaks revision into small edits, renders after every step, and shows the agent the spatial consequences before it continues. A deck-level critic handles narrative and content quality, while a final validation gate keeps new layout failures from slipping through.
+Use Python 3.11 or newer, from the repository root:
 
-With this repo, you can:
+```bash
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[dev]'
+python -m playwright install chromium
+export OPENAI_BASE_URL="https://your-openai-compatible-endpoint/v1"
+export OPENAI_API_KEY="your-api-key"
+```
 
-- **Generate** a complete, source-grounded deck from a paper or document.
-- **Repair** existing HTML slides with overflow, overlap, clipping, contrast, and other spatial issues.
-- **Inspect and extend** every stage through saved slide code, renders, issue traces, and turn-by-turn artifacts.
-
-ReDeck is designed for researchers, students, educators, designers, and developers who need to turn source documents into presentation decks or systematically improve decks they already have. Across GPT-5.4, Claude-4.6, and Gemini-3.1, it consistently improves document-to-slide generation; on GPT-5.4, refinement raises spatial clean rate by **27.4 points**, content fidelity by **8.2 points**, and aesthetics by **0.69** over the initial draft. See the [paper](https://arxiv.org/abs/2609.00194) for the full evaluation and the [project page](https://aka.ms/ReDeck) for examples.
-
-## 🎬 Demo Video
-
-https://github.com/user-attachments/assets/c3f5d87e-d96e-4da0-b5de-f242e23bbc54
-
----
+All content probes and their prompts are included; no sibling checkout or private Python
+environment is required. `.env.example` is documentation, not an automatically loaded file.
+Use `--model` and `--judge-model` to select models supported by your endpoint; the default is
+`gpt-5.5`. Requests send source material to that provider and may incur charges.
+The optional `--api trapi` route also requires an explicit `OPENAI_BASE_URL` and authorized
+Azure credentials; no organization-specific deployment endpoint is bundled.
 
 ## Quick Start
 
-### Setup
+Run the bundled synthetic example without a model call:
 
 ```bash
-pip install -e .
-playwright install chromium
+redeck generate --case content_repair_smoke --cases-root examples/validation \
+  --blueprint examples/validation/content_repair_smoke/blueprint.json \
+  --out runs/synthetic-dry --dry-run
 ```
 
-### Environment Variables
+For a real generation plus joint repair, use a fresh output directory and replace `--dry-run`
+with `--repair`. The example reports a controlled 48/100 measurement, not a research result.
+
+Generate from a PDF, including source extraction and blueprint planning:
 
 ```bash
-export OPENAI_BASE_URL="https://your-api-endpoint/v1"
-export OPENAI_API_KEY="your-key"
+redeck generate --pdf /path/to/document.pdf --case my_document \
+  --pages 8,12 --out runs/my-document --repair
 ```
 
-### Generate slides from a document
+Digital PDF text and figures are extracted locally. OCR/Marker support is optional; scanned
+PDFs may need a separately prepared source pack. Empty extraction or failed planning is not
+silently accepted as a completed deck.
+
+Already have source materials? Place `paper_full.md`, optional `figures/` and `tables/` with
+JSON sidecars under `cases/<case_id>/source_pack/`, then use `--case <case_id>`. Supply
+`--blueprint plan.json` to reuse an explicit plan. `redeck codegen` is the lower-level
+prepared-plan entry point; `redeck generate` also handles preparation and optional repair.
+
+## Repair and Review
 
 ```bash
-python scripts/run_pdf_pipeline.py \
-    --case my_document \
-    --configs html_codegen \
-    --html-codegen \
-    --max-turns 3 \
-    --model gpt-5.5
+# Existing generated run: spatial and content routes, parallel checks, one writer per slide
+redeck repair --dir runs/my-document/slide_code --source-run runs/my-document \
+  -o runs/my-document-repair --attempts 6
+
+# Imported HTML with no source document: explicitly spatial-only
+redeck repair slide.html -o runs/layout-repair \
+  --probe-routes spatial --content-repair off
+
+# Deterministic checks only; this does not establish visual/content acceptance
+redeck spatial slide.html -o runs/spatial-check
+
+# Source-grounded content review of a generation run
+redeck judge runs/my-document --output runs/content-review
 ```
 
-### Fix layout issues in existing slides
+`--probe-routes spatial content` and `--probe-execution parallel` are defaults. Use `serial`
+for debugging, or select one route explicitly. `--content-repair off` disables content edits,
+not content detection. Six candidates is the default and maximum CLI budget per slide;
+content, layout and final-review reentry share that budget. There is no extra spatial loop.
+
+`ready_for_human_review` is not an unconditional pass. Spatial-only runs retain
+`needs_evaluation` overall because content was not checked. Counts separate geometry,
+readability, style advisories and repair blockers; an unchanged decorative gradient is not
+an unresolved overlap. See [runtime architecture](docs/ARCHITECTURE.md).
+
+## Design Controls
 
 ```bash
-# Single slide
-python scripts/redeck_repair.py my_slide.html -o repaired/ --model gpt-5.5
-
-# Batch of slides
-python scripts/redeck_repair.py --dir path/to/slides/ -o repaired/ --model gpt-5.5
-
-# Multi-turn repair loop
-python scripts/redeck_loop.py --dir path/to/slides --max-turns 3 --model gpt-5.5
+redeck generate --case my_document --blueprint plan.json --out runs/my-style \
+  --palette blue-corporate --lum dark --style-archetype technical-instrument \
+  --information-density evidence-rich --asset-mode preserve --repair
 ```
 
-### Theme selection
+- Theme owns colors; `--design-family` selects non-color materials (`--dialect` is an alias).
+- One Slide Design Program combines content requirements, typed materials and compatibility checks.
+- `--asset-mode auto|preserve|table|chart` controls assigned source visuals. `preserve` embeds the
+  original image; table/chart reconstruction requires extracted table data. Per-asset overrides
+  use `--asset-policy`. Do not invent chart values when source data is unavailable.
+- Source images are evidence. Full BAMS templates and their screenshots are not generation inputs.
 
-A theme is automatically selected based on the input document. To override:
+Use `redeck codegen --help` for the complete options. Library artifacts are packaged with the
+runtime; rebuilding from original seeds is an offline operation requiring separately supplied materials.
+
+## Artifacts and Compatibility
+
+Generation saves its frozen source context, design programs, prompts, HTML, screenshots and
+review reports in the chosen directory. Repair saves T0, candidates, diagnostics, acceptance
+decisions and formal T1 without overwriting its input. Use fresh directories for new experiments.
+
+`slide-agent` and `python -m app.main` dispatch to the same current CLI. The old script names
+`redeck_repair.py`, `redeck_loop.py`, `redeck_spatial.py`, `redeck_judge.py` and
+`run_pdf_pipeline.py` are thin aliases, not independent engines. Their historical argument
+sets are not universally interchangeable; see [migration and compatibility](docs/MIGRATION.md).
+
+The historical `redeck-legacy` entry point and its implementation are removed. Compatibility
+aliases only call the current runtime; unsupported historical experiment configs fail explicitly.
+
+## Development
 
 ```bash
-python scripts/run_pdf_pipeline.py --case my_doc --html-codegen --theme-id coral_tide
+python -m pytest
+python -m pytest tests/showcase
+python -m build
 ```
 
-Available themes include `ocean_breeze`, `coral_tide`, `sea_glass`, `editorial_slate`, and others. See `app/themes.py` for the full list.
+`pyproject.toml` is the dependency source of truth; the requirements files are install aliases.
+Wheels include design artifacts, content-probe prompts and synthetic examples. Current tests
+live under `tests/current/`; they cover runtime behavior, content authorization, snapshot integrity
+and packaging boundaries.
+The planner's deterministic regression fixture lives under `tests/fixtures/`, not in runtime inputs.
+Repository-only showcase tests check website links, demo assets, narration and deployment files;
+CI runs them alongside runtime tests. They are excluded from Python packages with the showcase assets.
+See [release structure and compatibility](docs/MIGRATION.md) for the retained file boundaries.
 
-### Input format
+Offline builders under `scripts/build_*library.py` and `scripts/extract_*.py` remain so the typed
+library can be maintained. Their metadata is intermediate design material, not source-document
+answers or a second online generation engine. Original seeds must be provided separately.
+`scripts/extract_patterns.py --seeds-dir SEEDS --catalog CATALOG --out OUTPUT` rebuilds seed metadata.
+`scripts/build_runtime_library.py --seeds-dir SEEDS --out OUTPUT` rebuilds the typed artifacts;
+it requires a seed HTML file for every catalog entry and refuses incomplete inputs.
+`scripts/build_probe_registry.py --out OUTPUT` compiles atomic checks from the maintained probe
+definitions and rubrics. Use `python -m build` to create Python distributions.
 
-Place source materials in `cases/<case_id>/source_pack/`:
-
-```
-source_pack/
-  paper_full.md          # Source document text in Markdown
-  figures/               # Extracted figures with JSON sidecar
-    fig_p1_fig1.png
-    fig_p1_fig1.json     # {caption, page, bbox, ...}
-  tables/                # Extracted tables with JSON sidecar
-    tbl_p5_tbl1.png
-    tbl_p5_tbl1.json
-  screenshots/           # Page screenshots (optional)
-```
-
-### Output
-
-Each run produces per-turn artifacts in `runs/<run_id>/turn_XX/`:
-
-- `deck_blueprint.json` — Slide plan
-- `slide_code/` — Generated HTML per slide
-- `slide_png/` — Rendered slide images
-- `eval/issues.jsonl` — Persistent issue list updates
-- `turn_summary.json` — Turn-level convergence summary
-
----
-
-## How it works
-
-ReDeck runs a multi-turn pipeline:
-
-1. **Document Extraction** — Parse the source into text, figures, tables, and formulas
-2. **Deck Planning** — Generate a slide blueprint with layout and evidence links
-3. **HTML/CSS Generation** — Generate each slide as HTML/CSS, render via Playwright
-4. **Adaptive Critic** — Evaluate the deck across 5 dimensions (visual, narrative, correctness, completeness, fidelity)
-5. **Step-Level Repair** — An LLM agent applies atomic edits, gets render feedback after each edit, and rolls back or retries as needed
-
-The key insight: **the repair agent sees rendered results after every edit, not just at the end of a turn.** This lets it catch and fix spatial issues (overflow, overlap, clipping) while their causes are still clear.
-
-<p align="center">
-  <img src="assets/redeck_pipeline.png" alt="ReDeck pipeline" width="780"/>
-</p>
-
-## Spatial Issue Detection
-
-The detection engine (`app/modules/redeck/html_spatial_state.py`) renders each slide via Playwright and extracts spatial state through DOM geometry analysis:
-
-| Category                | What it catches                                                                                                                                                                                               |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Overlap**       | Sibling elements colliding (partial or full containment), with filters for legitimate nesting (parent-child, SVG rect+text)                                                                                   |
-| **Text overflow** | Content exceeding its container via`scrollHeight > clientHeight`, styled-boundary overflow (`overflow:visible` past CSS height), and SVG text exceeding sibling rects (using `getComputedTextLength()`) |
-| **Clipping**      | Content hidden by`overflow:hidden` ancestors                                                                                                                                                                |
-| **Out-of-bounds** | Elements extending past the 1280×720 slide canvas                                                                                                                                                            |
-| **Low contrast**  | WCAG AA violations for text (including SVG`fill`-based text)                                                                                                                                                |
-| **Occlusion**     | Higher z-index opaque elements covering content (full and partial)                                                                                                                                            |
-| **SVG internals** | viewBox clipping of all SVG elements (not just text), text-rect overflow within SVG                                                                                                                           |
-
-All detections pass through `count_significant_issues()` — the single source of truth for defect thresholds — ensuring the repair agent and external scorers agree on issue counts.
-
-## Project Structure
-
-```
-app/
-  orchestrator/          # Pipeline orchestration
-    run_manager.py       # Main entry: multi-turn loop
-    eval_router.py       # Dispatches evaluation across judges
-    render_manager.py    # Rendering via Playwright/LibreOffice
-    turn_settler.py      # Convergence & turn budget logic
-  modules/
-    deck_planner.py      # Blueprint generation
-    source_indexer.py     # Document content indexing (BM25)
-    evaluators/           # Critic checks, judges, and geometry probes
-    redeck/               # Step-level repair loop
-      agent_repair.py     # Core repair agent with tool use
-      html_spatial_state.py  # Playwright-based spatial detection engine
-      spatial_state.py    # ContentBlock / SlideState data structures
-  backends/
-    html_codegen/         # HTML/CSS slide generation and Playwright rendering
-  schemas/                # Pydantic data models
-  prompts/                # System prompts for LLM calls
-    probes/               # 30+ evaluation probes across 5 dimensions
-  llm_client.py           # OpenAI / Azure OpenAI API wrapper
-configs/                  # Run configurations
-scripts/                  # Pipeline and repair CLI scripts
-demo/                     # Static project website and demo assets
-  repair_pairs/           # 14 before/after repair examples (HTML + PNG)
-assets/                   # README and paper figures
-```
-
-## Demo Website
-
-The `demo/` directory includes a static website with project pages, examples, and video assets. It can be hosted with GitHub Pages.
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
+Do not treat raw HTML execution as sandboxed, export private source packs, or redistribute
+third-party materials without checking their permissions. See [SECURITY.md](SECURITY.md).
+The existing project [license](LICENSE) is unchanged by this runtime migration.

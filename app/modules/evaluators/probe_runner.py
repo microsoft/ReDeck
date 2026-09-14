@@ -45,6 +45,50 @@ _GLOBAL_SHARED_DIR = Path(__file__).parent.parent.parent / "prompts" / "shared"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
+def _format_spatial_signal(state) -> dict:
+    """Extract measured spatial evidence for visual probes."""
+    signals: dict = {}
+    if state.overlap_pairs:
+        signals["overlap_pairs"] = [
+            {"a": first, "b": second, "overlap_fraction_of_smaller": round(ratio, 3)}
+            for first, second, ratio in state.overlap_pairs
+        ]
+    if state.overflow_blocks:
+        overflow_info = []
+        for block_id in state.overflow_blocks:
+            block = next((item for item in state.blocks if item.block_id == block_id), None)
+            if block:
+                overflow_info.append({
+                    "block_id": block_id,
+                    "overflow_bottom_px": block.overflow_bottom_px,
+                    "overflow_right_px": block.overflow_right_px,
+                    "scroll_h_px": block.scroll_h_px,
+                    "client_h_px": block.client_h_px,
+                })
+            else:
+                overflow_info.append({"block_id": block_id})
+        signals["overflow_blocks"] = overflow_info
+    if state.oob_blocks:
+        signals["oob_blocks"] = list(state.oob_blocks)
+    if state.low_contrast_blocks:
+        contrast_info = []
+        for block_id in state.low_contrast_blocks:
+            block = next((item for item in state.blocks if item.block_id == block_id), None)
+            if block:
+                contrast_info.append({
+                    "block_id": block_id,
+                    "contrast_ratio": round(block.contrast_ratio, 1),
+                    "fg": block.fg_color,
+                    "bg": block.bg_color,
+                })
+        signals["low_contrast"] = contrast_info
+    if state.clipped_blocks:
+        signals["clipped_blocks"] = list(state.clipped_blocks)
+    if getattr(state, "svg_regions", None):
+        signals["svg_regions"] = list(state.svg_regions)
+    return signals
+
+
 class ProbeRunner:
     """Executes a single probe on specified slides."""
 
@@ -241,7 +285,6 @@ class ProbeRunner:
         rubric = read_text(_PROBES_DIR / probe_def.probe_file)
         output_schema = read_text(_SHARED_DIR / "output_schema.md")
 
-        # Global shared rules (same as BaseJudge)
         judgment_rules = read_text(_GLOBAL_SHARED_DIR / "global_judgment_rules.md")
         json_rules = read_text(_GLOBAL_SHARED_DIR / "json_output_rules.md")
         uncertainty = read_text(_GLOBAL_SHARED_DIR / "uncertainty_policy.md")
@@ -417,7 +460,6 @@ class ProbeRunner:
 
         # Add spatial signals if the probe requires them
         if probe_def.requires_spatial and spatial_signals:
-            from .visual_judge import _format_spatial_signal
             spatial_ctx = {}
             for sid in slide_ids:
                 state = spatial_signals.get(sid)
@@ -565,8 +607,7 @@ class ProbeRunner:
     ) -> list[Issue]:
         """Triage previous issues of this probe's type.
 
-        Uses the same two-call pattern as BaseJudge:
-        Call 1 = verdict-only triage, Call 2 = fresh eval.
+        Verdict-only triage runs before fresh evaluation in run_probe.
         """
         # Separate already-resolved issues (don't re-triage)
         resolved = [i for i in previous_issues if i.status == IssueStatus.RESOLVED]
@@ -875,7 +916,7 @@ class ProbeRunner:
         source_store: Any,
         slide_text: str,
     ) -> str:
-        """Build per-slide source evidence. Reuses BaseJudge logic."""
+        """Build per-slide source evidence from a bundle or the evidence index."""
         # Use source_store V2 if available
         if source_store is not None:
             bundle = source_store.get_bundle(slide_id)

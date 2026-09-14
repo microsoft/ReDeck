@@ -1,0 +1,120 @@
+{
+  "case_id": "db_003",
+  "source": "source_pack/paper_full.md and extracted figure/table metadata",
+  "total_slides": 10,
+  "narrative_arc": "From noisy EEG graph construction, through a two-stage Transformer plus LLM edge-refinement method, to TUSZ detection performance and physiological interpretability.",
+  "slides": [
+    {
+      "slide_id": 1,
+      "role": "title",
+      "primary_proposition": "LLM as Clinical Graph Structure Refiner uses language-model reasoning to improve EEG seizure diagnosis.",
+      "must_cover_subset": [
+        "Exact paper title: LLM as Clinical Graph Structure Refiner: Enhancing Representation Learning in EEG Seizure Diagnosis",
+        "Authors: Lincan Li, Zheng Chen, Yushun Dong",
+        "Core claim: LLM refinement removes redundant EEG graph edges and improves representation quality"
+      ],
+      "assigned_figure_id": ""
+    },
+    {
+      "slide_id": 2,
+      "role": "context",
+      "primary_proposition": "Noisy, variable EEG signals make both predefined and learned channel graphs prone to spurious connections.",
+      "must_cover_subset": [
+        "EEG seizure events vary in duration, frequency, and spatial manifestation across patients",
+        "Correlation, distance, KNN, attention, and generative graph methods can retain redundant or erroneous edges",
+        "Misleading connectivity degrades GNN representation learning, detection, and interpretability"
+      ],
+      "assigned_figure_id": ""
+    },
+    {
+      "slide_id": 3,
+      "role": "method",
+      "primary_proposition": "The proposed pipeline first predicts candidate edges, then asks an LLM to validate each connection before diagnosis.",
+      "must_cover_subset": [
+        "Stage 1: Transformer channel embeddings plus an MLP produce edge probabilities and a thresholded initial graph",
+        "Stage 2: an LLM receives node-pair evidence and returns yes/no for each candidate edge",
+        "The refined graph feeds a GraphS4mer representation model for seizure prediction and explanation"
+      ],
+      "assigned_figure_id": "fig_p4_fig1"
+    },
+    {
+      "slide_id": 4,
+      "role": "method",
+      "primary_proposition": "Each edge decision combines semantic channel descriptions with twelve statistical EEG features.",
+      "must_cover_subset": [
+        "Text features include channel label, anatomical region, signal observations, and temporal trend",
+        "Statistics include mean, standard deviation, dominant frequency, min, max, median, quartiles, skewness, kurtosis, energy, and zero crossings",
+        "The prompt asks whether a physiologically meaningful functional connection exists between the node pair"
+      ],
+      "assigned_figure_id": ""
+    },
+    {
+      "slide_id": 5,
+      "role": "evaluation",
+      "primary_proposition": "The benchmark isolates graph quality by holding the GraphS4mer backbone and TUSZ evaluation protocol fixed.",
+      "must_cover_subset": [
+        "TUSZ v1.5.2 contains 5,612 EEG recordings and 3,050 seizure annotations",
+        "Nineteen channels use the standard 10–20 montage",
+        "Ten LLM refiners are compared with five non-LLM graph constructors using F1, accuracy, and recall"
+      ],
+      "assigned_figure_id": "",
+      "design_anchor_id": "seed_075"
+    },
+    {
+      "slide_id": 6,
+      "role": "results",
+      "primary_proposition": "LLM-refined graphs consistently outperform conventional graph construction on seizure detection.",
+      "must_cover_subset": [
+        "Best conventional result: Generative Graph Learner, F1 0.7351, accuracy 0.9039, recall 0.7625",
+        "GPT-5 plus Transformer graph reaches F1 0.7907, accuracy 0.9315, recall 0.8058",
+        "GPT-5-mini reaches F1 0.7859; GPT-4.1 reaches 0.7792"
+      ],
+      "assigned_figure_id": "tbl_p6_tbl1"
+    },
+    {
+      "slide_id": 7,
+      "role": "comparison",
+      "primary_proposition": "Graph reasoning becomes sparser and more consistent as the structural judge grows stronger.",
+      "must_cover_subset": [
+        "Mistral 7B: graph sparsity 0.4213 and JSD 0.0576",
+        "GPT-4o: sparsity 0.3826 and JSD 0.0314",
+        "GPT-5: sparsity 0.3741 and the lowest JSD, 0.0265"
+      ],
+      "assigned_figure_id": "tbl_p6_tbl2",
+      "design_anchor_id": "seed_217"
+    },
+    {
+      "slide_id": 8,
+      "role": "results",
+      "primary_proposition": "Node importance tracks a clinically plausible seizure spread from frontal toward temporal regions.",
+      "must_cover_subset": [
+        "Across t+1 to t+6, activation moves from Fp1/Fp2/F3/F4 toward T3/T4",
+        "GPT-family refiners show more stable and spatially focused activations than Mistral and Llama",
+        "GPT-5 produces the most coherent and biologically plausible feature pattern"
+      ],
+      "assigned_figure_id": "fig_p6_fig2"
+    },
+    {
+      "slide_id": 9,
+      "role": "results",
+      "primary_proposition": "Spatiotemporal graph visualizations show that stronger LLMs preserve seizure propagation with fewer redundant links.",
+      "must_cover_subset": [
+        "The case study follows frontal, temporal, central, and parietal–occipital propagation over four windows",
+        "GPT-5 and GPT-4o produce sparse, spatially coherent connectivity",
+        "Gemini 2.5-Pro adds some redundant inter-region links; Llama 3.1-70B is denser and noisier"
+      ],
+      "assigned_figure_id": "fig_p7_fig4"
+    },
+    {
+      "slide_id": 10,
+      "role": "conclusion",
+      "primary_proposition": "LLMs can act as clinically informed graph refiners, improving accuracy and interpretability without changing the downstream backbone.",
+      "must_cover_subset": [
+        "The contribution is edge validation, not replacement of EEG signal modeling",
+        "Results support language-driven reasoning as a mechanism for pruning task-irrelevant connectivity",
+        "Future work targets domain-adaptive prompting, multimodal integration, robustness, and broader biomedical graphs"
+      ],
+      "assigned_figure_id": ""
+    }
+  ]
+}

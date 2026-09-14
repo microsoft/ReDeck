@@ -15,5 +15,5 @@ class IntentState(BaseModel):
     )
     must_cover: list[str] = Field(default_factory=list, description="Required topics/sections")
     must_avoid: list[str] = Field(default_factory=list, description="Topics/patterns to avoid")
-    editable_required: bool = Field(default=True, description="Output must be editable PPTX")
+    editable_required: bool = Field(default=True, description="Editable presentation source required")
     additional_constraints: dict = Field(default_factory=dict)

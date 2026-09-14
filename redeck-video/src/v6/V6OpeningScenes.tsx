@@ -104,12 +104,12 @@ export const V6TitleScene: React.FC = () => {
         >
           <div style={{ position: "relative", overflow: "hidden", aspectRatio: "16 / 9", border: "9px solid #ffffff", borderRadius: 14, backgroundColor: "#ffffff", boxShadow: "0 22px 58px rgba(48,77,88,0.16)", opacity: draftIn, transform: `translateX(${interpolate(draftIn, [0, 1], [-48, 0])}px)` }}>
             <Img src={staticFile("trajectory/d78_00.png")} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
-            <div style={{ position: "absolute", left: 16, top: 16, padding: "9px 13px", color: "#ffffff", backgroundColor: "#d95660", fontSize: 13, fontWeight: 800, textTransform: "uppercase" }}>Generated draft</div>
+            <div style={{ position: "absolute", left: 16, top: 16, padding: "9px 13px", color: "#ffffff", backgroundColor: "#d95660", fontSize: 13, fontWeight: 800, textTransform: "uppercase" }}>Injected-defect input</div>
           </div>
           <div style={{ color: "#c94f5a", fontFamily: fonts.heading, fontSize: 54, fontWeight: 900, textAlign: "center", opacity: pathIn }}>→</div>
           <div style={{ position: "relative", overflow: "hidden", aspectRatio: "16 / 9", border: "9px solid #ffffff", borderRadius: 14, backgroundColor: "#ffffff", boxShadow: "0 22px 58px rgba(48,77,88,0.16)", opacity: verifiedIn, transform: `translateX(${interpolate(verifiedIn, [0, 1], [48, 0])}px)` }}>
             <Img src={staticFile("trajectory/d78_final.png")} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
-            <div style={{ position: "absolute", right: 16, top: 16, padding: "9px 13px", color: "#ffffff", backgroundColor: "#559b83", fontSize: 13, fontWeight: 800, textTransform: "uppercase" }}>Verified slide ✓</div>
+            <div style={{ position: "absolute", right: 16, top: 16, padding: "9px 13px", color: "#ffffff", backgroundColor: "#559b83", fontSize: 13, fontWeight: 800, textTransform: "uppercase" }}>Curated final · manual post-edit</div>
           </div>
         </div>
       </AbsoluteFill>
