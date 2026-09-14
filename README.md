@@ -29,10 +29,17 @@ export OPENAI_API_KEY="your-api-key"
 
 All content probes and their prompts are included; no sibling checkout or private Python
 environment is required. `.env.example` is documentation, not an automatically loaded file.
-Use `--model` and `--judge-model` to select models supported by your endpoint; the default is
-`gpt-5.5`. Requests send source material to that provider and may incur charges.
-The optional `--api trapi` route also requires an explicit `OPENAI_BASE_URL` and authorized
-Azure credentials; no organization-specific deployment endpoint is bundled.
+Use `--model` for planning, generation and repair, and `--judge-model` for content review.
+Both default independently to `gpt-5.5`; set both if your endpoint uses different model names.
+Requests send source material to that provider and may incur charges.
+The default `--api local` means an OpenAI-compatible endpoint, not necessarily an on-device
+model: it uses `OPENAI_BASE_URL` and `OPENAI_API_KEY`. Without a URL it targets
+`http://localhost:8811/v1`; a non-loopback endpoint requires an API key.
+The optional `--api trapi` route requires an explicit `OPENAI_BASE_URL` and Azure CLI or
+managed-identity credentials authorized for TRAPI. It is not a generic Azure OpenAI mode;
+`AZURE_OPENAI_ENDPOINT` and `AZURE_API_KEY` do not configure the current CLI. No private
+deployment endpoint or credentials are bundled, and the default route does not authenticate
+with Azure.
 
 ## Quick Start
 
@@ -53,6 +60,9 @@ Generate from a PDF, including source extraction and blueprint planning:
 redeck generate --pdf /path/to/document.pdf --case my_document \
   --pages 8,12 --out runs/my-document --repair
 ```
+
+`--pages 8,12` requests 8–12 output slides, not PDF pages 8 and 12. Use `--pages 8` for
+an eight-slide planning budget. A supplied `--blueprint` bypasses new planning.
 
 Digital PDF text and figures are extracted locally. OCR/Marker support is optional; scanned
 PDFs may need a separately prepared source pack. Empty extraction or failed planning is not
@@ -136,17 +146,18 @@ Wheels include design artifacts, content-probe prompts and synthetic examples. C
 live under `tests/current/`; they cover runtime behavior, content authorization, snapshot integrity
 and packaging boundaries.
 The planner's deterministic regression fixture lives under `tests/fixtures/`, not in runtime inputs.
-Repository-only showcase tests check website links, demo assets, narration and deployment files;
-CI runs them alongside runtime tests. They are excluded from Python packages with the showcase assets.
+Repository-only showcase tests check website links, demo assets, narration and deployment files.
+They are excluded from Python packages with the showcase assets. Run tests locally with the
+commands above; the bundled GitHub Actions workflow deploys the demo website, not the test suite.
 See [release structure and compatibility](docs/MIGRATION.md) for the retained file boundaries.
 
 Offline builders under `scripts/build_*library.py` and `scripts/extract_*.py` remain so the typed
 library can be maintained. Their metadata is intermediate design material, not source-document
 answers or a second online generation engine. Original seeds must be provided separately.
-`scripts/extract_patterns.py --seeds-dir SEEDS --catalog CATALOG --out OUTPUT` rebuilds seed metadata.
-`scripts/build_runtime_library.py --seeds-dir SEEDS --out OUTPUT` rebuilds the typed artifacts;
+`python scripts/extract_patterns.py --seeds-dir SEEDS --catalog CATALOG --out OUTPUT` rebuilds seed metadata.
+`python scripts/build_runtime_library.py --seeds-dir SEEDS --out OUTPUT` rebuilds the typed artifacts;
 it requires a seed HTML file for every catalog entry and refuses incomplete inputs.
-`scripts/build_probe_registry.py --out OUTPUT` compiles atomic checks from the maintained probe
+`python scripts/build_probe_registry.py --out OUTPUT` compiles atomic checks from the maintained probe
 definitions and rubrics. Use `python -m build` to create Python distributions.
 
 Do not treat raw HTML execution as sandboxed, export private source packs, or redistribute

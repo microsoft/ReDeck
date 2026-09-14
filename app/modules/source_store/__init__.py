@@ -47,7 +47,7 @@ def build_source_store(
 
     Args:
         case_dir: Path to the case directory (contains ``source_pack/``).
-        llm: ``LLMClient`` instance for document block planning.
+        llm: Client providing ``call_json`` for document block planning.
         cache: If True (default), persist to / load from
             ``source_pack/source_store.json``.
         model: Optional model override for the block planner LLM call.

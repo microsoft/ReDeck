@@ -14,7 +14,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-from ...llm_client import LLMClient
 from ...schemas.blueprint import DeckBlueprint
 from ...schemas.common import Confidence, IssueStatus, RepairAction, Severity, Verdict
 from ...schemas.evidence import EvidenceState
@@ -92,7 +91,7 @@ def _format_spatial_signal(state) -> dict:
 class ProbeRunner:
     """Executes a single probe on specified slides."""
 
-    def __init__(self, llm: LLMClient, config: ExperimentConfig):
+    def __init__(self, llm, config: ExperimentConfig):
         self.llm = llm
         self.config = config
         self._prompt_cache: dict[str, str] = {}

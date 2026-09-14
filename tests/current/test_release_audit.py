@@ -26,7 +26,8 @@ from scripts import generate, repair, content_probe_worker
 from app.modules.evaluators.probe_runner import ProbeRunner
 for name in sys.modules:
     assert not name.startswith(("app.orchestrator", "app.backends", "app.modules.redeck", "app.style_patterns",
-                                "app.modules.evaluators.base_judge", "app.modules.evaluators.visual_judge")), name
+                                "app.modules.evaluators.base_judge", "app.modules.evaluators.visual_judge",
+                                "app.llm_client", "azure.identity")), name
 '''
     subprocess.run([sys.executable, "-c", code], cwd=ROOT, check=True, capture_output=True, text=True)
 
@@ -40,6 +41,7 @@ def test_wheel_uses_explicit_package_data_not_sdist_archive_manifest():
     assert "prompts/probes/probe_registry.json" in setuptools["package-data"]["app"]
     assert "artifacts/*.json" in setuptools["package-data"]["pattern_library"]
     assert not any(dependency.startswith("python-pptx") for dependency in project["project"]["dependencies"])
+    assert not any(dependency.startswith("tenacity") for dependency in project["project"]["dependencies"])
 
 
 def test_release_omits_retired_engines_and_experiment_tools():
@@ -52,7 +54,8 @@ def test_release_omits_retired_engines_and_experiment_tools():
                "app/prompts/probes/B19_whitespace_asymmetry.md", "app/prompts/probes/probe_translations.zh.json",
                "app/schemas/compile_manifest.py", "app/schemas/eval_unit.py", "app/schemas/render_result.py",
                "app/schemas/repair_unit.py", "app/schemas/turn_summary.py", "app/schemas/verify_report.py",
-               "demo/video-player.js", "redeck-video/eslint.config.mjs")
+               "demo/video-player.js", "redeck-video/eslint.config.mjs",
+               "app/llm_client.py", "app/schemas/module_log.py")
     assert all(not (ROOT / name).exists() for name in removed)
     assert not list((ROOT / "scripts").glob("build_*gallery.py"))
 

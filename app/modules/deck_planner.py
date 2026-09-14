@@ -11,7 +11,6 @@ import json
 import logging
 from pathlib import Path
 
-from ..llm_client import LLMClient
 from ..schemas.blueprint import DeckBlueprint
 from ..schemas.evidence import EvidenceState
 from ..schemas.experiment_config import ExperimentConfig
@@ -30,7 +29,7 @@ FULL_TEXT_THRESHOLD = 80_000
 class DeckPlanner:
     """Produces a DeckBlueprint from IntentState and EvidenceState."""
 
-    def __init__(self, llm: LLMClient, config: ExperimentConfig):
+    def __init__(self, llm, config: ExperimentConfig):
         self.llm = llm
         self.config = config
         self.system_prompt = read_text(PROMPT_PATH)

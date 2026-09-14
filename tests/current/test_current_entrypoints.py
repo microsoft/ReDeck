@@ -1,3 +1,7 @@
+import argparse
+import importlib
+import re
+import shlex
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,6 +14,51 @@ from scripts import codegen, generate, repair
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "examples/validation/content_repair_smoke"
+README_COMMANDS = [
+    shlex.split(line.strip())[1:]
+    for block in re.findall(r"```bash\n(.*?)```", (ROOT / "README.md").read_text(), re.DOTALL)
+    for line in block.replace("\\\n", " ").splitlines()
+    if line.strip().startswith("redeck ")
+]
+
+
+@pytest.mark.parametrize("command", README_COMMANDS)
+def test_readme_commands_match_current_argument_parsers(command, monkeypatch):
+    class ParsedArguments(Exception):
+        pass
+
+    parse_args = argparse.ArgumentParser.parse_args
+
+    def stop_after_parsing(parser, *args, **kwargs):
+        parse_args(parser, *args, **kwargs)
+        raise ParsedArguments
+
+    module = importlib.import_module(cli.COMMANDS[command[0]])
+    monkeypatch.setattr(argparse.ArgumentParser, "parse_args", stop_after_parsing)
+    with pytest.raises(ParsedArguments):
+        module.main(command[1:])
+
+
+@pytest.mark.parametrize("command", [command for command in README_COMMANDS
+                                     if command[0] == "generate" and "--pdf" not in command])
+def test_readme_generation_examples_build_prompts_without_api(command, tmp_path, monkeypatch):
+    monkeypatch.setattr(codegen, "get_client", lambda *args: pytest.fail("Unexpected model call"))
+    arguments = list(command[1:])
+    output = tmp_path / "generation"
+    for option, value in (("--case", FIXTURE.name), ("--cases-root", str(FIXTURE.parent)),
+                          ("--blueprint", str(FIXTURE / "blueprint.json")), ("--out", str(output))):
+        if option in arguments:
+            arguments[arguments.index(option) + 1] = value
+        else:
+            arguments.extend([option, value])
+    if "--repair" in arguments:
+        arguments.remove("--repair")
+    if "--dry-run" not in arguments:
+        arguments.append("--dry-run")
+    generate.main(arguments)
+    assert (output / "run_manifest.json").is_file()
+    assert (output / "prompts/system.txt").is_file()
+    assert list((output / "prompts").glob("slide_*.txt"))
 
 
 def test_bundled_probes_and_local_cases_are_defaults(monkeypatch, tmp_path):

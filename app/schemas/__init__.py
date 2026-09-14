@@ -30,7 +30,6 @@ from .experiment_config import (
 from .extraction import ExtractedObject, SlideExtraction
 from .intent import IntentState
 from .issue import Issue, IssueEvidence
-from .module_log import ModuleCallLog
 
 __all__ = [
     "Status", "Severity", "Confidence", "IssueStatus", "RenderClass",
@@ -45,5 +44,4 @@ __all__ = [
     "RenderMode", "ModelConfig",
     "CaseState",
     "SlideExtraction", "ExtractedObject",
-    "ModuleCallLog",
 ]

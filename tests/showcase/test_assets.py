@@ -14,6 +14,17 @@ DEMO = ROOT / "demo"
 VIDEO = ROOT / "redeck-video"
 
 
+def test_readme_and_website_share_the_paper_url():
+    paper_url = "https://arxiv.org/abs/2609.00194"
+    readme = (ROOT / "README.md").read_text()
+    assert re.search(r"\[!\[Paper\]\([^\n]+?\)\]\(" + re.escape(paper_url) + r"\)", readme)
+    homepage = BeautifulSoup((DEMO / "index.html").read_text(), "html.parser")
+    paper_links = [link for link in homepage.find_all("a") if link.get_text(strip=True) == "Paper"]
+    assert len(paper_links) == 1 and paper_links[0]["href"] == paper_url
+    technical = BeautifulSoup((DEMO / "tech.html").read_text(), "html.parser")
+    assert "url={" + paper_url + "}" in technical.select_one(".citation-box").get_text()
+
+
 @pytest.mark.parametrize("name", ["index.html", "tech.html", "team.html", "video.html"])
 def test_website_local_resources_and_anchors_exist(name):
     page = DEMO / name

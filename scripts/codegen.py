@@ -126,9 +126,6 @@ def get_client(api="local"):
             AzureCliCredential(),
             ManagedIdentityCredential(),
         )
-        # The OpenAI SDK version in this environment serializes callable API
-        # keys instead of invoking them. Keep the credential on the client and
-        # refresh its token immediately before each request instead.
         api_key = credential.get_token("api://trapi/.default").token
 
     client = openai.OpenAI(base_url=base_url, api_key=api_key)

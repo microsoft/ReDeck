@@ -16,7 +16,7 @@ the public website and historical showcase materials, separate from the Python r
 | `examples/validation/content_repair_smoke/` | Small synthetic source, explicit blueprint and HTML for trying the runtime |
 | `tests/current/`, `tests/fixtures/` | Maintained regression suite; fixtures are not generation defaults or benchmark claims |
 | `tests/showcase/` | Repository-only checks for website/video resources |
-| `docs/`, `skills/`, `.github/` | Architecture, compatibility, agent usage, CI and dependency maintenance |
+| `docs/`, `skills/`, `.github/` | Architecture, compatibility, agent usage, website deployment and dependency maintenance |
 | `demo/` | Public website, video, poster, and 14 before/after pairs with provenance disclosures |
 | `redeck-video/`, `assets/` | Remotion source, narration, licensed music, trajectory images and project diagrams |
 
@@ -57,8 +57,8 @@ but not imported by the installed application.
 Run `python -m pytest` and `python -m build`. Exercise the installed wheel from a directory outside
 the checkout to verify that it does not rely on source-only files. Regression tests validate
 implementation behavior; they do not measure model output quality.
-Run `python -m pytest tests/showcase` in the repository for website/video integrity; these checks
-are also required by CI but do not ship in Python source distributions without their assets.
+Run `python -m pytest tests/showcase` in the repository for website/video integrity; these local
+checks do not ship in Python source distributions without their assets.
 
 The Pages workflow publishes `demo/`. The Remotion project builds the MP4 into `demo/assets/`.
 See the [video source and build instructions](../redeck-video/README.md).
