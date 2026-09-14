@@ -35,7 +35,7 @@ from redeck_style.repair import (
     typography_approved,
 )
 from redeck_style.typography import typography_audit
-from scripts.codegen import extract_html, get_client, call_llm
+from scripts.codegen import API_CHOICES, extract_html, get_client, call_llm
 from redeck_style.execution import measure
 from redeck_style.evaluation.coordinator import (
     add_judge_arguments, judge_options,
@@ -669,7 +669,7 @@ def main(argv=None) -> None:
     parser.add_argument("--dir")
     parser.add_argument("--output-dir", "--out", "-o", dest="output_dir", required=True)
     parser.add_argument("--model", default="gpt-5.5")
-    parser.add_argument("--api", choices=("local", "trapi", "anthropic"), default="local")
+    parser.add_argument("--api", choices=API_CHOICES, default="openai")
     parser.add_argument("--attempts", type=int, default=6, help="Total candidate budget per page, shared by joint/content/layout edits and final-review reentry.")
     parser.add_argument("--review-feedback", default="", help="Visual review constraints to retain in every repair attempt")
     args = parser.parse_args(argv)

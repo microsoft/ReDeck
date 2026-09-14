@@ -42,6 +42,7 @@ def test_wheel_uses_explicit_package_data_not_sdist_archive_manifest():
     assert "artifacts/*.json" in setuptools["package-data"]["pattern_library"]
     assert not any(dependency.startswith("python-pptx") for dependency in project["project"]["dependencies"])
     assert not any(dependency.startswith("tenacity") for dependency in project["project"]["dependencies"])
+    assert not any(dependency.startswith("azure-") for dependency in project["project"]["dependencies"])
 
 
 def test_release_omits_retired_engines_and_experiment_tools():

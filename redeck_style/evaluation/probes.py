@@ -187,10 +187,10 @@ def evaluate_pages(pages, output_dir, options, reviewer, spatial_model, baseline
         try:
             if route == "spatial":
                 cached = previous.get(route)
-                if cached and cached.get("api", "local") != options.get("api", "local"):
+                if cached and cached.get("api", "openai") != options.get("api", "openai"):
                     cached = None
                 return {**spatial_route(copy.deepcopy(snapshots), reviewer, spatial_model, cached),
-                        "api": options.get("api", "local")}
+                        "api": options.get("api", "openai")}
             content = coordinator.review_pages(copy.deepcopy(snapshots), output_dir / "content", options,
                                                baseline=previous.get(route))
             records = [normalize_record(record, route) for record in content["probes"]]

@@ -64,7 +64,7 @@ def run_repair_jobs(jobs, output_dir, model, attempts, options, workers=1, revie
         raise ValueError("request_limit must be a positive integer")
     if type(options.get("content_workers", 3)) is not int or not 1 <= options.get("content_workers", 3) <= 16:
         raise ValueError("content_workers must be an integer from 1 to 16")
-    client_factory = client_factory or (lambda: repair.get_client(options.get("api", "local")))
+    client_factory = client_factory or (lambda: repair.get_client(options.get("api", "openai")))
     destinations = [(str(Path(job["output"]).resolve()), Path(job["source"]).name) for job in jobs]
     if len(set(destinations)) != len(destinations):
         raise ValueError("Repair jobs would overwrite the same output HTML")
@@ -220,7 +220,7 @@ def run_repair_jobs(jobs, output_dir, model, attempts, options, workers=1, revie
                         "png": str(Path(job["output"]) / "t1_png" / f"{Path(job['source']).stem}.png"),
                         "original_png": page["png"]} for job, page in zip(group, pages)]
         baseline = {"routes": {**initial["routes"], "spatial": {
-            "api": options.get("api", "local"),
+            "api": options.get("api", "openai"),
             "pages": {str(job["slide_id"]): row["selected_spatial_probes"] for job, row in zip(group, group_rows)}}}}
         selected_content = next((row["selected_content_report"] for row in reversed(group_rows)
                                  if row["content_edit"]["applied"] and row.get("selected_content_report")), None)

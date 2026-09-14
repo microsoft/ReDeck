@@ -53,10 +53,10 @@ Rules:
 
 
 def get_client():
-    import openai
-    base_url = os.environ.get("OPENAI_BASE_URL", "http://localhost:8811/v1")
-    api_key = os.environ.get("OPENAI_API_KEY", "dummy")
-    return openai.OpenAI(base_url=base_url, api_key=api_key)
+    sys.path.insert(0, str(ROOT))
+    from scripts.codegen import get_client as shared_client
+
+    return shared_client()
 
 
 def extract_one(client, model, seed_id, html_text, content_kind):

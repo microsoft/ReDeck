@@ -67,7 +67,7 @@ def main(argv=None):
     parser.add_argument("--blueprint", type=Path)
     parser.add_argument("--out", "--output-dir", "-o", dest="out", type=Path, required=True)
     parser.add_argument("--model", default="gpt-5.5")
-    parser.add_argument("--api", choices=("local", "trapi", "anthropic"), default="local")
+    parser.add_argument("--api", choices=codegen.API_CHOICES, default="openai")
     parser.add_argument("--pages", help="Slide count, or inclusive min,max budget, for new planning")
     parser.add_argument("--repair", action="store_true", help="Run the same unified repair controller after generation")
     parser.add_argument("--attempts", type=int, default=6)

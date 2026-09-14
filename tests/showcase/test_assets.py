@@ -14,6 +14,18 @@ DEMO = ROOT / "demo"
 VIDEO = ROOT / "redeck-video"
 
 
+def test_readme_preserves_project_video_and_overview_structure():
+    readme = (ROOT / "README.md").read_text()
+    assert "# ReDeck: Environment-Grounded Slide Generation and Refinement" in readme
+    assert "[![Project Page]" in readme and "](https://aka.ms/ReDeck)" in readme
+    assert "https://github.com/user-attachments/assets/c3f5d87e-d96e-4da0-b5de-f242e23bbc54" in readme
+    assert 'src="assets/redeck_pipeline.png"' in readme
+    headings = ["Overview", "🎬 Demo Video", "Quick Start", "How it works", "Spatial Issue Detection",
+                "Project Structure", "Demo Website", "License"]
+    positions = [readme.index("## " + heading) for heading in headings]
+    assert positions == sorted(positions)
+
+
 def test_readme_and_website_share_the_paper_url():
     paper_url = "https://arxiv.org/abs/2609.00194"
     readme = (ROOT / "README.md").read_text()

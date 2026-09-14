@@ -1,49 +1,65 @@
-# ReDeck: Source-Grounded Slide Generation and Repair
+# ReDeck: Environment-Grounded Slide Generation and Refinement
 
-[![Paper](https://img.shields.io/badge/Paper-arXiv-b31b1b)](https://arxiv.org/abs/2609.00194) [![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](https://www.python.org/) [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
+*Turn slide refinement from “one draft, one verdict” into “one edit, one observation” — so the model can see what it changed before it moves on.*
 
-ReDeck generates static HTML slides from documents, inspects their actual browser rendering,
-and repairs layout and source-grounded content in one bounded controller. This is a research
-preview: machine acceptance is not a substitute for human visual and factual review.
+[![Project Page](<https://img.shields.io/badge/Project%20Page-ReDeck-FF6B35>)](https://aka.ms/ReDeck) [![Paper](https://img.shields.io/badge/Paper-arXiv-b31b1b)](https://arxiv.org/abs/2609.00194) [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-This distribution contains one typed design-library generator and one unified repair runtime.
-Historical engines and experiment harnesses are not included in the runtime. The repository retains
-the [project website](demo/index.html), [demo video](demo/video.html), [video source](redeck-video/README.md)
-and [repair examples with provenance](demo/repair_pairs/README.md) as showcase materials.
-Historical paper scores are not claims for this version. Showcase provenance and manual edits
-are documented alongside the examples and video.
+## Overview
 
-## Install
+Today's slide agents can produce an impressive first draft, but they still revise it almost blind. A model may fix one overlap while creating another, or improve the layout at the cost of content fidelity. Templates avoid some of these failures, but only by limiting what the model can design.
+
+**ReDeck treats the rendered deck as part of the agent's environment.** It renders each candidate, checks layout and source-grounded content, and gives the repair agent feedback before the next edit. Spatial and content probes can run in parallel, while one controller coordinates changes to each slide.
+
+With this repo, you can:
+
+- **Generate** a complete, source-grounded deck from a paper or document.
+- **Repair** existing HTML slides with overflow, overlap, clipping, contrast, and other spatial issues.
+- **Inspect and extend** every stage through saved slide code, renders, issue traces, and candidate-by-candidate artifacts.
+
+ReDeck is designed for researchers, students, educators, designers, and developers who need to turn source documents into presentation decks or systematically improve decks they already have. In the paper experiments, ReDeck improves document-to-slide generation across GPT-5.4, Claude-4.6, and Gemini-3.1; on GPT-5.4, refinement raises spatial clean rate by **27.4 points**, content fidelity by **8.2 points**, and aesthetics by **0.69** over the initial draft. See the [paper](https://arxiv.org/abs/2609.00194) for the full evaluation and the [project page](https://aka.ms/ReDeck) for examples.
+
+## 🎬 Demo Video
+
+https://github.com/user-attachments/assets/c3f5d87e-d96e-4da0-b5de-f242e23bbc54
+
+[Watch on the project website](https://aka.ms/ReDeck) · [Video page](demo/video.html) · [Video source](redeck-video/README.md)
+
+---
+
+## Quick Start
+
+### Setup
 
 Use Python 3.11 or newer, from the repository root:
 
 ```bash
 python -m venv .venv
 . .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e '.[dev]'
+python -m pip install -e .
 python -m playwright install chromium
-export OPENAI_BASE_URL="https://your-openai-compatible-endpoint/v1"
+```
+
+### Environment Variables
+
+```bash
+export OPENAI_BASE_URL="https://api.openai.com/v1"
 export OPENAI_API_KEY="your-api-key"
 ```
 
-All content probes and their prompts are included; no sibling checkout or private Python
-environment is required. `.env.example` is documentation, not an automatically loaded file.
-Use `--model` for planning, generation and repair, and `--judge-model` for content review.
-Both default independently to `gpt-5.5`; set both if your endpoint uses different model names.
-Requests send source material to that provider and may incur charges.
-The default `--api local` means an OpenAI-compatible endpoint, not necessarily an on-device
-model: it uses `OPENAI_BASE_URL` and `OPENAI_API_KEY`. Without a URL it targets
-`http://localhost:8811/v1`; a non-loopback endpoint requires an API key.
-The optional `--api trapi` route requires an explicit `OPENAI_BASE_URL` and Azure CLI or
-managed-identity credentials authorized for TRAPI. It is not a generic Azure OpenAI mode;
-`AZURE_OPENAI_ENDPOINT` and `AZURE_API_KEY` do not configure the current CLI. No private
-deployment endpoint or credentials are bundled, and the default route does not authenticate
-with Azure.
+For another OpenAI-compatible provider or a local server, set `OPENAI_BASE_URL` to its API URL and use its key. A local loopback server without authentication can use `OPENAI_API_KEY=dummy`. `.env.example` is a reference; variables must be exported in your shell.
 
-## Quick Start
+Use `--model` for planning, generation and repair, and `--judge-model` for content review. Both default independently to `gpt-5.5`; set both to names supported by your provider. The endpoint must support text and image inputs. Requests send document text and slide images to the configured provider.
 
-Run the bundled synthetic example without a model call:
+### Generate slides from a document
+
+```bash
+redeck generate --pdf /path/to/document.pdf --case my_document \
+  --pages 8,12 --out runs/my-document --repair
+```
+
+`--pages 8,12` requests 8–12 output slides, not a PDF page range. Use `--pages 8` for an eight-slide budget. Digital PDF text and figures are extracted locally; scanned documents may need OCR or a prepared source pack.
+
+To try the bundled example without making a model call:
 
 ```bash
 redeck generate --case content_repair_smoke --cases-root examples/validation \
@@ -51,57 +67,29 @@ redeck generate --case content_repair_smoke --cases-root examples/validation \
   --out runs/synthetic-dry --dry-run
 ```
 
-For a real generation plus joint repair, use a fresh output directory and replace `--dry-run`
-with `--repair`. The example reports a controlled 48/100 measurement, not a research result.
+For generation and repair of the example, replace `--dry-run` with `--repair` and use a fresh output directory.
 
-Generate from a PDF, including source extraction and blueprint planning:
-
-```bash
-redeck generate --pdf /path/to/document.pdf --case my_document \
-  --pages 8,12 --out runs/my-document --repair
-```
-
-`--pages 8,12` requests 8–12 output slides, not PDF pages 8 and 12. Use `--pages 8` for
-an eight-slide planning budget. A supplied `--blueprint` bypasses new planning.
-
-Digital PDF text and figures are extracted locally. OCR/Marker support is optional; scanned
-PDFs may need a separately prepared source pack. Empty extraction or failed planning is not
-silently accepted as a completed deck.
-
-Already have source materials? Place `paper_full.md`, optional `figures/` and `tables/` with
-JSON sidecars under `cases/<case_id>/source_pack/`, then use `--case <case_id>`. Supply
-`--blueprint plan.json` to reuse an explicit plan. `redeck codegen` is the lower-level
-prepared-plan entry point; `redeck generate` also handles preparation and optional repair.
-
-## Repair and Review
+### Fix layout issues in existing slides
 
 ```bash
-# Existing generated run: spatial and content routes, parallel checks, one writer per slide
-redeck repair --dir runs/my-document/slide_code --source-run runs/my-document \
-  -o runs/my-document-repair --attempts 6
-
-# Imported HTML with no source document: explicitly spatial-only
-redeck repair slide.html -o runs/layout-repair \
+# Single slide, layout-only
+redeck repair my_slide.html -o repaired/ \
   --probe-routes spatial --content-repair off
 
-# Deterministic checks only; this does not establish visual/content acceptance
-redeck spatial slide.html -o runs/spatial-check
+# Batch of slides, layout-only
+redeck repair --dir path/to/slides/ -o repaired-batch/ \
+  --probe-routes spatial --content-repair off --attempts 6
 
-# Source-grounded content review of a generation run
-redeck judge runs/my-document --output runs/content-review
+# Joint layout and content repair with the original source context
+redeck repair --dir runs/my-document/slide_code --source-run runs/my-document \
+  -o runs/my-document-repair --attempts 6
 ```
 
-`--probe-routes spatial content` and `--probe-execution parallel` are defaults. Use `serial`
-for debugging, or select one route explicitly. `--content-repair off` disables content edits,
-not content detection. Six candidates is the default and maximum CLI budget per slide;
-content, layout and final-review reentry share that budget. There is no extra spatial loop.
+By default, spatial and content probes run in parallel. Use `--probe-execution serial` to run them sequentially. `--attempts` controls a shared budget of up to six candidates per slide. Content repair requires source context; layout-only repair preserves the slide's visible information.
 
-`ready_for_human_review` is not an unconditional pass. Spatial-only runs retain
-`needs_evaluation` overall because content was not checked. Counts separate geometry,
-readability, style advisories and repair blockers; an unchanged decorative gradient is not
-an unresolved overlap. See [runtime architecture](docs/ARCHITECTURE.md).
+### Theme selection
 
-## Design Controls
+Choose a palette, luminance and design family:
 
 ```bash
 redeck generate --case my_document --blueprint plan.json --out runs/my-style \
@@ -109,57 +97,105 @@ redeck generate --case my_document --blueprint plan.json --out runs/my-style \
   --information-density evidence-rich --asset-mode preserve --repair
 ```
 
-- Theme owns colors; `--design-family` selects non-color materials (`--dialect` is an alias).
-- One Slide Design Program combines content requirements, typed materials and compatibility checks.
-- `--asset-mode auto|preserve|table|chart` controls assigned source visuals. `preserve` embeds the
-  original image; table/chart reconstruction requires extracted table data. Per-asset overrides
-  use `--asset-policy`. Do not invent chart values when source data is unavailable.
-- Source images are evidence. Full BAMS templates and their screenshots are not generation inputs.
+The default palette is `gray-mono` with light luminance. Available palettes are listed in `pattern_library/metadata/theme_library.json`. `--design-family` selects non-color materials; `--asset-mode auto|preserve|table|chart` controls source-figure presentation. Reconstructed tables and charts require extracted data. See `redeck codegen --help` for all design options.
 
-Use `redeck codegen --help` for the complete options. Library artifacts are packaged with the
-runtime; rebuilding from original seeds is an offline operation requiring separately supplied materials.
+### Input format
 
-## Artifacts and Compatibility
+Place source materials in `cases/<case_id>/source_pack/`:
 
-Generation saves its frozen source context, design programs, prompts, HTML, screenshots and
-review reports in the chosen directory. Repair saves T0, candidates, diagnostics, acceptance
-decisions and formal T1 without overwriting its input. Use fresh directories for new experiments.
-
-`slide-agent` and `python -m app.main` dispatch to the same current CLI. The old script names
-`redeck_repair.py`, `redeck_loop.py`, `redeck_spatial.py`, `redeck_judge.py` and
-`run_pdf_pipeline.py` are thin aliases, not independent engines. Their historical argument
-sets are not universally interchangeable; see [migration and compatibility](docs/MIGRATION.md).
-
-The historical `redeck-legacy` entry point and its implementation are removed. Compatibility
-aliases only call the current runtime; unsupported historical experiment configs fail explicitly.
-
-## Development
-
-```bash
-python -m pytest
-python -m pytest tests/showcase
-python -m build
+```text
+source_pack/
+  paper_full.md          # Source document text in Markdown
+  figures/               # Extracted figures with JSON sidecars
+    fig_p1_fig1.png
+    fig_p1_fig1.json
+  tables/                # Extracted tables with JSON sidecars
+    tbl_p5_tbl1.png
+    tbl_p5_tbl1.json
 ```
 
-`pyproject.toml` is the dependency source of truth; the requirements files are install aliases.
-Wheels include design artifacts, content-probe prompts and synthetic examples. Current tests
-live under `tests/current/`; they cover runtime behavior, content authorization, snapshot integrity
-and packaging boundaries.
-The planner's deterministic regression fixture lives under `tests/fixtures/`, not in runtime inputs.
-Repository-only showcase tests check website links, demo assets, narration and deployment files.
-They are excluded from Python packages with the showcase assets. Run tests locally with the
-commands above; the bundled GitHub Actions workflow deploys the demo website, not the test suite.
-See [release structure and compatibility](docs/MIGRATION.md) for the retained file boundaries.
+Use `redeck generate --case <case_id> --out <output>` to plan and generate from this source pack. Supply `--blueprint plan.json` to reuse an explicit plan, or `--cases-root` to select another source directory.
 
-Offline builders under `scripts/build_*library.py` and `scripts/extract_*.py` remain so the typed
-library can be maintained. Their metadata is intermediate design material, not source-document
-answers or a second online generation engine. Original seeds must be provided separately.
-`python scripts/extract_patterns.py --seeds-dir SEEDS --catalog CATALOG --out OUTPUT` rebuilds seed metadata.
-`python scripts/build_runtime_library.py --seeds-dir SEEDS --out OUTPUT` rebuilds the typed artifacts;
-it requires a seed HTML file for every catalog entry and refuses incomplete inputs.
-`python scripts/build_probe_registry.py --out OUTPUT` compiles atomic checks from the maintained probe
-definitions and rubrics. Use `python -m build` to create Python distributions.
+### Output
 
-Do not treat raw HTML execution as sandboxed, export private source packs, or redistribute
-third-party materials without checking their permissions. See [SECURITY.md](SECURITY.md).
-The existing project [license](LICENSE) is unchanged by this runtime migration.
+Generation writes artifacts under the selected `--out` directory:
+
+- `planning/deck_blueprint.json` — Slide plan, when new planning is requested
+- `slide_programs/`, `deck_plan.json`, `theme.json` — Design decisions
+- `slide_code/`, `slide_png/` — Generated HTML and rendered slide images
+- `prompts/` — Generation prompts
+- `run_manifest.json`, `judge_context.json` — Run metadata and source context
+- `content_review/` — Content findings
+- `repair/` — Original slides, candidates, diagnostics and final slides when `--repair` is used
+
+Use fresh output directories for new runs. Review the generated HTML and images before presenting or sharing them.
+
+---
+
+## How it works
+
+1. **Document Extraction** — Parse source text, figures and tables.
+2. **Deck Planning** — Build a slide blueprint with propositions and evidence links.
+3. **HTML/CSS Generation** — Select typed design materials, generate slides and render them in Playwright.
+4. **Render-Grounded Review** — Check spatial geometry, visual quality and source-grounded content.
+5. **Step-Level Repair** — Propose edits, render candidates, review the changes and accept or roll back them.
+
+The key insight: **the repair agent sees rendered results after every candidate, not just at the end of a run.** This lets it catch and fix spatial issues while their causes are still clear.
+
+<p align="center">
+  <img src="assets/redeck_pipeline.png" alt="ReDeck pipeline" width="780"/>
+</p>
+
+See [runtime architecture](docs/ARCHITECTURE.md) for the implementation details.
+
+## Spatial Issue Detection
+
+The detection engine renders slides in Playwright and combines DOM measurements with visual review:
+
+| Category | What it catches |
+| --- | --- |
+| **Overlap** | Text and element collisions, accounting for intended nesting |
+| **Text overflow** | Text exceeding containers, including table cells and SVG labels |
+| **Clipping** | Content hidden by clipping boundaries |
+| **Out-of-bounds** | Elements extending beyond the slide canvas |
+| **Low contrast** | Text that is difficult to distinguish from its background |
+| **Occlusion** | Opaque elements covering other content |
+| **SVG internals** | Viewport clipping, label collisions and text-to-shape fit |
+
+Run deterministic checks or source-grounded content review separately:
+
+```bash
+redeck spatial my_slide.html -o runs/spatial-check
+redeck judge runs/my-document --output runs/content-review
+```
+
+Spatial reports distinguish repair blockers from style advisories. Visual and content review complement geometry checks; `ready_for_human_review` means the deck is ready for your final inspection.
+
+## Project Structure
+
+```text
+redeck_style/             # Design planning, rendering contracts, evaluation and repair
+app/
+  modules/               # Source preparation, deck planning and probe runner
+  schemas/               # Typed source, slide and issue models
+  prompts/               # Planner and evaluation prompts
+pattern_library/         # Design vocabulary, palettes and compatibility data
+scripts/                 # CLI implementations and offline library builders
+examples/                # Small runnable source-and-slide example
+demo/                    # Project website, video and before/after gallery
+redeck-video/            # Video source, narration and recorded trajectory frames
+assets/                  # Project diagrams
+docs/                    # Architecture and command compatibility
+skills/                  # Agent usage instructions
+tests/                   # Runtime and website regression tests
+```
+
+For development, install `python -m pip install -e '.[dev]'`, then run `python -m pytest tests/current tests/showcase` and `python -m build`. Offline design-library builders require the original seed materials. See [command compatibility and build instructions](docs/MIGRATION.md).
+
+## Demo Website
+
+Visit the [project page](https://aka.ms/ReDeck) for the demo video and examples. The `demo/` directory contains the website, [repair gallery](demo/index.html#repairs) and [video page](demo/video.html); the bundled GitHub Pages workflow publishes it. The [video project](redeck-video/README.md) includes the Remotion source and build instructions.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE). See [SECURITY.md](SECURITY.md) for guidance on handling source documents and untrusted HTML.

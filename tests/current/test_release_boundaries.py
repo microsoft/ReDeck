@@ -54,61 +54,62 @@ def test_snapshot_capture_failure_never_writes_a_pass(tmp_path, monkeypatch, mes
     assert not png.with_suffix(".state.json").exists()
 
 
-def test_local_client_respects_explicit_endpoint_and_key(monkeypatch):
+@pytest.mark.parametrize("api", codegen.API_CHOICES)
+def test_client_respects_explicit_endpoint_and_key(monkeypatch, api):
     monkeypatch.setenv("OPENAI_BASE_URL", "https://example.invalid/v1")
     monkeypatch.setenv("OPENAI_API_KEY", "fixture-key")
     calls = []
     monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=lambda **kwargs: calls.append(kwargs)))
-    codegen.get_client()
+    codegen.get_client(api)
     assert calls == [{"base_url": "https://example.invalid/v1", "api_key": "fixture-key"}]
 
 
-def test_dummy_credentials_cannot_silently_target_remote_service(monkeypatch):
+@pytest.mark.parametrize("key", [None, "", "   ", "dummy"])
+def test_missing_credentials_cannot_silently_target_remote_service(monkeypatch, key):
     monkeypatch.setenv("OPENAI_BASE_URL", "https://example.invalid/v1")
-    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    if key is None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    else:
+        monkeypatch.setenv("OPENAI_API_KEY", key)
     with pytest.raises(ValueError, match="OPENAI_API_KEY"):
         codegen.get_client()
 
 
 @pytest.mark.parametrize("endpoint", [None, "", "   "])
-def test_trapi_requires_explicit_endpoint_before_authentication(monkeypatch, endpoint):
-    import azure.identity
-
+def test_client_defaults_to_public_api(monkeypatch, endpoint):
     if endpoint is None:
         monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     else:
         monkeypatch.setenv("OPENAI_BASE_URL", endpoint)
-    monkeypatch.setattr(azure.identity, "AzureCliCredential", lambda: pytest.fail("Unexpected authentication"))
-    with pytest.raises(ValueError, match="OPENAI_BASE_URL"):
-        codegen.get_client("trapi")
-
-
-def test_trapi_uses_explicit_endpoint_and_refreshes_credentials(monkeypatch):
-    import azure.identity
-
+    monkeypatch.setenv("OPENAI_API_KEY", "fixture-key")
     calls = []
-    scopes = []
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=lambda **kwargs: calls.append(kwargs)))
+    codegen.get_client()
+    assert calls == [{"base_url": "https://api.openai.com/v1", "api_key": "fixture-key"}]
 
-    def token(scope):
-        scopes.append(scope)
-        return SimpleNamespace(token=f"fixture-token-{len(scopes)}")
 
-    credential = SimpleNamespace(get_token=token)
+@pytest.mark.parametrize("endpoint", ["http://localhost:8000/v1", "http://127.0.0.1:8000/v1", "http://[::1]:8000/v1"])
+def test_explicit_loopback_server_can_use_no_key(monkeypatch, endpoint):
+    monkeypatch.setenv("OPENAI_BASE_URL", endpoint)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    calls = []
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=lambda **kwargs: calls.append(kwargs)))
+    codegen.get_client()
+    assert calls == [{"base_url": endpoint, "api_key": "dummy"}]
 
-    def client(**kwargs):
-        calls.append(kwargs)
-        return SimpleNamespace(**kwargs)
 
-    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.invalid/v1")
-    monkeypatch.setattr(azure.identity, "AzureCliCredential", lambda: object())
-    monkeypatch.setattr(azure.identity, "ManagedIdentityCredential", lambda: object())
-    monkeypatch.setattr(azure.identity, "ChainedTokenCredential", lambda *args: credential)
-    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=client))
-    result = codegen.get_client("trapi")
-    assert calls == [{"base_url": "https://example.invalid/v1", "api_key": "fixture-token-1"}]
-    codegen.refresh_trapi_token(result)
-    assert result.api_key == "fixture-token-2"
-    assert scopes == ["api://trapi/.default", "api://trapi/.default"]
+def test_unknown_api_cannot_silently_fall_back(monkeypatch):
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=lambda **kwargs: pytest.fail("Unexpected client")))
+    with pytest.raises(ValueError, match="Unsupported API route"):
+        codegen.get_client("unsupported-route")
+
+
+def test_offline_extractor_uses_the_shared_public_client(monkeypatch):
+    from scripts import extract_components
+
+    client = object()
+    monkeypatch.setattr(codegen, "get_client", lambda: client)
+    assert extract_components.get_client() is client
 
 
 def test_blueprint_can_be_resolved_without_machine_specific_paths(tmp_path, monkeypatch):
@@ -139,7 +140,6 @@ def test_visual_payload_deduplicates_only_identical_images(tmp_path, monkeypatch
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"verdict":"pass","issues":[]}'))])
 
     client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
-    monkeypatch.setattr(codegen, "refresh_trapi_token", lambda client: None)
     repair.call_visual_review(client, "fixture", original, current, {})
     images = [entry for entry in calls[0]["messages"][1]["content"] if entry["type"] == "image_url"]
     assert len(images) == (1 if identical else 2)

@@ -9,13 +9,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from redeck_style.evaluation.coordinator import add_judge_arguments, judge_options, review_run
+from scripts.codegen import API_CHOICES
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run", type=Path)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--api", choices=("local", "trapi", "anthropic"), default="local")
+    parser.add_argument("--api", choices=API_CHOICES, default="openai")
     parser.add_argument("--probes", help="Comma-separated focused checks; partial coverage is never a full pass")
     parser.add_argument("--slides", help="Comma-separated original slide IDs")
     add_judge_arguments(parser)

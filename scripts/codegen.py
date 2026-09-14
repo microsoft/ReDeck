@@ -90,54 +90,20 @@ Return only complete `<!doctype html>.....</html>` documents. For a group, prese
 
 # ── API helpers ──
 
-API_CONFIGS = {
-    "local":     {"base_url": "http://localhost:8811/v1", "key": "dummy"},
-    "anthropic": {"base_url": "http://127.0.0.1:46525/v1", "key_env": "ANTHROPIC_API_KEY"},
-    "trapi":     {},
-}
+API_CHOICES = ("openai", "local")
 
 
-def get_client(api="local"):
+def get_client(api="openai"):
     import openai
-    cfg = API_CONFIGS.get(api, API_CONFIGS["local"])
-    base_url = cfg.get("base_url")
-    api_key = cfg.get("key", "dummy")
-
-    if api == "local":
-        base_url = os.environ.get("OPENAI_BASE_URL", base_url)
-        api_key = os.environ.get("OPENAI_API_KEY", api_key)
-        if api_key == "dummy" and urlparse(base_url).hostname not in {"localhost", "127.0.0.1", "::1"}:
+    if api not in API_CHOICES:
+        raise ValueError(f"Unsupported API route: {api}; use an OpenAI-compatible endpoint")
+    base_url = os.environ.get("OPENAI_BASE_URL", "").strip() or "https://api.openai.com/v1"
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key or api_key == "dummy":
+        if urlparse(base_url).hostname not in {"localhost", "127.0.0.1", "::1"}:
             raise ValueError("Set OPENAI_API_KEY for a non-loopback endpoint")
-
-    if cfg.get("key_env"):
-        api_key = os.environ.get(cfg["key_env"], api_key)
-
-    if api == "trapi":
-        base_url = os.environ.get("OPENAI_BASE_URL", "").strip()
-        if not base_url:
-            raise ValueError("Set OPENAI_BASE_URL to your authorized endpoint for --api trapi")
-        from azure.identity import (
-            AzureCliCredential,
-            ChainedTokenCredential,
-            ManagedIdentityCredential,
-        )
-
-        credential = ChainedTokenCredential(
-            AzureCliCredential(),
-            ManagedIdentityCredential(),
-        )
-        api_key = credential.get_token("api://trapi/.default").token
-
-    client = openai.OpenAI(base_url=base_url, api_key=api_key)
-    if api == "trapi":
-        client._trapi_credential = credential
-    return client
-
-
-def refresh_trapi_token(client):
-    credential = getattr(client, "_trapi_credential", None)
-    if credential is not None:
-        client.api_key = credential.get_token("api://trapi/.default").token
+        api_key = "dummy"
+    return openai.OpenAI(base_url=base_url, api_key=api_key)
 
 
 def _responses_http(client, model, system, user, max_output_tokens=16384, timeout=600):
@@ -219,7 +185,6 @@ def call_llm(client, model, system, user, *, max_output_tokens=16384, timeout=60
             try:
                 with request_slot(timeout) as waited:
                     call["queue_seconds"] = waited
-                    refresh_trapi_token(client)
                     if uses_responses:
                         text, input_tokens, output_tokens = _responses_http(client, model, system, user, max_output_tokens, timeout)
                     else:
@@ -618,7 +583,8 @@ def build_parser():
     parser.add_argument("--cases-root", type=Path, default=None,
                         help="Directory containing case/source_pack folders; defaults to REDECK_CASES_ROOT or ./cases.")
     parser.add_argument("--model", default="gpt-5.5")
-    parser.add_argument("--api", default="local", choices=["local", "anthropic", "trapi"])
+    parser.add_argument("--api", default="openai", choices=API_CHOICES,
+                        help="OpenAI-compatible API; local is a compatibility alias using the same environment variables.")
     parser.add_argument("--parallel", type=int, default=8)
     parser.add_argument(
         "--group-size", type=int, default=1,

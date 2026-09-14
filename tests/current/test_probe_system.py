@@ -314,7 +314,7 @@ def test_spatial_cache_does_not_cross_model_or_api(tmp_path, monkeypatch):
     reviewer = lambda snapshot: calls.append(snapshot) or PASS
     initial = probes.evaluate_pages([page], tmp_path / "initial", {}, reviewer, "first-model")
     probes.evaluate_pages([page], tmp_path / "changed-model", {}, reviewer, "second-model", initial)
-    probes.evaluate_pages([page], tmp_path / "changed-api", {"api": "trapi"}, reviewer, "first-model", initial)
+    probes.evaluate_pages([page], tmp_path / "changed-api", {"api": "local"}, reviewer, "first-model", initial)
     assert len(calls) == 3
 
 

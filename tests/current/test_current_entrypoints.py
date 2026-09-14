@@ -30,7 +30,9 @@ def test_readme_commands_match_current_argument_parsers(command, monkeypatch):
     parse_args = argparse.ArgumentParser.parse_args
 
     def stop_after_parsing(parser, *args, **kwargs):
-        parse_args(parser, *args, **kwargs)
+        parsed = parse_args(parser, *args, **kwargs)
+        if hasattr(parsed, "api"):
+            assert parsed.api == "openai"
         raise ParsedArguments
 
     module = importlib.import_module(cli.COMMANDS[command[0]])

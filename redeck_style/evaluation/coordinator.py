@@ -38,7 +38,7 @@ def add_judge_arguments(parser):
 def judge_options(args):
     options = {"mode": args.judge_mode, "model": args.judge_model,
             "probe_root": args.probe_root, "python": args.judge_python,
-            "source_run": args.source_run, "api": getattr(args, "api", "local"),
+            "source_run": args.source_run, "api": getattr(args, "api", "openai"),
             "content_workers": getattr(args, "content_workers", 3), "request_limit": getattr(args, "request_limit", 4),
             "cache_enabled": getattr(args, "probe_cache", "on") == "on"}
     if hasattr(args, "probe_routes"):
@@ -156,7 +156,7 @@ def review_pages(pages, output_dir, options=None, baseline=None):
             source_run = options.get("source_run") or find_source_run(pages[0]["source"])
             context = source_context(source_run, probe_root)
             request = {**report, **context, "pages": snapshots, "probe_root": str(probe_root),
-                       "api": options.get("api", "local"), "baseline": baseline,
+                       "api": options.get("api", "openai"), "baseline": baseline,
                        "content_workers": options.get("content_workers", 3),
                        "request_limit": options.get("request_limit", 4),
                        "request_limit_dir": str(options.get("request_limit_dir") or output_dir / "request_slots"),
