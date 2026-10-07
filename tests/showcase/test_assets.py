@@ -56,16 +56,22 @@ def test_website_local_resources_and_anchors_exist(name):
                 assert destination.find(id=unquote(parsed.fragment)), (name, reference)
 
 
-def test_repair_examples_preserve_assets_and_manual_edit_disclosures():
-    inventory = (DEMO / "repair_pairs/README.md").read_text()
-    rows = re.findall(r"^\| \d+ \| ([^|]+) \|.*\| ([^|]+) \|$", inventory, re.MULTILINE)
-    expected = {name.strip() for name, _ in rows}
-    manual = {name.strip() for name, note in rows if "✓" in note}
+@pytest.mark.parametrize("name", ["index.html", "video.html"])
+def test_website_omits_manual_post_edit_copy(name):
+    soup = BeautifulSoup((DEMO / name).read_text(), "html.parser")
+    text = soup.get_text(" ", strip=True).lower()
+    assert "manual post-edit" not in text
+    assert "the opening d78 comparison" not in text
+    assert not soup.select('a[href="repair_pairs/README.md"]')
+
+
+def test_repair_examples_preserve_assets_and_labels():
+    expected = {path.stem for path in (DEMO / "repair_pairs/before/html").glob("*.html")}
     soup = BeautifulSoup((DEMO / "index.html").read_text(), "html.parser")
     after = soup.select("a.repair-shot.after")
     assert len(expected) == len(after) == 14
     assert {Path(link["href"]).stem for link in after} == expected
-    assert {Path(link["href"]).stem for link in after if "manual post-edit" in link.get_text()} == manual
+    assert all(link.get_text(strip=True) == "After" for link in after)
     for name in expected:
         for phase in ("before", "after"):
             assert (DEMO / f"repair_pairs/{phase}/html/{name}.html").is_file()
