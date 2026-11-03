@@ -11,8 +11,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@remotion/bundler": "^4.0.490",
-    "@remotion/cli": "^4.0.490",
+    "@remotion/bundler": "^4.0.540",
+    "@remotion/cli": "^4.0.540",
     "@types/react": "^19.2.17",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
